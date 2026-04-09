@@ -16,6 +16,17 @@ type ClientConn struct {
 	writer   *bufio.Writer
 	clientID string
 	subs     map[string]*Subscription
+	subsMu   sync.RWMutex
+}
+
+// writeFrame writes a frame to the client connection. Returns error on write failure.
+func (c *ClientConn) writeFrame(data []byte) error {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if _, err := c.writer.Write(data); err != nil {
+		return err
+	}
+	return c.writer.Flush()
 }
 
 // Subscription tracks a client's subscription state.

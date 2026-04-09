@@ -6,6 +6,7 @@ import (
 	"os"
 	"path/filepath"
 	"sync"
+	"sync/atomic"
 	"syscall"
 	"time"
 
@@ -32,6 +33,7 @@ type Broker struct {
 	cancel    context.CancelFunc
 	wg        sync.WaitGroup
 	lockFile  *os.File
+	stopped   atomic.Bool
 }
 
 // NewBroker creates a new broker instance.
@@ -85,7 +87,7 @@ func (b *Broker) Start() error {
 	)
 
 	// Step 7: Topic Manager
-	b.topics, err = NewTopicManager(b.config.Node.DataDir, b.storage, b.wal)
+	b.topics, err = NewTopicManager(b.config.Node.DataDir, b.storage, b.wal, b.config.Limits)
 	if err != nil {
 		return fmt.Errorf("topic manager: %w", err)
 	}
@@ -108,6 +110,9 @@ func (b *Broker) Start() error {
 
 // Stop performs graceful shutdown in reverse order.
 func (b *Broker) Stop() error {
+	if !b.stopped.CompareAndSwap(false, true) {
+		return nil // already stopped
+	}
 	b.logger.Info("initiating graceful shutdown")
 
 	b.cancel()
@@ -177,13 +182,15 @@ func acquireLockFile(dataDir string) (*os.File, error) {
 				return nil, fmt.Errorf("data directory locked (cannot read lock file)")
 			}
 			var pid int
-			fmt.Sscanf(string(data), "%d", &pid)
-			if pid > 0 && isProcessAlive(pid) {
+			n, sErr := fmt.Sscanf(string(data), "%d", &pid)
+			if sErr != nil || n != 1 {
+				// Corrupt lock file — treat as stale
+			} else if pid > 0 && isProcessAlive(pid) {
 				return nil, fmt.Errorf("data directory locked by process %d", pid)
 			}
-			// Process is dead — remove stale lock and retry
+			// Stale or corrupt lock — remove and reclaim
 			os.Remove(lockPath)
-			f, err = os.OpenFile(lockPath, os.O_CREATE|os.O_WRONLY|os.O_EXCL, 0600)
+			f, err = os.OpenFile(lockPath, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0600)
 			if err != nil {
 				return nil, fmt.Errorf("data directory locked by another process")
 			}
@@ -211,11 +218,14 @@ func parseSyncMode(s string) wal.SyncMode {
 
 // isProcessAlive checks whether a process with the given PID is still running.
 func isProcessAlive(pid int) bool {
+	if pid == os.Getpid() {
+		return true
+	}
 	proc, err := os.FindProcess(pid)
 	if err != nil {
 		return false
 	}
-	// Signal(nil) checks liveness on Unix (returns error if dead).
+	// Signal(0) checks liveness on Unix.
 	// On Windows, FindProcess itself fails for non-existent PIDs.
 	err = proc.Signal(syscall.Signal(0))
 	return err == nil

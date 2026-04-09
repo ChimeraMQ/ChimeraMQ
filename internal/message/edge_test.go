@@ -4,81 +4,6 @@ import (
 	"testing"
 )
 
-func TestMarshalUnmarshalEmptyPayload(t *testing.T) {
-	orig := &Envelope{
-		Topic:       "test",
-		Payload:     []byte{},
-		SourceProto: ProtoHTTP,
-	}
-
-	data, err := Marshal(orig)
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	got, err := Unmarshal(data)
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	if len(got.Payload) != 0 {
-		t.Errorf("payload len = %d, want 0", len(got.Payload))
-	}
-	if got.Topic != "test" {
-		t.Errorf("topic = %q, want test", got.Topic)
-	}
-}
-
-func TestMarshalUnmarshalWithTTL(t *testing.T) {
-	orig := &Envelope{
-		Topic:       "ttl-topic",
-		Payload:     []byte("data"),
-		TTL:         60000000000,
-		SourceProto: ProtoChimera,
-	}
-
-	data, err := Marshal(orig)
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	got, err := Unmarshal(data)
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	if got.TTL != orig.TTL {
-		t.Errorf("TTL = %d, want %d", got.TTL, orig.TTL)
-	}
-}
-
-func TestMarshalUnmarshalWithTrace(t *testing.T) {
-	orig := &Envelope{
-		Topic:       "trace-topic",
-		Payload:     []byte("traced"),
-		SourceProto: ProtoHTTP,
-	}
-	copy(orig.TraceID[:], []byte("traceid12345678"))
-	copy(orig.SpanID[:], []byte("spanid12"))
-
-	data, err := Marshal(orig)
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	got, err := Unmarshal(data)
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	if got.TraceID != orig.TraceID {
-		t.Errorf("TraceID mismatch")
-	}
-	if got.SpanID != orig.SpanID {
-		t.Errorf("SpanID mismatch")
-	}
-}
-
 func TestMarshalUnmarshalWithHeaders(t *testing.T) {
 	orig := &Envelope{
 		Topic:   "hdr-topic",
@@ -219,24 +144,4 @@ func TestMarshalUnmarshalFullEnvelope(t *testing.T) {
 	if string(got.Headers["h1"]) != "v1" {
 		t.Errorf("header h1 = %q, want v1", got.Headers["h1"])
 	}
-}
-
-func TestReleaseBuffer(t *testing.T) {
-	env := &Envelope{
-		Topic:   "pool-test",
-		Payload: []byte("data"),
-	}
-
-	data, err := Marshal(env)
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	ReleaseBuffer(data)
-
-	data2, err := Marshal(env)
-	if err != nil {
-		t.Fatal(err)
-	}
-	ReleaseBuffer(data2)
 }

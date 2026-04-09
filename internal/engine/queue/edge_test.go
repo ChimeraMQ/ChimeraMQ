@@ -386,3 +386,29 @@ func TestEngineHandleAckAlreadyAcked(t *testing.T) {
 		t.Error("second HandleAck should return false")
 	}
 }
+
+func TestEngineNackTriggersDLQ(t *testing.T) {
+	e := NewEngine()
+	defer e.Close()
+
+	// Add consumer
+	c := &QueueConsumer{
+		ID:       "c1",
+		Prefetch: 10,
+		InFlight: make(map[uint64]time.Time),
+	}
+	e.AddConsumer("dlq-engine-topic", c)
+
+	// Track a message with maxRetries=1
+	qs := e.queues["dlq-engine-topic"]
+	qs.ackTracker.Track(100, "c1", 0, 1)
+
+	// Nack — deliverCount goes to 1, >= maxRetries(1) → shouldDLQ=true
+	shouldDLQ, deliverCount := e.HandleNack("dlq-engine-topic", 100)
+	if !shouldDLQ {
+		t.Error("expected shouldDLQ=true when deliverCount >= maxRetries")
+	}
+	if deliverCount != 1 {
+		t.Errorf("deliverCount = %d, want 1", deliverCount)
+	}
+}

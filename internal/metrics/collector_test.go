@@ -173,3 +173,27 @@ func TestLabelsToKeyOrdering(t *testing.T) {
 		t.Errorf("expected ordered labels, got:\n%s", out)
 	}
 }
+
+func TestCollectorGaugeNoLabels(t *testing.T) {
+	c := NewCollector()
+	c.SetGauge("bare_gauge", nil, 99.9)
+
+	out := c.Expose()
+	if !strings.Contains(out, "bare_gauge 99.9\n") {
+		t.Errorf("expected bare_gauge without labels, got:\n%s", out)
+	}
+}
+
+func TestCollectorMixedLabelAndNoLabel(t *testing.T) {
+	c := NewCollector()
+	c.IncrCounter("mixed", nil, 1)
+	c.IncrCounter("mixed", map[string]string{"x": "y"}, 2)
+
+	out := c.Expose()
+	if !strings.Contains(out, "mixed 1\n") {
+		t.Error("expected bare mixed counter")
+	}
+	if !strings.Contains(out, `mixed{x="y"} 2`) {
+		t.Error("expected labeled mixed counter")
+	}
+}

@@ -2,6 +2,7 @@ package hot
 
 import (
 	"encoding/binary"
+	"fmt"
 	"os"
 	"sync"
 	"time"
@@ -73,6 +74,7 @@ func OpenSegment(path string, baseOffset uint64, maxSize int64) (*Segment, error
 }
 
 // Append writes a serialized message to the segment.
+// Caller must hold external synchronization (Partition.mu).
 func (s *Segment) Append(data []byte) (offset uint64, position int64, err error) {
 	if s.frozen {
 		return 0, 0, ErrSegmentReadOnly
@@ -108,11 +110,18 @@ func (s *Segment) Append(data []byte) (offset uint64, position int64, err error)
 
 // ReadAt reads a message at the given byte position.
 func (s *Segment) ReadAt(position int64) ([]byte, error) {
+	if position < SegmentHeaderLen || position >= s.size {
+		return nil, fmt.Errorf("position %d out of range [32, %d)", position, s.size)
+	}
 	var lenBuf [4]byte
 	if _, err := s.file.ReadAt(lenBuf[:], position); err != nil {
 		return nil, err
 	}
 	dataLen := binary.BigEndian.Uint32(lenBuf[:])
+
+	if position+4+int64(dataLen) > s.size {
+		return nil, fmt.Errorf("corrupt record: data length %d extends beyond segment at position %d", dataLen, position)
+	}
 
 	data := make([]byte, dataLen)
 	if _, err := s.file.ReadAt(data, position+4); err != nil {

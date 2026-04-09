@@ -1,7 +1,9 @@
 package stream
 
 import (
+	"fmt"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/chimeramq/chimera/internal/message"
@@ -15,6 +17,7 @@ type Engine struct {
 	storage *hot.Engine
 	offsets *OffsetStore
 	waiters *WaiterRegistry
+	closed  atomic.Bool
 }
 
 // NewEngine creates a new stream engine.
@@ -29,8 +32,11 @@ func NewEngine(storage *hot.Engine, offsets *OffsetStore) *Engine {
 
 // Close stops all consumer group heartbeat goroutines.
 func (se *Engine) Close() {
-	se.mu.RLock()
-	defer se.mu.RUnlock()
+	if !se.closed.CompareAndSwap(false, true) {
+		return
+	}
+	se.mu.Lock()
+	defer se.mu.Unlock()
 	for _, cg := range se.groups {
 		cg.Stop()
 	}
@@ -38,6 +44,9 @@ func (se *Engine) Close() {
 
 // JoinGroup adds a member to a consumer group (creating it if needed).
 func (se *Engine) JoinGroup(groupName, topic string, memberID string, partitionCount uint32, strategy RebalanceStrategy) {
+	if se.closed.Load() {
+		return
+	}
 	se.mu.Lock()
 	defer se.mu.Unlock()
 
@@ -102,6 +111,9 @@ func (se *Engine) ListGroups() []string {
 
 // Fetch reads messages from a partition with optional long-poll.
 func (se *Engine) Fetch(topic string, partitionID uint32, fromOffset uint64, maxMessages int, maxWait time.Duration) ([]*message.Envelope, uint64, error) {
+	if se.closed.Load() {
+		return nil, fromOffset, fmt.Errorf("engine is closed")
+	}
 	part, err := se.storage.GetOrCreatePartition(topic, partitionID)
 	if err != nil {
 		return nil, fromOffset, err

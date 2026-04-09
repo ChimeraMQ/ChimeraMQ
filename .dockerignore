@@ -1,0 +1,17 @@
+.git/
+.github/
+.project/
+security-report/
+*.out
+*_cov.*
+*.test
+*.html
+.env
+.env*
+.idea/
+.vscode/
+bin/
+dist/
+data/
+.DS_Store
+Thumbs.db

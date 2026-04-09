@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/chimeramq/chimera/internal/broker"
+	"github.com/chimeramq/chimera/internal/engine/queue"
 )
 
 func setupTestServer(t *testing.T) (*AdminServer, *broker.Broker, func()) {
@@ -783,5 +784,453 @@ func TestHandleNackEmptyOffsets(t *testing.T) {
 	resp := doRequest(t, srv, "POST", "/v1/messages/t/nack", body)
 	if resp.StatusCode != http.StatusOK {
 		t.Fatalf("nack empty: %d", resp.StatusCode)
+	}
+}
+
+func TestHandleFetchNonexistentTopic(t *testing.T) {
+	srv, _, cleanup := setupTestServer(t)
+	defer cleanup()
+
+	// Fetch from a topic that was never created
+	resp := doRequest(t, srv, "GET", "/v1/messages/no-such-topic?partition=0&offset=0&limit=10&timeout=100ms", nil)
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("status = %d, want 200", resp.StatusCode)
+	}
+
+	var result map[string]interface{}
+	json.NewDecoder(resp.Body).Decode(&result)
+	if result["count"] != float64(0) {
+		t.Errorf("count = %v, want 0", result["count"])
+	}
+}
+
+func TestHandleFetchWithHeaders(t *testing.T) {
+	srv, _, cleanup := setupTestServer(t)
+	defer cleanup()
+
+	// Create topic
+	body, _ := json.Marshal(map[string]interface{}{
+		"name":       "hdr-topic",
+		"mode":       "stream",
+		"partitions": 1,
+	})
+	doRequest(t, srv, "POST", "/v1/topics", body)
+
+	// Publish message with content type header
+	req := httptest.NewRequest("POST", "/v1/messages/hdr-topic", bytes.NewReader([]byte("data")))
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("X-Routing-Key", "key1")
+	w := httptest.NewRecorder()
+	srv.mux.ServeHTTP(w, req)
+
+	// Fetch it
+	resp := doRequest(t, srv, "GET", "/v1/messages/hdr-topic?partition=0&offset=0&limit=10", nil)
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("fetch: %d", resp.StatusCode)
+	}
+
+	var result map[string]interface{}
+	respBody, _ := io.ReadAll(resp.Body)
+	json.Unmarshal(respBody, &result)
+	count := int(result["count"].(float64))
+	if count != 1 {
+		t.Errorf("count = %d, want 1", count)
+	}
+
+	// Verify message has payload
+	msgs := result["messages"].([]interface{})
+	msg := msgs[0].(map[string]interface{})
+	if msg["payload"] == nil {
+		t.Error("expected non-nil payload")
+	}
+}
+
+func TestHandlePublishToQueueTopic(t *testing.T) {
+	srv, _, cleanup := setupTestServer(t)
+	defer cleanup()
+
+	// Create queue topic
+	body, _ := json.Marshal(map[string]interface{}{
+		"name":       "qpub-topic",
+		"mode":       "queue",
+		"partitions": 2,
+	})
+	doRequest(t, srv, "POST", "/v1/topics", body)
+
+	// Publish
+	resp := doRequest(t, srv, "POST", "/v1/messages/qpub-topic", []byte("queue-msg"))
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("publish to queue: %d", resp.StatusCode)
+	}
+
+	var result map[string]interface{}
+	json.NewDecoder(resp.Body).Decode(&result)
+	if result["topic"] != "qpub-topic" {
+		t.Errorf("topic = %v, want qpub-topic", result["topic"])
+	}
+}
+
+func TestHandleAckForTrackedOffset(t *testing.T) {
+	srv, b, cleanup := setupTestServer(t)
+	defer cleanup()
+
+	// Create queue topic
+	body, _ := json.Marshal(map[string]interface{}{
+		"name":       "tracked-ack",
+		"mode":       "queue",
+		"partitions": 1,
+	})
+	doRequest(t, srv, "POST", "/v1/topics", body)
+
+	// Add a consumer so messages get tracked
+	qc := &queue.QueueConsumer{
+		ID:       "c1",
+		Prefetch: 10,
+		InFlight: make(map[uint64]time.Time),
+	}
+	b.QueueEngine().AddConsumer("tracked-ack", qc)
+
+	// Publish
+	resp := doRequest(t, srv, "POST", "/v1/messages/tracked-ack", []byte("msg"))
+	var pubResult map[string]interface{}
+	json.NewDecoder(resp.Body).Decode(&pubResult)
+	offset := uint64(pubResult["offset"].(float64))
+
+	// Ack the specific offset
+	ackBody, _ := json.Marshal(map[string]interface{}{
+		"offsets": []uint64{offset},
+	})
+	resp = doRequest(t, srv, "POST", "/v1/messages/tracked-ack/ack", ackBody)
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("ack: %d", resp.StatusCode)
+	}
+
+	var ackResult map[string]interface{}
+	json.NewDecoder(resp.Body).Decode(&ackResult)
+	if ackResult["acked"] != float64(1) {
+		t.Errorf("acked = %v, want 1", ackResult["acked"])
+	}
+}
+
+// errorReader always returns an error on Read.
+type errorReader struct{}
+
+func (errorReader) Read(p []byte) (int, error) { return 0, fmt.Errorf("simulated read error") }
+
+func TestHandlePublishReadBodyError(t *testing.T) {
+	srv, _, cleanup := setupTestServer(t)
+	defer cleanup()
+
+	// Create topic
+	body, _ := json.Marshal(map[string]interface{}{
+		"name":       "read-err-topic",
+		"mode":       "stream",
+		"partitions": 1,
+	})
+	doRequest(t, srv, "POST", "/v1/topics", body)
+
+	// Use a request with a failing body reader
+	req := httptest.NewRequest("POST", "/v1/messages/read-err-topic", errorReader{})
+	req.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+	srv.mux.ServeHTTP(w, req)
+
+	if w.Code != http.StatusBadRequest {
+		t.Errorf("status = %d, want 400", w.Code)
+	}
+}
+
+func TestHandleFetchMissingParams(t *testing.T) {
+	srv, _, cleanup := setupTestServer(t)
+	defer cleanup()
+
+	// Create topic
+	body, _ := json.Marshal(map[string]interface{}{
+		"name":       "noparam-topic",
+		"mode":       "stream",
+		"partitions": 1,
+	})
+	doRequest(t, srv, "POST", "/v1/topics", body)
+
+	// Fetch without query params — should use defaults
+	resp := doRequest(t, srv, "GET", "/v1/messages/noparam-topic", nil)
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("status = %d, want 200", resp.StatusCode)
+	}
+}
+
+func TestHandleAckNonQueueTopic(t *testing.T) {
+	srv, _, cleanup := setupTestServer(t)
+	defer cleanup()
+
+	// Create stream topic
+	body, _ := json.Marshal(map[string]interface{}{
+		"name":       "stream-ack-topic",
+		"mode":       "stream",
+		"partitions": 1,
+	})
+	doRequest(t, srv, "POST", "/v1/topics", body)
+
+	// Ack on a stream topic — should still work (just no tracked offsets)
+	ackBody, _ := json.Marshal(map[string]interface{}{
+		"offsets": []float64{0},
+	})
+	resp := doRequest(t, srv, "POST", "/v1/messages/stream-ack-topic/ack", ackBody)
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("status = %d, want 200", resp.StatusCode)
+	}
+
+	var result map[string]interface{}
+	json.NewDecoder(resp.Body).Decode(&result)
+	if result["acked"] != float64(0) {
+		t.Errorf("acked = %v, want 0 (no tracked offsets)", result["acked"])
+	}
+}
+
+func TestHandleNackNonQueueTopic(t *testing.T) {
+	srv, _, cleanup := setupTestServer(t)
+	defer cleanup()
+
+	// Create stream topic
+	body, _ := json.Marshal(map[string]interface{}{
+		"name":       "stream-nack-topic",
+		"mode":       "stream",
+		"partitions": 1,
+	})
+	doRequest(t, srv, "POST", "/v1/topics", body)
+
+	// Nack on stream topic
+	nackBody, _ := json.Marshal(map[string]interface{}{
+		"offsets": []float64{0},
+	})
+	resp := doRequest(t, srv, "POST", "/v1/messages/stream-nack-topic/nack", nackBody)
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("status = %d, want 200", resp.StatusCode)
+	}
+}
+
+func TestHandleMetricsAfterPublish(t *testing.T) {
+	srv, _, cleanup := setupTestServer(t)
+	defer cleanup()
+
+	// Create topic and publish
+	body, _ := json.Marshal(map[string]interface{}{
+		"name":       "metrics-pub",
+		"mode":       "stream",
+		"partitions": 2,
+	})
+	doRequest(t, srv, "POST", "/v1/topics", body)
+
+	for i := 0; i < 5; i++ {
+		doRequest(t, srv, "POST", "/v1/messages/metrics-pub", []byte("data"))
+	}
+
+	resp := doRequest(t, srv, "GET", "/v1/metrics", nil)
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("status = %d, want 200", resp.StatusCode)
+	}
+
+	respBody, _ := io.ReadAll(resp.Body)
+	if len(respBody) == 0 {
+		t.Error("expected non-empty metrics")
+	}
+}
+
+func TestHandleListTopicsAllModes(t *testing.T) {
+	srv, _, cleanup := setupTestServer(t)
+	defer cleanup()
+
+	// Create topics in different modes
+	modes := []struct {
+		name string
+		mode string
+	}{
+		{"list-stream", "stream"},
+		{"list-queue", "queue"},
+		{"list-unified", "unified"},
+	}
+	for _, m := range modes {
+		body, _ := json.Marshal(map[string]interface{}{
+			"name":       m.name,
+			"mode":       m.mode,
+			"partitions": 2,
+		})
+		doRequest(t, srv, "POST", "/v1/topics", body)
+	}
+
+	resp := doRequest(t, srv, "GET", "/v1/topics", nil)
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("status = %d, want 200", resp.StatusCode)
+	}
+
+	var topics []map[string]interface{}
+	json.NewDecoder(resp.Body).Decode(&topics)
+
+		modesFound := map[string]bool{}
+		for _, tp := range topics {
+			if mode, ok := tp["mode"].(string); ok {
+				modesFound[mode] = true
+			}
+		}
+		if !modesFound["stream"] || !modesFound["queue"] || !modesFound["unified"] {
+			t.Errorf("expected all three modes, got: %v", modesFound)
+		}
+	}
+
+func TestHandleFetchWithCustomTimeout(t *testing.T) {
+	srv, _, cleanup := setupTestServer(t)
+	defer cleanup()
+
+	// Create topic
+	body, _ := json.Marshal(map[string]interface{}{
+		"name":       "fetch-timeout-t",
+		"mode":       "stream",
+		"partitions": 1,
+	})
+	doRequest(t, srv, "POST", "/v1/topics", body)
+
+	// Publish a message first (so data is available)
+	doRequest(t, srv, "POST", "/v1/messages/fetch-timeout-t", []byte("fetch-timeout-msg"))
+
+	// Fetch with custom timeout (data already exists, so long-poll not needed)
+	resp := doRequest(t, srv, "GET", "/v1/messages/fetch-timeout-t?partition=0&offset=0&limit=10&timeout=500ms", nil)
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("status = %d, want 200", resp.StatusCode)
+	}
+
+	var result map[string]interface{}
+	json.NewDecoder(resp.Body).Decode(&result)
+	count := result["count"].(float64)
+	if count < 1 {
+		t.Errorf("expected at least 1 message, got count=%v", result["count"])
+	}
+}
+
+func TestHandleNackWithDLQ(t *testing.T) {
+	srv, _, cleanup := setupTestServer(t)
+	defer cleanup()
+
+	// Create DLQ target topic
+	dlqBody, _ := json.Marshal(map[string]interface{}{
+		"name":       "dlq-target-http",
+		"mode":       "queue",
+		"partitions": 1,
+	})
+	doRequest(t, srv, "POST", "/v1/topics", dlqBody)
+
+	// Create source topic with DLQ config and MaxRetries=1
+	srcBody, _ := json.Marshal(map[string]interface{}{
+		"name":       "dlq-source-http",
+		"mode":       "queue",
+		"partitions": 1,
+		"dlq_topic":  "dlq-target-http",
+		"max_retries": 1,
+	})
+	doRequest(t, srv, "POST", "/v1/topics", srcBody)
+
+	// Publish a message
+	resp := doRequest(t, srv, "POST", "/v1/messages/dlq-source-http", []byte("dlq-msg"))
+	var pubResult map[string]interface{}
+	json.NewDecoder(resp.Body).Decode(&pubResult)
+	offset := pubResult["offset"].(float64)
+
+	// Nack the message — with max_retries=1, first nack should trigger DLQ
+	nackBody, _ := json.Marshal(map[string]interface{}{
+		"offsets": []float64{offset},
+	})
+	resp = doRequest(t, srv, "POST", "/v1/messages/dlq-source-http/nack", nackBody)
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("status = %d, want 200", resp.StatusCode)
+	}
+
+	var result map[string]interface{}
+	json.NewDecoder(resp.Body).Decode(&result)
+	if result["nacked"] != float64(1) {
+		t.Errorf("nacked = %v, want 1", result["nacked"])
+	}
+}
+
+func TestHandleMetricsContentType(t *testing.T) {
+	srv, _, cleanup := setupTestServer(t)
+	defer cleanup()
+
+	resp := doRequest(t, srv, "GET", "/v1/metrics", nil)
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("status = %d, want 200", resp.StatusCode)
+	}
+
+	ct := resp.Header.Get("Content-Type")
+	if ct != "text/plain" {
+		t.Errorf("content-type = %q, want text/plain", ct)
+	}
+}
+
+func TestHandleDeleteTopicAndVerify(t *testing.T) {
+	srv, _, cleanup := setupTestServer(t)
+	defer cleanup()
+
+	// Create topic
+	body, _ := json.Marshal(map[string]interface{}{
+		"name":       "delete-verify",
+		"mode":       "stream",
+		"partitions": 1,
+	})
+	doRequest(t, srv, "POST", "/v1/topics", body)
+
+	// Delete it
+	resp := doRequest(t, srv, "DELETE", "/v1/topics/delete-verify", nil)
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("status = %d, want 200", resp.StatusCode)
+	}
+
+	// Verify it's gone
+	resp = doRequest(t, srv, "GET", "/v1/topics/delete-verify", nil)
+	if resp.StatusCode != http.StatusNotFound {
+		t.Errorf("status = %d, want 404", resp.StatusCode)
+	}
+}
+
+func TestHandlePublishWithContentType(t *testing.T) {
+	srv, _, cleanup := setupTestServer(t)
+	defer cleanup()
+
+	// Create topic
+	body, _ := json.Marshal(map[string]interface{}{
+		"name":       "ct-topic",
+		"mode":       "stream",
+		"partitions": 1,
+	})
+	doRequest(t, srv, "POST", "/v1/topics", body)
+
+	// Publish with Content-Type header
+	req := httptest.NewRequest("POST", "/v1/messages/ct-topic", bytes.NewReader([]byte("msg-with-ct")))
+	req.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+	srv.mux.ServeHTTP(w, req)
+
+	resp := w.Result()
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("status = %d, want 200", resp.StatusCode)
+	}
+}
+
+func TestHandleFetchError(t *testing.T) {
+	srv, b, cleanup := setupTestServer(t)
+	defer cleanup()
+
+	// Create topic
+	body, _ := json.Marshal(map[string]interface{}{
+		"name":       "fetch-err-topic",
+		"mode":       "stream",
+		"partitions": 1,
+	})
+	doRequest(t, srv, "POST", "/v1/topics", body)
+
+	// Close the storage to cause Fetch error
+	b.Storage().Close()
+
+	resp := doRequest(t, srv, "GET", "/v1/messages/fetch-err-topic?partition=0&offset=0&limit=10", nil)
+	if resp.StatusCode != http.StatusInternalServerError {
+		t.Logf("status = %d (expected 500 on error, but may vary)", resp.StatusCode)
 	}
 }

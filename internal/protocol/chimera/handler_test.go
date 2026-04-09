@@ -323,3 +323,155 @@ func TestCreateTopicDefaultMode(t *testing.T) {
 		t.Errorf("mode = %v, want ModeUnified (default)", topic.Mode)
 	}
 }
+
+// TestHandleSubscribeToStreamTopic verifies subscription on stream topic with group.
+func TestHandleSubscribeToStreamTopic(t *testing.T) {
+	h := newTestHarness(t)
+	defer h.cleanup()
+
+	sendConnect(h, "sub-test")
+	readFrame(h.clientR) // connack
+
+	// Create stream topic
+	ctPayload := encodeCreateTopicPayload("sub-topic", "stream", 2)
+	ctFrame, _ := EncodeFrame(&Frame{Version: FrameVersion, OpCode: OpCreateTopic, Payload: ctPayload})
+	h.clientW.Write(ctFrame)
+	h.clientW.Flush()
+	readFrame(h.clientR) // ack
+
+	// Subscribe
+	var subPayload []byte
+	subPayload = appendUint16(subPayload, uint16(len("sub-topic")))
+	subPayload = append(subPayload, "sub-topic"...)
+	subPayload = appendUint32(subPayload, 0) // partition
+	subPayload = appendUint16(subPayload, uint16(len("my-group")))
+	subPayload = append(subPayload, "my-group"...)
+	subPayload = appendUint32(subPayload, 1) // strategy
+
+	subFrame, _ := EncodeFrame(&Frame{Version: FrameVersion, OpCode: OpSubscribe, Payload: subPayload})
+	h.clientW.Write(subFrame)
+	h.clientW.Flush()
+
+	resp, err := readFrame(h.clientR)
+	if err != nil {
+		t.Fatalf("sub ack: %v", err)
+	}
+	if resp.OpCode != OpSubAck {
+		t.Errorf("opcode = %v, want OpSubAck", resp.OpCode)
+	}
+}
+
+// TestHandleCommitOffset verifies offset commit through the protocol.
+func TestHandleCommitOffset(t *testing.T) {
+	h := newTestHarness(t)
+	defer h.cleanup()
+
+	sendConnect(h, "commit-test")
+	readFrame(h.clientR) // connack
+
+	// Create topic and join group
+	ctPayload := encodeCreateTopicPayload("commit-topic", "stream", 1)
+	ctFrame, _ := EncodeFrame(&Frame{Version: FrameVersion, OpCode: OpCreateTopic, Payload: ctPayload})
+	h.clientW.Write(ctFrame)
+	h.clientW.Flush()
+	readFrame(h.clientR)
+
+	// Subscribe to create group
+	var subPayload []byte
+	subPayload = appendUint16(subPayload, uint16(len("commit-topic")))
+	subPayload = append(subPayload, "commit-topic"...)
+	subPayload = appendUint32(subPayload, 0)
+	subPayload = appendUint16(subPayload, uint16(len("cg1")))
+	subPayload = append(subPayload, "cg1"...)
+	subPayload = appendUint32(subPayload, 0)
+	subFrame, _ := EncodeFrame(&Frame{Version: FrameVersion, OpCode: OpSubscribe, Payload: subPayload})
+	h.clientW.Write(subFrame)
+	h.clientW.Flush()
+	readFrame(h.clientR)
+
+	// Commit offset: group, topic, partition, offset
+	var commitPayload []byte
+	commitPayload = appendUint16(commitPayload, uint16(len("cg1")))
+	commitPayload = append(commitPayload, "cg1"...)
+	commitPayload = appendUint16(commitPayload, uint16(len("commit-topic")))
+	commitPayload = append(commitPayload, "commit-topic"...)
+	commitPayload = appendUint32(commitPayload, 0) // partition
+	commitPayload = appendUint64(commitPayload, 42) // offset
+
+	commitFrame, _ := EncodeFrame(&Frame{Version: FrameVersion, OpCode: OpCommitOffset, Payload: commitPayload})
+	h.clientW.Write(commitFrame)
+	h.clientW.Flush()
+
+	// Read CommitAck
+	resp2, err := readFrame(h.clientR)
+	if err != nil {
+		t.Fatalf("commit ack: %v", err)
+	}
+	if resp2.OpCode != OpCommitAck {
+		t.Errorf("opcode = %v, want OpCommitAck", resp2.OpCode)
+	}
+
+	// Verify offset persisted
+	group := h.broker.StreamEngine().GetGroup("cg1")
+	if group != nil {
+		if group.GetCommittedOffset(0) != 42 {
+			t.Errorf("committed offset = %d, want 42", group.GetCommittedOffset(0))
+		}
+	}
+}
+
+// TestHandleDeleteTopicProtocol verifies topic deletion through the protocol.
+func TestHandleDeleteTopicProtocol(t *testing.T) {
+	h := newTestHarness(t)
+	defer h.cleanup()
+
+	sendConnect(h, "del-test")
+	readFrame(h.clientR) // connack
+
+	// Create topic
+	ctPayload := encodeCreateTopicPayload("del-me", "stream", 1)
+	ctFrame, _ := EncodeFrame(&Frame{Version: FrameVersion, OpCode: OpCreateTopic, Payload: ctPayload})
+	h.clientW.Write(ctFrame)
+	h.clientW.Flush()
+	readFrame(h.clientR)
+
+	// Delete it
+	var delPayload []byte
+	delPayload = appendUint16(delPayload, uint16(len("del-me")))
+	delPayload = append(delPayload, "del-me"...)
+
+	delFrame, _ := EncodeFrame(&Frame{Version: FrameVersion, OpCode: OpDeleteTopic, Payload: delPayload})
+	h.clientW.Write(delFrame)
+	h.clientW.Flush()
+
+	resp, err := readFrame(h.clientR)
+	if err != nil {
+		t.Fatalf("delete response: %v", err)
+	}
+	// handleDeleteTopic sends OpSubAck on success
+	if resp.OpCode != OpSubAck {
+		t.Errorf("opcode = %v, want OpSubAck", resp.OpCode)
+	}
+
+	// Verify topic is gone
+	if _, ok := h.broker.Topics().GetTopic("del-me"); ok {
+		t.Error("topic should be deleted")
+	}
+}
+
+// TestHandleDisconnect verifies DISCONNECT frame handling.
+func TestHandleDisconnect(t *testing.T) {
+	h := newTestHarness(t)
+	defer h.cleanup()
+
+	sendConnect(h, "disc-test")
+	readFrame(h.clientR) // connack
+
+	// Send disconnect
+	disconnectFrame, _ := EncodeFrame(&Frame{Version: FrameVersion, OpCode: OpDisconnect})
+	h.clientW.Write(disconnectFrame)
+	h.clientW.Flush()
+
+	// Connection should be closed — give it a moment
+	time.Sleep(50 * time.Millisecond)
+}

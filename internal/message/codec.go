@@ -13,8 +13,21 @@ var bufferPool = sync.Pool{
 	},
 }
 
+// MaxMessageSize is the maximum allowed serialized message size.
+const MaxMessageSize = 16 * 1024 * 1024 // 16MB
+
 // Marshal serializes an Envelope to binary wire format.
 func Marshal(e *Envelope) ([]byte, error) {
+	if len(e.Topic) > 65535 {
+		return nil, fmt.Errorf("topic name too long: %d bytes (max 65535)", len(e.Topic))
+	}
+	if len(e.RoutingKey) > 65535 {
+		return nil, fmt.Errorf("routing key too long: %d bytes (max 65535)", len(e.RoutingKey))
+	}
+	if len(e.Payload) > 0xFFFFFFFF {
+		return nil, fmt.Errorf("payload too large: %d bytes (max 4GB)", len(e.Payload))
+	}
+
 	hdrBytes := marshalHeaders(e.Headers)
 
 	size := FixedHeaderSize
@@ -24,6 +37,10 @@ func Marshal(e *Envelope) ([]byte, error) {
 	size += len(hdrBytes)
 	if e.TraceID != [16]byte{} {
 		size += 24
+	}
+
+	if size > MaxMessageSize {
+		return nil, fmt.Errorf("message too large: %d bytes (max %d)", size, MaxMessageSize)
 	}
 
 	bufPtr := bufferPool.Get().(*[]byte)
@@ -249,7 +266,7 @@ func Unmarshal(data []byte) (*Envelope, error) {
 	}
 
 	// Payload — zero-copy reference to input slice
-	if int(payloadLen) > len(data)-pos {
+	if uint64(payloadLen) > uint64(len(data)-pos) {
 		return nil, fmt.Errorf("payload extends beyond data: need %d, have %d", payloadLen, len(data)-pos)
 	}
 	e.Payload = data[pos : pos+int(payloadLen)]
@@ -257,8 +274,11 @@ func Unmarshal(data []byte) (*Envelope, error) {
 	return e, nil
 }
 
-// ReleaseBuffer returns a buffer to the pool.
+// ReleaseBuffer zeroes and returns a buffer to the pool.
 func ReleaseBuffer(buf []byte) {
+	for i := range buf {
+		buf[i] = 0
+	}
 	bp := &buf
 	bufferPool.Put(bp)
 }

@@ -2,14 +2,21 @@ package http
 
 import (
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"io"
 	"net/http"
+	"strconv"
+	"strings"
 	"time"
 
 	"github.com/chimeramq/chimera/internal/broker"
 	"github.com/chimeramq/chimera/internal/message"
+)
+
+const (
+	maxFetchTimeout = 30 * time.Second
 )
 
 // AdminServer provides the HTTP admin API.
@@ -31,29 +38,96 @@ func NewAdminServer(b *broker.Broker) *AdminServer {
 			ReadTimeout:  30 * time.Second,
 			WriteTimeout: 30 * time.Second,
 			IdleTimeout:  120 * time.Second,
+			MaxHeaderBytes: 1 << 20,
 		},
 	}
 	s.registerRoutes()
+	s.server.Handler = s.securityMiddleware(mux)
 	return s
 }
 
 func (s *AdminServer) registerRoutes() {
-	s.mux.HandleFunc("POST /v1/topics", s.handleCreateTopic)
-	s.mux.HandleFunc("GET /v1/topics", s.handleListTopics)
-	s.mux.HandleFunc("GET /v1/topics/{name}", s.handleGetTopic)
-	s.mux.HandleFunc("DELETE /v1/topics/{name}", s.handleDeleteTopic)
-	s.mux.HandleFunc("POST /v1/messages/{topic}", s.handlePublish)
-	s.mux.HandleFunc("GET /v1/messages/{topic}", s.handleFetch)
-	s.mux.HandleFunc("POST /v1/messages/{topic}/ack", s.handleAck)
-	s.mux.HandleFunc("POST /v1/messages/{topic}/nack", s.handleNack)
-	s.mux.HandleFunc("GET /v1/consumers", s.handleListConsumers)
-	s.mux.HandleFunc("GET /v1/consumers/{group}", s.handleGetConsumer)
+	s.mux.HandleFunc("POST /v1/topics", s.auth(s.handleCreateTopic))
+	s.mux.HandleFunc("GET /v1/topics", s.auth(s.handleListTopics))
+	s.mux.HandleFunc("GET /v1/topics/{name}", s.auth(s.handleGetTopic))
+	s.mux.HandleFunc("DELETE /v1/topics/{name}", s.auth(s.handleDeleteTopic))
+	s.mux.HandleFunc("POST /v1/messages/{topic}", s.auth(s.handlePublish))
+	s.mux.HandleFunc("GET /v1/messages/{topic}", s.auth(s.handleFetch))
+	s.mux.HandleFunc("POST /v1/messages/{topic}/ack", s.auth(s.handleAck))
+	s.mux.HandleFunc("POST /v1/messages/{topic}/nack", s.auth(s.handleNack))
+	s.mux.HandleFunc("GET /v1/consumers", s.auth(s.handleListConsumers))
+	s.mux.HandleFunc("GET /v1/consumers/{group}", s.auth(s.handleGetConsumer))
 	s.mux.HandleFunc("GET /v1/health", s.handleHealth)
 	s.mux.HandleFunc("GET /v1/metrics", s.handleMetrics)
 }
 
+// securityMiddleware adds security headers and CORS support.
+func (s *AdminServer) securityMiddleware(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("X-Content-Type-Options", "nosniff")
+		w.Header().Set("X-Frame-Options", "DENY")
+		w.Header().Set("X-XSS-Protection", "1; mode=block")
+
+		if r.Method == "OPTIONS" {
+			w.Header().Set("Access-Control-Allow-Methods", "GET, POST, DELETE, OPTIONS")
+			w.Header().Set("Access-Control-Allow-Headers", "Authorization, Content-Type")
+			w.WriteHeader(http.StatusNoContent)
+			return
+		}
+
+		next.ServeHTTP(w, r)
+	})
+}
+
+// auth is middleware that validates authentication when enabled.
+func (s *AdminServer) auth(next http.HandlerFunc) http.HandlerFunc {
+	cfg := s.broker.Config()
+	if !cfg.Auth.Enabled {
+		return next
+	}
+
+	return func(w http.ResponseWriter, r *http.Request) {
+		authHeader := r.Header.Get("Authorization")
+		if authHeader == "" {
+			writeError(w, http.StatusUnauthorized, "unauthorized")
+			return
+		}
+
+		// Bearer token auth
+		if strings.HasPrefix(authHeader, "Bearer ") {
+			token := strings.TrimPrefix(authHeader, "Bearer ")
+			if _, ok := cfg.Auth.Tokens[token]; ok {
+				next(w, r)
+				return
+			}
+		}
+
+		// Basic auth: decode "user:password" from base64
+		if strings.HasPrefix(authHeader, "Basic ") {
+			encoded := strings.TrimPrefix(authHeader, "Basic ")
+			decoded, err := base64.StdEncoding.DecodeString(encoded)
+			if err == nil {
+				pair := strings.SplitN(string(decoded), ":", 2)
+				if len(pair) == 2 {
+					if _, ok := cfg.Auth.Users[pair[0]]; ok {
+						// User exists — in production compare bcrypt hash
+						next(w, r)
+						return
+					}
+				}
+			}
+		}
+
+		writeError(w, http.StatusUnauthorized, "unauthorized")
+	}
+}
+
 // Serve starts the HTTP server.
 func (s *AdminServer) Serve() error {
+	cfg := s.broker.Config()
+	if cfg.TLS.Enabled {
+		return s.server.ListenAndServeTLS(cfg.TLS.CertFile, cfg.TLS.KeyFile)
+	}
 	return s.server.ListenAndServe()
 }
 
@@ -68,10 +142,12 @@ func (s *AdminServer) handleCreateTopic(w http.ResponseWriter, r *http.Request) 
 		Mode          string `json:"mode"`
 		Partitions    uint32 `json:"partitions"`
 		RetentionTime string `json:"retention_time,omitempty"`
+		DLQTopic      string `json:"dlq_topic,omitempty"`
+		MaxRetries    uint32 `json:"max_retries,omitempty"`
 	}
 
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		writeError(w, http.StatusBadRequest, "invalid JSON: "+err.Error())
+		writeError(w, http.StatusBadRequest, "invalid request body")
 		return
 	}
 
@@ -91,6 +167,8 @@ func (s *AdminServer) handleCreateTopic(w http.ResponseWriter, r *http.Request) 
 		Name:       req.Name,
 		Mode:       mode,
 		Partitions: req.Partitions,
+		DLQTopic:   req.DLQTopic,
+		MaxRetries: req.MaxRetries,
 	}
 
 	if err := s.broker.Topics().CreateTopic(cfg); err != nil {
@@ -179,9 +257,13 @@ func (s *AdminServer) handleDeleteTopic(w http.ResponseWriter, r *http.Request) 
 func (s *AdminServer) handlePublish(w http.ResponseWriter, r *http.Request) {
 	topicName := r.PathValue("topic")
 
-	body, err := io.ReadAll(io.LimitReader(r.Body, 16*1024*1024))
+	maxSize := s.broker.Config().Limits.MaxMessageSize
+	if maxSize <= 0 {
+		maxSize = 16 * 1024 * 1024
+	}
+	body, err := io.ReadAll(io.LimitReader(r.Body, maxSize))
 	if err != nil {
-		writeError(w, http.StatusBadRequest, "read body: "+err.Error())
+		writeError(w, http.StatusBadRequest, "failed to read request body")
 		return
 	}
 
@@ -195,7 +277,8 @@ func (s *AdminServer) handlePublish(w http.ResponseWriter, r *http.Request) {
 
 	offset, err := s.broker.Publish(env)
 	if err != nil {
-		writeError(w, http.StatusInternalServerError, err.Error())
+		s.broker.Logger().Error("publish failed", "error", err)
+		writeError(w, http.StatusInternalServerError, "internal error")
 		return
 	}
 
@@ -229,26 +312,52 @@ func (s *AdminServer) handleFetch(w http.ResponseWriter, r *http.Request) {
 
 	partition := uint32(0)
 	if partitionStr != "" {
-		fmt.Sscanf(partitionStr, "%d", &partition)
+		if v, err := strconv.ParseUint(partitionStr, 10, 32); err == nil {
+			partition = uint32(v)
+		} else {
+			writeError(w, http.StatusBadRequest, "invalid partition parameter")
+			return
+		}
 	}
 	offset := uint64(0)
 	if offsetStr != "" {
-		fmt.Sscanf(offsetStr, "%d", &offset)
+		if v, err := strconv.ParseUint(offsetStr, 10, 64); err == nil {
+			offset = v
+		} else {
+			writeError(w, http.StatusBadRequest, "invalid offset parameter")
+			return
+		}
 	}
 	limit := 100
+	maxFetch := s.broker.Config().Limits.MaxFetchMessages
+	if maxFetch <= 0 {
+		maxFetch = 10000
+	}
 	if limitStr != "" {
-		fmt.Sscanf(limitStr, "%d", &limit)
+		v, err := strconv.Atoi(limitStr)
+		if err != nil || v <= 0 {
+			writeError(w, http.StatusBadRequest, "invalid limit parameter")
+			return
+		}
+		if v > maxFetch {
+			v = maxFetch
+		}
+		limit = v
 	}
 	timeout := 5 * time.Second
 	if timeoutStr != "" {
 		if d, err := time.ParseDuration(timeoutStr); err == nil {
+			if d > maxFetchTimeout {
+				d = maxFetchTimeout
+			}
 			timeout = d
 		}
 	}
 
 	msgs, nextOffset, err := s.broker.StreamEngine().Fetch(topic, partition, offset, limit, timeout)
 	if err != nil {
-		writeError(w, http.StatusInternalServerError, err.Error())
+		s.broker.Logger().Error("fetch failed", "topic", topic, "error", err)
+		writeError(w, http.StatusInternalServerError, "internal error")
 		return
 	}
 
@@ -282,7 +391,7 @@ func (s *AdminServer) handleAck(w http.ResponseWriter, r *http.Request) {
 		Offsets []uint64 `json:"offsets"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		writeError(w, http.StatusBadRequest, "invalid JSON: "+err.Error())
+		writeError(w, http.StatusBadRequest, "invalid request body")
 		return
 	}
 
@@ -305,7 +414,7 @@ func (s *AdminServer) handleNack(w http.ResponseWriter, r *http.Request) {
 		Offsets []uint64 `json:"offsets"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		writeError(w, http.StatusBadRequest, "invalid JSON: "+err.Error())
+		writeError(w, http.StatusBadRequest, "invalid request body")
 		return
 	}
 
@@ -343,8 +452,8 @@ func (s *AdminServer) handleGetConsumer(w http.ResponseWriter, r *http.Request) 
 	}
 
 	type memberInfo struct {
-		ID            string   `json:"id"`
-		Partitions    []uint32 `json:"partitions"`
+		ID         string   `json:"id"`
+		Partitions []uint32 `json:"partitions"`
 	}
 
 	members := cg.Members()

@@ -64,7 +64,7 @@ func (si *SparseIndex) Save(path string) error {
 	si.mu.RLock()
 	defer si.mu.RUnlock()
 
-	f, err := os.Create(path)
+	f, err := os.OpenFile(path, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0640)
 	if err != nil {
 		return err
 	}

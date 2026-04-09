@@ -108,3 +108,11 @@ func TestPrintResponse(t *testing.T) {
 	// Should not panic
 	printResponse(resp)
 }
+
+func TestHTTPDeleteInvalidURL(t *testing.T) {
+	// http.NewRequest with invalid URL should return error
+	_, err := httpDelete("http://\x00invalid")
+	if err == nil {
+		t.Error("expected error for invalid URL in httpDelete")
+	}
+}

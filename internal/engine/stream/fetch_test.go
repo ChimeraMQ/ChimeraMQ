@@ -78,6 +78,82 @@ func TestEngineFetchLongPoll(t *testing.T) {
 	}
 }
 
+func TestEngineFetchLongPollTimeoutExpires(t *testing.T) {
+	dir, err := os.MkdirTemp("", "fetch-timeout-*")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer os.RemoveAll(dir)
+
+	storage := hot.NewEngine(dir, hot.HotConfig{SegmentSize: 1024 * 1024})
+	defer storage.Close()
+	offsets := NewOffsetStore(dir)
+	se := NewEngine(storage, offsets)
+	defer se.Close()
+
+	// Write one message so hw=0
+	part, _ := storage.GetOrCreatePartition("timeout-topic", 0)
+	env := &message.Envelope{Topic: "timeout-topic", Payload: []byte("first")}
+	data, _ := message.Marshal(env)
+	part.Append(data)
+	storage.FlushAll()
+
+	// Fetch from offset 10 (> hw=0), long-poll should timeout
+	msgs, nextOff, err := se.Fetch("timeout-topic", 0, 10, 10, 100*time.Millisecond)
+	if err != nil {
+		t.Fatalf("fetch: %v", err)
+	}
+	if len(msgs) != 0 {
+		t.Errorf("expected 0 messages after timeout, got %d", len(msgs))
+	}
+	if nextOff != 10 {
+		t.Errorf("nextOffset = %d, want 10", nextOff)
+	}
+}
+
+func TestEngineFetchNotifyWaiterChannel(t *testing.T) {
+	dir, err := os.MkdirTemp("", "fetch-notify-*")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer os.RemoveAll(dir)
+
+	storage := hot.NewEngine(dir, hot.HotConfig{SegmentSize: 1024 * 1024})
+	defer storage.Close()
+	offsets := NewOffsetStore(dir)
+	se := NewEngine(storage, offsets)
+	defer se.Close()
+
+	// No data yet. Fetch with long-poll, then notify.
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		msgs, _, err := se.Fetch("notify-topic", 0, 0, 10, 2*time.Second)
+		if err != nil {
+			t.Errorf("fetch notify: %v", err)
+			return
+		}
+		// Since no data was written, should timeout and return empty
+		// But if notified with no new data, it re-reads and returns 0
+		if len(msgs) != 0 {
+			t.Errorf("expected 0, got %d", len(msgs))
+		}
+	}()
+
+	// Give goroutine time to register
+	time.Sleep(50 * time.Millisecond)
+
+	// Notify without writing — should wake up the waiter
+	se.NotifyWaiters("notify-topic", 0)
+
+	select {
+	case <-done:
+		// good
+	case <-time.After(3 * time.Second):
+		t.Error("fetch didn't return after notify")
+	}
+}
+
 func TestHeartbeatExpiresMember(t *testing.T) {
 	dir, err := os.MkdirTemp("", "heartbeat-test-*")
 	if err != nil {

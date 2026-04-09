@@ -324,3 +324,148 @@ func TestEngineFetchWithMaxLessThanAvailable(t *testing.T) {
 		t.Errorf("nextOffset = %d, want 5", nextOffset)
 	}
 }
+
+func TestEngineFetchLongPollTimeout(t *testing.T) {
+	engine, cleanup := setupEngine(t)
+	defer cleanup()
+
+	// Fetch from nonexistent partition — should timeout and return empty
+	msgs, nextOff, err := engine.Fetch("no-messages-here", 0, 0, 10, 50*time.Millisecond)
+	if err != nil {
+		t.Fatalf("Fetch: %v", err)
+	}
+	if len(msgs) != 0 {
+		t.Errorf("expected 0 messages, got %d", len(msgs))
+	}
+	if nextOff != 0 {
+		t.Errorf("nextOffset = %d, want 0", nextOff)
+	}
+}
+
+func TestEngineFetchPartitionError(t *testing.T) {
+	engine, cleanup := setupEngine(t)
+	defer cleanup()
+
+	// Close storage to cause GetOrCreatePartition error
+	engine.storage.Close()
+
+	_, _, err := engine.Fetch("error-topic", 0, 0, 10, 50*time.Millisecond)
+	// Closed storage may or may not return error depending on implementation
+	// The key thing is no panic
+	_ = err
+}
+
+func TestEngineCloseIdempotent(t *testing.T) {
+	engine, cleanup := setupEngine(t)
+	defer cleanup()
+
+	// Double close should not panic
+	engine.Close()
+	engine.Close()
+}
+
+func TestEngineListGroupsNames(t *testing.T) {
+	engine, cleanup := setupEngine(t)
+	defer cleanup()
+
+	engine.JoinGroup("list-g1", "topic-a", "m1", 2, StrategyRange)
+	engine.JoinGroup("list-g2", "topic-b", "m1", 2, StrategyRoundRobin)
+
+	names := engine.ListGroups()
+	if len(names) != 2 {
+		t.Fatalf("expected 2 groups, got %d", len(names))
+	}
+	found := map[string]bool{}
+	for _, n := range names {
+		found[n] = true
+	}
+	if !found["list-g1"] || !found["list-g2"] {
+		t.Errorf("expected list-g1 and list-g2, got %v", names)
+	}
+}
+
+func TestEngineFetchAfterMultiplePublishes(t *testing.T) {
+	engine, cleanup := setupEngine(t)
+	defer cleanup()
+
+	// Publish 5 messages
+	for i := 0; i < 5; i++ {
+		env := &message.Envelope{
+			Topic:   "multi-pub",
+			Payload: []byte{byte(i)},
+		}
+		data, _ := message.Marshal(env)
+		part, _ := engine.storage.GetOrCreatePartition("multi-pub", 0)
+		part.Append(data)
+		engine.NotifyWaiters("multi-pub", 0)
+	}
+
+	// Fetch first 3
+	msgs, nextOff, err := engine.Fetch("multi-pub", 0, 0, 3, 100*time.Millisecond)
+	if err != nil {
+		t.Fatalf("Fetch: %v", err)
+	}
+	if len(msgs) != 3 {
+		t.Errorf("expected 3 messages, got %d", len(msgs))
+	}
+	// Fetch remaining from next offset
+	msgs2, _, err := engine.Fetch("multi-pub", 0, nextOff, 10, 100*time.Millisecond)
+	if err != nil {
+		t.Fatalf("Fetch2: %v", err)
+	}
+	if len(msgs2) < 2 {
+		t.Errorf("expected at least 2 remaining messages, got %d", len(msgs2))
+	}
+}
+
+func TestEngineFetchStorageClosedError(t *testing.T) {
+	eng, cleanup := setupEngine(t)
+	defer cleanup()
+
+	// Close storage to cause GetOrCreatePartition error
+	eng.storage.Close()
+
+	_, _, err := eng.Fetch("closed-topic", 0, 0, 10, 100*time.Millisecond)
+	// Storage may return cached partition or error depending on state
+	_ = err
+}
+
+func TestEngineNotifyAndWaitFetch(t *testing.T) {
+	eng, cleanup := setupEngine(t)
+	defer cleanup()
+
+	// Notify without any waiters should not panic
+	eng.NotifyWaiters("no-waiters-topic", 0)
+	eng.NotifyWaiters("no-waiters-topic", 1)
+}
+
+func TestEngineFetchSingleMessage(t *testing.T) {
+	eng, cleanup := setupEngine(t)
+	defer cleanup()
+
+	p, _ := eng.storage.GetOrCreatePartition("single-msg", 0)
+
+	env := &message.Envelope{
+		Topic:       "single-msg",
+		Payload:     []byte("hello"),
+		ContentType: "text/plain",
+	}
+	data, _ := message.Marshal(env)
+	p.Append(data)
+
+	eng.NotifyWaiters("single-msg", 0)
+
+	msgs, nextOff, err := eng.Fetch("single-msg", 0, 0, 10, 100*time.Millisecond)
+	if err != nil {
+		t.Fatalf("Fetch: %v", err)
+	}
+	if len(msgs) != 1 {
+		t.Fatalf("expected 1 message, got %d", len(msgs))
+	}
+	if nextOff != 1 {
+		t.Errorf("nextOffset = %d, want 1", nextOff)
+	}
+	if string(msgs[0].Payload) != "hello" {
+		t.Errorf("payload = %q, want hello", string(msgs[0].Payload))
+	}
+}

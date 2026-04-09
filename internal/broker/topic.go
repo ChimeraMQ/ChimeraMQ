@@ -43,15 +43,20 @@ type TopicManager struct {
 	storage  *hot.Engine
 	wal      *wal.WAL
 	rrCounters sync.Map // topic → *atomic.Uint64
+
+	maxTopics              int
+	maxPartitionsPerTopic  uint32
 }
 
 // NewTopicManager loads existing topics and initializes partitions.
-func NewTopicManager(dataDir string, storage *hot.Engine, w *wal.WAL) (*TopicManager, error) {
+func NewTopicManager(dataDir string, storage *hot.Engine, w *wal.WAL, limits LimitsConfig) (*TopicManager, error) {
 	tm := &TopicManager{
-		topics:   make(map[string]*TopicConfig),
-		metaPath: filepath.Join(dataDir, "topics", "meta.json"),
-		storage:  storage,
-		wal:      w,
+		topics:                make(map[string]*TopicConfig),
+		metaPath:              filepath.Join(dataDir, "topics", "meta.json"),
+		storage:               storage,
+		wal:                   w,
+		maxTopics:             limits.MaxTopics,
+		maxPartitionsPerTopic: limits.MaxPartitionsPerTopic,
 	}
 
 	if err := tm.loadMetadata(); err != nil && !os.IsNotExist(err) {
@@ -77,11 +82,17 @@ func (tm *TopicManager) CreateTopic(cfg TopicConfig) error {
 	if _, exists := tm.topics[cfg.Name]; exists {
 		return fmt.Errorf("topic %q already exists", cfg.Name)
 	}
+	if tm.maxTopics > 0 && len(tm.topics) >= tm.maxTopics {
+		return fmt.Errorf("maximum topic count (%d) reached", tm.maxTopics)
+	}
 	if err := validateTopicName(cfg.Name); err != nil {
 		return err
 	}
 	if cfg.Partitions == 0 {
 		return fmt.Errorf("partitions must be > 0")
+	}
+	if tm.maxPartitionsPerTopic > 0 && cfg.Partitions > tm.maxPartitionsPerTopic {
+		return fmt.Errorf("partitions exceed maximum (%d > %d)", cfg.Partitions, tm.maxPartitionsPerTopic)
 	}
 
 	cfg.CreatedAt = time.Now()

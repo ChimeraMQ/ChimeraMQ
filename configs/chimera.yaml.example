@@ -4,7 +4,8 @@
 # Priority: CLI flags > env vars > YAML > defaults
 # Env vars: CHIMERA_NODE_ID, CHIMERA_NODE_NAME, CHIMERA_DATA_DIR,
 #           CHIMERA_LISTEN_PORT, CHIMERA_ADMIN_PORT,
-#           CHIMERA_LOG_LEVEL, CHIMERA_LOG_FORMAT
+#           CHIMERA_LOG_LEVEL, CHIMERA_LOG_FORMAT,
+#           CHIMERA_AUTH_ENABLED, CHIMERA_TLS_ENABLED
 
 # --- Node Identity ---
 node:
@@ -18,6 +19,31 @@ listener:
   port: 5672                         # Chimera native protocol (TCP)
   admin_port: 9090                   # HTTP admin API
   max_connections: 100000            # Max concurrent TCP connections
+
+# --- Authentication (opt-in) ---
+# auth:
+#   enabled: false
+#   type: "static"                   # static | file
+#   tokens:                          # API key -> label mapping
+#     "my-secret-token": "admin"
+#   users:                           # username -> bcrypt hash
+#     admin: "$2a$10$..."
+
+# --- TLS (opt-in) ---
+# tls:
+#   enabled: false
+#   cert_file: "/etc/chimera/tls/server.crt"
+#   key_file: "/etc/chimera/tls/server.key"
+#   # ca_file: "/etc/chimera/tls/ca.crt"   # For mutual TLS
+#   min_version: "1.3"
+
+# --- Resource Limits ---
+limits:
+  max_partitions_per_topic: 256      # Max partitions per topic (default: 256)
+  max_topics: 1000                   # Max total topics (default: 1000)
+  max_fetch_messages: 10000          # Max messages per fetch request (default: 10000)
+  max_message_size: 16777216         # Max message payload in bytes (default: 16MB)
+  max_connections: 10000             # Max concurrent TCP connections (default: 10000)
 
 # --- Storage ---
 storage:

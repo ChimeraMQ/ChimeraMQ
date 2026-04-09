@@ -248,3 +248,53 @@ func TestConsumerGroupRangeUnevenPartitions(t *testing.T) {
 		t.Errorf("m1=%d, m2=%d, want 3 and 2", m1Count, m2Count)
 	}
 }
+
+func TestConsumerGroupRebalanceRoundRobin(t *testing.T) {
+	cg := NewConsumerGroup("rr-test", "topic", 4, StrategyRoundRobin, newTestOffsetStore(t))
+	defer cg.Stop()
+
+	cg.Join("c1")
+	cg.Join("c2")
+
+	// Round-robin should distribute partitions
+	assignments := cg.Assignments()
+	if len(assignments) != 4 {
+		t.Fatalf("expected 4 assignments, got %d", len(assignments))
+	}
+	// Round-robin: c1 gets 0,2; c2 gets 1,3
+	if assignments[0] != "c1" || assignments[1] != "c2" ||
+		assignments[2] != "c1" || assignments[3] != "c2" {
+		t.Errorf("unexpected round-robin assignments: %v", assignments)
+	}
+}
+
+func TestConsumerGroupRebalanceEmpty(t *testing.T) {
+	cg := NewConsumerGroup("empty-rr", "topic", 4, StrategyRoundRobin, newTestOffsetStore(t))
+	defer cg.Stop()
+
+	// No members — assignments should be empty
+	assignments := cg.Assignments()
+	if len(assignments) != 0 {
+		t.Errorf("expected 0 assignments with no members, got %d", len(assignments))
+	}
+}
+
+func TestConsumerGroupRemoveAllMembers(t *testing.T) {
+	cg := NewConsumerGroup("remove-all", "topic", 4, StrategyRange, newTestOffsetStore(t))
+	defer cg.Stop()
+
+	cg.Join("c1")
+	cg.Join("c2")
+
+	cg.Leave("c1")
+	cg.Leave("c2")
+
+	members := cg.Members()
+	if len(members) != 0 {
+		t.Errorf("expected 0 members, got %d", len(members))
+	}
+	assignments := cg.Assignments()
+	if len(assignments) != 0 {
+		t.Errorf("expected 0 assignments, got %d", len(assignments))
+	}
+}

@@ -54,6 +54,7 @@ type WAL struct {
 
 	syncTicker *time.Ticker
 	syncStop   chan struct{}
+	syncDone   chan struct{}
 }
 
 // NewWAL creates or opens a WAL in the given directory.
@@ -68,6 +69,7 @@ func NewWAL(dir string, maxSize int64, syncMode SyncMode, syncInterval time.Dura
 		syncMode:     syncMode,
 		syncInterval: syncInterval,
 		syncStop:     make(chan struct{}),
+		syncDone:     make(chan struct{}),
 	}
 
 	if err := w.openOrCreateSegment(); err != nil {
@@ -150,6 +152,11 @@ func (w *WAL) Recover(fromOffset uint64, fn func(EntryType, []byte) error) error
 			dataSize := binary.BigEndian.Uint32(header[1:])
 			storedCRC := binary.BigEndian.Uint32(header[13:])
 
+			// Validate dataSize before allocation
+			if dataSize > uint32(w.maxSize) || dataSize > 16*1024*1024 {
+				break // Corrupt entry — stop recovery
+			}
+
 			data := make([]byte, dataSize)
 			if _, err := io.ReadFull(reader, data); err != nil {
 				break // Partial entry (crash recovery)
@@ -222,6 +229,7 @@ func (w *WAL) Close() error {
 		default:
 			close(w.syncStop)
 		}
+		<-w.syncDone // Wait for syncLoop goroutine to finish
 	}
 
 	w.mu.Lock()
@@ -329,7 +337,10 @@ func (w *WAL) readCheckpoint() (uint64, error) {
 		return 0, err
 	}
 	var offset uint64
-	fmt.Sscanf(string(data), "%d", &offset)
+	n, err := fmt.Sscanf(strings.TrimSpace(string(data)), "%d", &offset)
+	if err != nil || n != 1 {
+		return 0, fmt.Errorf("invalid checkpoint file content")
+	}
 	return offset, nil
 }
 
@@ -342,6 +353,7 @@ func (w *WAL) segmentEndOffset(path string) uint64 {
 }
 
 func (w *WAL) syncLoop() {
+	defer close(w.syncDone)
 	for {
 		select {
 		case <-w.syncTicker.C:

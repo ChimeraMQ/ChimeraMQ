@@ -16,6 +16,36 @@ type Config struct {
 	Storage  StorageConfig  `yaml:"storage"`
 	Defaults DefaultsConfig `yaml:"defaults"`
 	Logging  LoggingConfig  `yaml:"logging"`
+	Auth     AuthConfig     `yaml:"auth"`
+	TLS      TLSConfig      `yaml:"tls"`
+	Limits   LimitsConfig   `yaml:"limits"`
+}
+
+// TLSConfig controls TLS encryption for listeners.
+type TLSConfig struct {
+	Enabled    bool   `yaml:"enabled"`
+	CertFile   string `yaml:"cert_file"`
+	KeyFile    string `yaml:"key_file"`
+	CAFile     string `yaml:"ca_file,omitempty"`
+	MinVersion string `yaml:"min_version,omitempty"`
+}
+
+// AuthConfig controls authentication.
+type AuthConfig struct {
+	Enabled  bool              `yaml:"enabled"`
+	Type     string            `yaml:"type"`
+	Users    map[string]string `yaml:"users"`
+	AuthFile string            `yaml:"auth_file,omitempty"`
+	Tokens   map[string]string `yaml:"tokens"`
+}
+
+// LimitsConfig controls resource caps.
+type LimitsConfig struct {
+	MaxPartitionsPerTopic uint32 `yaml:"max_partitions_per_topic"`
+	MaxTopics             int    `yaml:"max_topics"`
+	MaxFetchMessages      int    `yaml:"max_fetch_messages"`
+	MaxMessageSize        int64  `yaml:"max_message_size"`
+	MaxConnections        int64  `yaml:"max_connections"`
 }
 
 // NodeConfig identifies this broker node.
@@ -124,7 +154,7 @@ func defaultConfig() *Config {
 			DataDir: "/var/lib/chimera",
 		},
 		Listener: ListenerConfig{
-			Bind:           "0.0.0.0",
+			Bind:           "127.0.0.1",
 			Port:           5672,
 			AdminPort:      9090,
 			MaxConnections: 100000,
@@ -157,6 +187,13 @@ func defaultConfig() *Config {
 			Format: "json",
 			Output: "stdout",
 		},
+		Limits: LimitsConfig{
+			MaxPartitionsPerTopic: 256,
+			MaxTopics:             1000,
+			MaxFetchMessages:      10000,
+			MaxMessageSize:        16 * 1024 * 1024,
+			MaxConnections:        10000,
+		},
 	}
 }
 
@@ -187,6 +224,12 @@ func applyEnvOverrides(cfg *Config) {
 	}
 	if v := os.Getenv("CHIMERA_LOG_FORMAT"); v != "" {
 		cfg.Logging.Format = v
+	}
+	if v := os.Getenv("CHIMERA_AUTH_ENABLED"); v == "true" {
+		cfg.Auth.Enabled = true
+	}
+	if v := os.Getenv("CHIMERA_TLS_ENABLED"); v == "true" {
+		cfg.TLS.Enabled = true
 	}
 }
 
@@ -224,6 +267,28 @@ func (c *Config) Validate() error {
 	}
 	if c.Storage.WAL.SyncMode != "immediate" && c.Storage.WAL.SyncMode != "interval" && c.Storage.WAL.SyncMode != "os" {
 		return fmt.Errorf("storage.wal.sync_mode must be immediate, interval, or os")
+	}
+	if c.Auth.Enabled {
+		if c.Auth.Type != "static" && c.Auth.Type != "file" {
+			return fmt.Errorf("auth.type must be 'static' or 'file'")
+		}
+		if c.Auth.Type == "static" && len(c.Auth.Users) == 0 && len(c.Auth.Tokens) == 0 {
+			return fmt.Errorf("auth.enabled but no users or tokens configured")
+		}
+	}
+	if c.TLS.Enabled {
+		if c.TLS.CertFile == "" || c.TLS.KeyFile == "" {
+			return fmt.Errorf("tls.enabled requires cert_file and key_file")
+		}
+	}
+	if c.Limits.MaxPartitionsPerTopic == 0 {
+		return fmt.Errorf("limits.max_partitions_per_topic must be > 0")
+	}
+	if c.Limits.MaxTopics <= 0 {
+		return fmt.Errorf("limits.max_topics must be > 0")
+	}
+	if c.Limits.MaxFetchMessages <= 0 {
+		return fmt.Errorf("limits.max_fetch_messages must be > 0")
 	}
 	return nil
 }
