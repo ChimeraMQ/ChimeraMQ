@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"net"
 	"net/http"
 	"strconv"
 	"strings"
@@ -134,6 +135,50 @@ func (s *AdminServer) Serve() error {
 // Shutdown gracefully stops the server.
 func (s *AdminServer) Shutdown(ctx context.Context) error {
 	return s.server.Shutdown(ctx)
+}
+
+// RegisterWebSocket registers a WebSocket handler at the given path.
+func (s *AdminServer) RegisterWebSocket(path string, handler http.Handler) {
+	s.mux.Handle(path, handler)
+}
+
+// Detector detects HTTP protocol by its method prefix.
+type Detector struct{}
+
+// Detect checks if the peeked bytes start with an HTTP method.
+func (d *Detector) Detect(peek []byte) bool {
+	if len(peek) < 4 {
+		return false
+	}
+	prefix := string(peek[:4])
+	switch prefix {
+	case "GET ", "POST", "PUT ", "DELE", "OPTI", "PATC", "HEAD", "CONN":
+		return true
+	}
+	return false
+}
+
+// BytesNeeded returns 4 (enough to identify HTTP methods).
+func (d *Detector) BytesNeeded() int { return 4 }
+
+// HandleConnection implements ProtocolHandler for use with the multiplexer.
+func (s *AdminServer) HandleConnection(conn net.Conn, _ []byte) error {
+	ln := &singleConnListener{conn: conn}
+	srv := &http.Server{
+		Handler:        s.securityMiddleware(s.mux),
+		MaxHeaderBytes: 1 << 20,
+		ReadTimeout:    30 * time.Second,
+		WriteTimeout:   30 * time.Second,
+	}
+	srv.Serve(ln)
+	return nil
+}
+
+// Stop implements ProtocolHandler.
+func (s *AdminServer) Stop() {
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	s.server.Shutdown(ctx)
 }
 
 func (s *AdminServer) handleCreateTopic(w http.ResponseWriter, r *http.Request) {
@@ -487,3 +532,21 @@ func writeJSON(w http.ResponseWriter, status int, v interface{}) {
 func writeError(w http.ResponseWriter, status int, msg string) {
 	writeJSON(w, status, map[string]string{"error": msg})
 }
+
+// singleConnListener is a net.Listener that yields a single connection.
+type singleConnListener struct {
+	conn net.Conn
+	done bool
+}
+
+func (ln *singleConnListener) Accept() (net.Conn, error) {
+	if ln.done {
+		return nil, net.ErrClosed
+	}
+	ln.done = true
+	return ln.conn, nil
+}
+
+func (ln *singleConnListener) Close() error { return nil }
+
+func (ln *singleConnListener) Addr() net.Addr { return ln.conn.LocalAddr() }

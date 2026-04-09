@@ -27,6 +27,21 @@ type Server struct {
 	wg     sync.WaitGroup
 }
 
+// Detector detects the Chimera native protocol by its magic bytes "CHMR".
+type Detector struct{}
+
+// Detect checks if the peeked bytes start with the Chimera magic "CHMR".
+func (d *Detector) Detect(peek []byte) bool {
+	return len(peek) >= 4 &&
+		peek[0] == FrameMagic0 &&
+		peek[1] == FrameMagic1 &&
+		peek[2] == FrameMagic2 &&
+		peek[3] == FrameMagic3
+}
+
+// BytesNeeded returns 4 (the length of the "CHMR" magic).
+func (d *Detector) BytesNeeded() int { return 4 }
+
 // NewServer creates a new Chimera protocol server.
 func NewServer(b *broker.Broker) (*Server, error) {
 	addr := fmt.Sprintf("%s:%d", b.Config().Listener.Bind, b.Config().Listener.Port)
@@ -102,6 +117,17 @@ func (s *Server) StopAll() {
 	s.StopAccepting()
 	s.DisconnectAll()
 	s.wg.Wait()
+}
+
+// HandleConnection implements ProtocolHandler for use with the multiplexer.
+func (s *Server) HandleConnection(conn net.Conn, _ []byte) error {
+	s.handleConnection(conn)
+	return nil
+}
+
+// Stop implements ProtocolHandler.
+func (s *Server) Stop() {
+	s.StopAll()
 }
 
 func (s *Server) handleConnection(conn net.Conn) {

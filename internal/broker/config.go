@@ -11,14 +11,52 @@ import (
 
 // Config holds all ChimeraMQ broker configuration.
 type Config struct {
-	Node     NodeConfig     `yaml:"node"`
-	Listener ListenerConfig `yaml:"listener"`
-	Storage  StorageConfig  `yaml:"storage"`
-	Defaults DefaultsConfig `yaml:"defaults"`
-	Logging  LoggingConfig  `yaml:"logging"`
-	Auth     AuthConfig     `yaml:"auth"`
-	TLS      TLSConfig      `yaml:"tls"`
-	Limits   LimitsConfig   `yaml:"limits"`
+	Node      NodeConfig      `yaml:"node"`
+	Listener  ListenerConfig  `yaml:"listener"`
+	Storage   StorageConfig   `yaml:"storage"`
+	Defaults  DefaultsConfig  `yaml:"defaults"`
+	Logging   LoggingConfig   `yaml:"logging"`
+	Auth      AuthConfig      `yaml:"auth"`
+	TLS       TLSConfig       `yaml:"tls"`
+	Limits    LimitsConfig    `yaml:"limits"`
+	Protocols ProtocolsConfig `yaml:"protocols"`
+}
+
+// ProtocolsConfig controls which protocol adapters are enabled.
+type ProtocolsConfig struct {
+	Chimera   ProtocolChimeraConfig   `yaml:"chimera"`
+	MQTT      ProtocolMQTTConfig      `yaml:"mqtt"`
+	WebSocket ProtocolWebSocketConfig `yaml:"websocket"`
+	AMQP      ProtocolAMQPConfig      `yaml:"amqp"`
+}
+
+// ProtocolChimeraConfig controls the native Chimera protocol.
+type ProtocolChimeraConfig struct {
+	Enabled      bool  `yaml:"enabled"`
+	MaxFrameSize int32 `yaml:"max_frame_size"`
+}
+
+// ProtocolMQTTConfig controls the MQTT adapter.
+type ProtocolMQTTConfig struct {
+	Enabled        bool   `yaml:"enabled"`
+	MaxPacketSize  int32  `yaml:"max_packet_size"`
+	MaxQoS         uint8  `yaml:"max_qos"`
+	MaxTopicAlias  uint16 `yaml:"max_topic_alias"`
+	RetainedMax    int    `yaml:"retained_max"`
+	TopicSeparator string `yaml:"topic_separator"`
+}
+
+// ProtocolWebSocketConfig controls the WebSocket adapter.
+type ProtocolWebSocketConfig struct {
+	Enabled      bool   `yaml:"enabled"`
+	Path         string `yaml:"path"`
+	MaxFrameSize int64  `yaml:"max_frame_size"`
+}
+
+// ProtocolAMQPConfig controls the AMQP 1.0 adapter.
+type ProtocolAMQPConfig struct {
+	Enabled      bool  `yaml:"enabled"`
+	MaxFrameSize int32 `yaml:"max_frame_size"`
 }
 
 // TLSConfig controls TLS encryption for listeners.
@@ -194,6 +232,29 @@ func defaultConfig() *Config {
 			MaxMessageSize:        16 * 1024 * 1024,
 			MaxConnections:        10000,
 		},
+		Protocols: ProtocolsConfig{
+			Chimera: ProtocolChimeraConfig{
+				Enabled:      true,
+				MaxFrameSize: 16 * 1024 * 1024,
+			},
+			MQTT: ProtocolMQTTConfig{
+				Enabled:        false,
+				MaxPacketSize:  256 * 1024 * 1024,
+				MaxQoS:         2,
+				MaxTopicAlias:  16,
+				RetainedMax:    10000,
+				TopicSeparator: ".",
+			},
+			WebSocket: ProtocolWebSocketConfig{
+				Enabled:      false,
+				Path:         "/ws",
+				MaxFrameSize: 16 * 1024 * 1024,
+			},
+			AMQP: ProtocolAMQPConfig{
+				Enabled:      false,
+				MaxFrameSize: 128 * 1024,
+			},
+		},
 	}
 }
 
@@ -230,6 +291,18 @@ func applyEnvOverrides(cfg *Config) {
 	}
 	if v := os.Getenv("CHIMERA_TLS_ENABLED"); v == "true" {
 		cfg.TLS.Enabled = true
+	}
+	if v := os.Getenv("CHIMERA_PROTOCOL_MQTT_ENABLED"); v == "true" {
+		cfg.Protocols.MQTT.Enabled = true
+	}
+	if v := os.Getenv("CHIMERA_PROTOCOL_WEBSOCKET_ENABLED"); v == "true" {
+		cfg.Protocols.WebSocket.Enabled = true
+	}
+	if v := os.Getenv("CHIMERA_PROTOCOL_AMQP_ENABLED"); v == "true" {
+		cfg.Protocols.AMQP.Enabled = true
+	}
+	if v := os.Getenv("CHIMERA_PROTOCOL_CHIMERA_ENABLED"); v == "false" {
+		cfg.Protocols.Chimera.Enabled = false
 	}
 }
 

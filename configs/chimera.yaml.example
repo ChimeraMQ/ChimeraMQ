@@ -75,3 +75,33 @@ logging:
   format: "json"                     # json | text
   output: "stdout"                   # stdout | file
   # file: "/var/log/chimera/chimera.log"  # Required when output: file
+
+# --- Protocol Adapters (Phase 2) ---
+# All protocols share the main TCP port (listener.port).
+# Protocol is auto-detected from the first bytes of each connection.
+# Detection order: TLS → AMQP → MQTT → HTTP/WS → Chimera native
+protocols:
+  chimera:
+    enabled: true                     # Native Chimera protocol (default: enabled)
+    max_frame_size: 16777216          # 16MB max frame size
+
+  # MQTT 3.1.1 / 5.0 adapter
+  # mqtt:
+  #   enabled: false
+  #   max_packet_size: 268435456       # 256MB max packet size
+  #   max_qos: 2                       # Maximum supported QoS level
+  #   max_topic_alias: 16              # MQTT 5.0 topic alias limit
+  #   retained_max: 10000              # Max retained messages in memory
+  #   topic_separator: "."             # ChimeraMQ separator (MQTT "/" → this)
+
+  # WebSocket adapter
+  # websocket:
+  #   enabled: false
+  #   path: "/ws"                      # WebSocket endpoint path
+  #   max_frame_size: 16777216         # 16MB max frame size
+  #   # Sub-protocols: chimera-json-v1, chimera-binary-v1
+
+  # AMQP 1.0 adapter
+  # amqp:
+  #   enabled: false
+  #   max_frame_size: 131072           # 128KB max frame size

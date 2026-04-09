@@ -1,6 +1,7 @@
 package cli
 
 import (
+	"context"
 	"encoding/json"
 	"flag"
 	"fmt"
@@ -10,6 +11,12 @@ import (
 	"time"
 
 	"github.com/chimeramq/chimera/internal/broker"
+	"github.com/chimeramq/chimera/internal/protocol"
+	"github.com/chimeramq/chimera/internal/protocol/amqp"
+	"github.com/chimeramq/chimera/internal/protocol/chimera"
+	httpadmin "github.com/chimeramq/chimera/internal/protocol/http"
+	"github.com/chimeramq/chimera/internal/protocol/mqtt"
+	"github.com/chimeramq/chimera/internal/protocol/ws"
 )
 
 // RunServer starts the ChimeraMQ broker.
@@ -48,16 +55,72 @@ func RunServer(args []string) {
 		os.Exit(1)
 	}
 
+	// Create protocol multiplexer
+	mux := protocol.NewProtocolMux(b)
+	registerProtocols(mux, cfg, b)
+
+	// Start multiplexer on main port
+	go func() {
+		if err := mux.Serve(); err != nil {
+			fmt.Fprintf(os.Stderr, "Mux error: %v\n", err)
+		}
+	}()
+
+	// Start admin HTTP server on separate port
+	adminServer := httpadmin.NewAdminServer(b)
+
+	// Register WebSocket handler on admin server if enabled
+	if cfg.Protocols.WebSocket.Enabled {
+		wsServer := ws.NewServer(b)
+		adminServer.RegisterWebSocket(cfg.Protocols.WebSocket.Path, wsServer)
+	}
+
+	go func() {
+		if err := adminServer.Serve(); err != nil {
+			fmt.Fprintf(os.Stderr, "Admin server error: %v\n", err)
+		}
+	}()
+
 	sigCh := make(chan os.Signal, 1)
 	signal.Notify(sigCh, syscall.SIGINT, syscall.SIGTERM)
 	<-sigCh
 
 	fmt.Println("\nShutting down...")
-	if err := b.Stop(); err != nil {
-		fmt.Fprintf(os.Stderr, "Shutdown error: %v\n", err)
-		os.Exit(1)
-	}
+
+	// Graceful shutdown
+	mux.Stop()
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	adminServer.Shutdown(ctx)
+	b.Stop()
 	fmt.Println("Goodbye.")
+}
+
+// registerProtocols registers all enabled protocol adapters with the multiplexer.
+func registerProtocols(mux *protocol.ProtocolMux, cfg *broker.Config, b *broker.Broker) {
+	// Register in detection order: AMQP → MQTT → HTTP → Chimera
+
+	if cfg.Protocols.AMQP.Enabled {
+		amqpServer := amqp.NewServer(b)
+		mux.Register(&amqp.Detector{}, amqpServer)
+		b.Logger().Info("AMQP 1.0 adapter enabled")
+	}
+
+	if cfg.Protocols.MQTT.Enabled {
+		mqttServer := mqtt.NewServer(b)
+		mux.Register(&mqtt.Detector{}, mqttServer)
+		b.Logger().Info("MQTT adapter enabled")
+	}
+
+	// HTTP is always registered on the main port for API access
+	httpServer := httpadmin.NewAdminServer(b)
+	mux.Register(&httpadmin.Detector{}, httpServer)
+
+	if cfg.Protocols.Chimera.Enabled {
+		chimeraServer, _ := chimera.NewServer(b)
+		mux.Register(&chimera.Detector{}, chimeraServer)
+		b.Logger().Info("Chimera native protocol enabled")
+	}
 }
 
 // RunTopicCLI manages topics via the admin API.
