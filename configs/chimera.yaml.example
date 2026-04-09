@@ -1,0 +1,51 @@
+# ChimeraMQ Configuration Example
+# Three Heads. One Binary. All Messages.
+#
+# Priority: CLI flags > env vars > YAML > defaults
+# Env vars: CHIMERA_NODE_ID, CHIMERA_NODE_NAME, CHIMERA_DATA_DIR,
+#           CHIMERA_LISTEN_PORT, CHIMERA_ADMIN_PORT,
+#           CHIMERA_LOG_LEVEL, CHIMERA_LOG_FORMAT
+
+# --- Node Identity ---
+node:
+  id: 1                              # Unique node ID (cluster scope)
+  name: "chimera-01"                 # Human-readable node name
+  data_dir: "/var/lib/chimera"       # Storage root directory
+
+# --- Network Listeners ---
+listener:
+  bind: "0.0.0.0"                   # Bind address for all listeners
+  port: 5672                         # Chimera native protocol (TCP)
+  admin_port: 9090                   # HTTP admin API
+  max_connections: 100000            # Max concurrent TCP connections
+
+# --- Storage ---
+storage:
+  hot:
+    segment_size: 268435456          # 256MB per log segment
+    sync_mode: "interval"            # immediate | interval | os
+    sync_interval: "200ms"           # Fsync interval (interval mode)
+    max_segments: 10                 # Max segments per partition
+  wal:
+    max_size: 134217728              # 128MB max WAL file before rotation
+    sync_mode: "interval"            # immediate | interval | os
+    sync_interval: "100ms"           # Fsync interval (interval mode)
+  tier_policy:
+    hot_retention: "1h"              # Time before tier migration (Phase 2)
+
+# --- Topic Defaults ---
+defaults:
+  topic:
+    partitions: 8                    # Default partition count
+    retention_time: "168h"           # 7 days
+    mode: "unified"                  # stream | queue | unified
+                                     #   stream: offset-based consumption, consumer groups
+                                     #   queue:  competing consumers, ack/nack, DLQ
+                                     #   unified: both simultaneously
+
+# --- Logging ---
+logging:
+  level: "info"                      # debug | info | warn | error
+  format: "json"                     # json | text
+  output: "stdout"                   # stdout | file
+  # file: "/var/log/chimera/chimera.log"  # Required when output: file
