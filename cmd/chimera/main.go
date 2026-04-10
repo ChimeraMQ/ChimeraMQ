@@ -47,12 +47,14 @@ func printUsage() {
 	fmt.Printf("Three Heads. One Binary. All Messages.\n\n")
 	fmt.Printf("Usage: chimera <command> [options]\n\n")
 	fmt.Printf("Commands:\n")
-	fmt.Printf("  server    Start the ChimeraMQ broker\n")
-	fmt.Printf("  topic     Manage topics (create, list, describe, delete)\n")
-	fmt.Printf("  produce   Produce messages to a topic\n")
-	fmt.Printf("  consume   Consume messages from a topic\n")
-	fmt.Printf("  cluster   Cluster management (status, members)\n")
-	fmt.Printf("  version   Print version information\n")
+	fmt.Printf("  server     Start the ChimeraMQ broker\n")
+	fmt.Printf("  topic      Manage topics (create, list, describe, delete)\n")
+	fmt.Printf("  produce    Produce messages to a topic\n")
+	fmt.Printf("  consume    Consume messages from a topic\n")
+	fmt.Printf("  cluster    Cluster management (status, members)\n")
+	fmt.Printf("  wasm       Manage WASM modules (deploy, list, remove)\n")
+	fmt.Printf("  mcp-server Start MCP server for AI tooling (JSON-RPC over stdio)\n")
+	fmt.Printf("  version    Print version information\n")
 }
 
 func printVersion() {
