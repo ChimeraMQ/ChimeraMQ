@@ -181,7 +181,7 @@ func (s *Server) handleConnection(conn net.Conn) {
 	// Send CONNACK
 	connackPayload := encodeConnAck(client.clientID, 0)
 	connackFrame, _ := EncodeFrame(&Frame{Version: FrameVersion, OpCode: OpConnAck, Payload: connackPayload})
-	if err := client.writeFrame(connackFrame); err != nil {
+	if err := _ = client.writeFrame(connackFrame); err != nil {
 		return
 	}
 
@@ -310,7 +310,7 @@ func (s *Server) handleSubscribe(client *ClientConn, frame *Frame) {
 
 	ackPayload := encodeSubAck(payload.Topic, true)
 	ackFrame, _ := EncodeFrame(&Frame{Version: FrameVersion, OpCode: OpSubAck, Payload: ackPayload})
-	client.writeFrame(ackFrame)
+	_ = client.writeFrame(ackFrame)
 }
 
 func (s *Server) handleFetch(client *ClientConn, frame *Frame) {
@@ -360,7 +360,7 @@ func (s *Server) handleFetch(client *ClientConn, frame *Frame) {
 	}
 
 	respFrame, _ := EncodeFrame(&Frame{Version: FrameVersion, OpCode: OpFetchResp, Payload: resp})
-	client.writeFrame(respFrame)
+	_ = client.writeFrame(respFrame)
 }
 
 func (s *Server) handleAck(client *ClientConn, frame *Frame) {
@@ -416,7 +416,7 @@ func (s *Server) handleCommitOffset(client *ClientConn, frame *Frame) {
 	_ = s.broker.StreamEngine().CommitOffset(group, partitionID, offset)
 
 	ackFrame, _ := EncodeFrame(&Frame{Version: FrameVersion, OpCode: OpCommitAck})
-	client.writeFrame(ackFrame)
+	_ = client.writeFrame(ackFrame)
 }
 
 func (s *Server) handleCreateTopic(client *ClientConn, frame *Frame) {
@@ -442,7 +442,7 @@ func (s *Server) handleCreateTopic(client *ClientConn, frame *Frame) {
 	}
 
 	ackFrame, _ := EncodeFrame(&Frame{Version: FrameVersion, OpCode: OpSubAck})
-	client.writeFrame(ackFrame)
+	_ = client.writeFrame(ackFrame)
 }
 
 func (s *Server) handleDeleteTopic(client *ClientConn, frame *Frame) {
@@ -455,11 +455,11 @@ func (s *Server) handleDeleteTopic(client *ClientConn, frame *Frame) {
 	}
 
 	ackFrame, _ := EncodeFrame(&Frame{Version: FrameVersion, OpCode: OpSubAck})
-	client.writeFrame(ackFrame)
+	_ = client.writeFrame(ackFrame)
 }
 
 func (s *Server) sendError(client *ClientConn, msg string) {
 	errPayload := encodeError(0, msg)
 	errFrame, _ := EncodeFrame(&Frame{Version: FrameVersion, OpCode: OpError, Payload: errPayload})
-	client.writeFrame(errFrame)
+	_ = client.writeFrame(errFrame)
 }
