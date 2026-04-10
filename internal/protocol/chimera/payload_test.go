@@ -64,7 +64,7 @@ func TestDecodePublish(t *testing.T) {
 	buf = append(buf, "my-topic"...)
 	buf = appendUint16(buf, uint16(len("route-key")))
 	buf = append(buf, "route-key"...)
-	buf = append(buf, 5) // priority
+	buf = append(buf, 5)           // priority
 	buf = appendUint64(buf, 60000) // TTL
 	buf = appendUint64(buf, 0)     // DeliverAt
 	buf = append(buf, []byte("hello world")...)
@@ -129,7 +129,7 @@ func TestDecodeSubscribe(t *testing.T) {
 	buf = append(buf, 1) // mode
 	buf = appendUint16(buf, uint16(len("my-group")))
 	buf = append(buf, "my-group"...)
-	buf = appendUint32(buf, 10) // prefetch
+	buf = appendUint32(buf, 10)  // prefetch
 	buf = appendUint64(buf, 100) // start offset
 
 	p := decodeSubscribe(buf)

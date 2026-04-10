@@ -15,7 +15,7 @@ type Index uint64
 type NodeState int
 
 const (
-	Follower  NodeState = iota
+	Follower NodeState = iota
 	Candidate
 	Leader
 	Shutdown
@@ -40,7 +40,7 @@ func (s NodeState) String() string {
 type EntryType int
 
 const (
-	EntryCommand      EntryType = iota
+	EntryCommand EntryType = iota
 	EntryConfigChange
 	EntryNoOp
 )
@@ -88,12 +88,12 @@ type RequestVoteResponse struct {
 
 // InstallSnapshotRequest is the Raft InstallSnapshot RPC request.
 type InstallSnapshotRequest struct {
-	Term             Term
-	LeaderID         NodeID
+	Term              Term
+	LeaderID          NodeID
 	LastIncludedIndex Index
 	LastIncludedTerm  Term
-	Data             []byte
-	Done             bool
+	Data              []byte
+	Done              bool
 }
 
 // InstallSnapshotResponse is the Raft InstallSnapshot RPC response.
@@ -103,12 +103,12 @@ type InstallSnapshotResponse struct {
 
 // Config holds Raft configuration.
 type Config struct {
-	NodeID           NodeID
-	Peers            []NodeID
-	ElectionTimeout  time.Duration
+	NodeID            NodeID
+	Peers             []NodeID
+	ElectionTimeout   time.Duration
 	HeartbeatInterval time.Duration
-	SnapshotInterval time.Duration
-	MaxLogEntries    int
+	SnapshotInterval  time.Duration
+	MaxLogEntries     int
 	// DataDir is the root directory for Raft persistent storage.
 	DataDir string
 }

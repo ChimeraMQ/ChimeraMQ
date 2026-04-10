@@ -25,34 +25,34 @@ const (
 
 // TopicConfig holds configuration for a single topic.
 type TopicConfig struct {
-	Name             string        `json:"name"`
-	Mode             TopicMode     `json:"mode"`
-	Partitions       uint32        `json:"partitions"`
-	RetentionTime    time.Duration `json:"retention_time"`
-	RetentionSize    int64         `json:"retention_size"`
-	DLQTopic         string        `json:"dlq_topic,omitempty"`
-	MaxRetries       uint32        `json:"max_retries"`
-	DelaySupport     bool          `json:"delay_support"`
-	SchemaSubject    string        `json:"schema_subject,omitempty"`
-	SchemaEnforcement bool         `json:"schema_enforcement"`
-	PrioritySupport  bool          `json:"priority_support"`
-	DefaultTTL       int64         `json:"default_ttl,omitempty"` // nanoseconds, 0 = no default
-	TTLAction        string        `json:"ttl_action,omitempty"`  // "drop" or "dlq"
-	TransformPipeline *wasm.TransformPipeline `json:"-"` // WASM transform pipeline
-	CreatedAt        time.Time     `json:"created_at"`
+	Name              string                  `json:"name"`
+	Mode              TopicMode               `json:"mode"`
+	Partitions        uint32                  `json:"partitions"`
+	RetentionTime     time.Duration           `json:"retention_time"`
+	RetentionSize     int64                   `json:"retention_size"`
+	DLQTopic          string                  `json:"dlq_topic,omitempty"`
+	MaxRetries        uint32                  `json:"max_retries"`
+	DelaySupport      bool                    `json:"delay_support"`
+	SchemaSubject     string                  `json:"schema_subject,omitempty"`
+	SchemaEnforcement bool                    `json:"schema_enforcement"`
+	PrioritySupport   bool                    `json:"priority_support"`
+	DefaultTTL        int64                   `json:"default_ttl,omitempty"` // nanoseconds, 0 = no default
+	TTLAction         string                  `json:"ttl_action,omitempty"`  // "drop" or "dlq"
+	TransformPipeline *wasm.TransformPipeline `json:"-"`                     // WASM transform pipeline
+	CreatedAt         time.Time               `json:"created_at"`
 }
 
 // TopicManager handles topic CRUD and partition routing.
 type TopicManager struct {
-	mu       sync.RWMutex
-	topics   map[string]*TopicConfig
-	metaPath string
-	storage  *hot.Engine
-	wal      *wal.WAL
+	mu         sync.RWMutex
+	topics     map[string]*TopicConfig
+	metaPath   string
+	storage    *hot.Engine
+	wal        *wal.WAL
 	rrCounters sync.Map // topic → *atomic.Uint64
 
-	maxTopics              int
-	maxPartitionsPerTopic  uint32
+	maxTopics             int
+	maxPartitionsPerTopic uint32
 }
 
 // NewTopicManager loads existing topics and initializes partitions.

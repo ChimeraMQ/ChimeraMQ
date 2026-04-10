@@ -395,7 +395,7 @@ func TestHandleCommitOffset(t *testing.T) {
 	commitPayload = append(commitPayload, "cg1"...)
 	commitPayload = appendUint16(commitPayload, uint16(len("commit-topic")))
 	commitPayload = append(commitPayload, "commit-topic"...)
-	commitPayload = appendUint32(commitPayload, 0) // partition
+	commitPayload = appendUint32(commitPayload, 0)  // partition
 	commitPayload = appendUint64(commitPayload, 42) // offset
 
 	commitFrame, _ := EncodeFrame(&Frame{Version: FrameVersion, OpCode: OpCommitOffset, Payload: commitPayload})

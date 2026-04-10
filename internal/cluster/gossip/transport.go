@@ -11,7 +11,7 @@ import (
 type MessageType uint8
 
 const (
-	MsgPing    MessageType = iota
+	MsgPing MessageType = iota
 	MsgAck
 	MsgPingReq
 	MsgSuspect
@@ -22,12 +22,12 @@ const (
 
 // Message is a gossip protocol message.
 type Message struct {
-	Type       MessageType `json:"t"`
-	SenderID   NodeID      `json:"s"`
-	Incarnation uint64     `json:"i"`
-	TargetID   NodeID      `json:"ti,omitempty"`   // For PingReq: who to ping
-	TargetAddr string      `json:"ta,omitempty"`    // For PingReq: target address
-	Members    []MemberMsg `json:"m,omitempty"`     // Piggybacked member updates
+	Type        MessageType `json:"t"`
+	SenderID    NodeID      `json:"s"`
+	Incarnation uint64      `json:"i"`
+	TargetID    NodeID      `json:"ti,omitempty"` // For PingReq: who to ping
+	TargetAddr  string      `json:"ta,omitempty"` // For PingReq: target address
+	Members     []MemberMsg `json:"m,omitempty"`  // Piggybacked member updates
 }
 
 // MemberMsg is a serialized member for gossip messages.
@@ -95,7 +95,7 @@ func (t *UDPTransport) Receive() (*Message, *net.UDPAddr, error) {
 	}
 
 	var msg Message
-	if err := json.Unmarshal(buf[4 : 4+length], &msg); err != nil {
+	if err := json.Unmarshal(buf[4:4+length], &msg); err != nil {
 		return nil, nil, err
 	}
 	return &msg, addr, nil

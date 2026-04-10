@@ -9,10 +9,10 @@ import (
 	"time"
 
 	"github.com/chimeramq/chimera/internal/broker"
+	"github.com/chimeramq/chimera/internal/protocol/amqp"
 	"github.com/chimeramq/chimera/internal/protocol/chimera"
 	httpadmin "github.com/chimeramq/chimera/internal/protocol/http"
 	"github.com/chimeramq/chimera/internal/protocol/mqtt"
-	"github.com/chimeramq/chimera/internal/protocol/amqp"
 )
 
 func TestChimeraDetector(t *testing.T) {
@@ -179,9 +179,9 @@ func (h *noopHandler) Stop()                                       {}
 
 // trackingHandler records which connections were handled.
 type trackingHandler struct {
-	mu       sync.Mutex
-	peeks    [][]byte
-	count    int
+	mu    sync.Mutex
+	peeks [][]byte
+	count int
 }
 
 func (h *trackingHandler) HandleConnection(_ net.Conn, peeked []byte) error {

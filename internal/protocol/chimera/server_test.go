@@ -14,12 +14,12 @@ import (
 
 // testHarness sets up a broker + chimera server + client pipe for testing.
 type testHarness struct {
-	broker   *broker.Broker
-	server   *Server
-	client   net.Conn
-	clientR  *bufio.Reader
-	clientW  *bufio.Writer
-	cleanup  func()
+	broker  *broker.Broker
+	server  *Server
+	client  net.Conn
+	clientR *bufio.Reader
+	clientW *bufio.Writer
+	cleanup func()
 }
 
 func newTestHarness(t *testing.T) *testHarness {
@@ -411,8 +411,8 @@ func TestServerFetchAfterPublish(t *testing.T) {
 	var fetchPayload []byte
 	fetchPayload = appendUint16(fetchPayload, uint16(len("fetch-t")))
 	fetchPayload = append(fetchPayload, "fetch-t"...)
-	fetchPayload = appendUint32(fetchPayload, 0) // partition
-	fetchPayload = appendUint64(fetchPayload, 0) // offset
+	fetchPayload = appendUint32(fetchPayload, 0)  // partition
+	fetchPayload = appendUint64(fetchPayload, 0)  // offset
 	fetchPayload = appendUint32(fetchPayload, 10) // max messages
 
 	fetchFrame, _ := EncodeFrame(&Frame{Version: FrameVersion, OpCode: OpFetch, Payload: fetchPayload})
@@ -842,7 +842,6 @@ func TestServerHandleCommitOffsetDetailed(t *testing.T) {
 		t.Fatalf("read commit ack: %v", err)
 	}
 }
-
 
 func TestServerFetchWithValidTopic(t *testing.T) {
 	h := newTestHarness(t)

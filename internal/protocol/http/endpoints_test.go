@@ -59,9 +59,9 @@ func setupTestServerWithFeatures(t *testing.T) (*AdminServer, *broker.Broker, fu
 			DefaultCompat: "backward",
 		},
 		DLQ: broker.DLQConfig{
-			Enabled:    true,
+			Enabled:     true,
 			TopicPrefix: "__dlq_",
-			MaxRetries: 3,
+			MaxRetries:  3,
 		},
 		WASM: broker.WASMConfig{
 			Enabled:        true,
@@ -277,7 +277,7 @@ func TestHandleConsumerJoin(t *testing.T) {
 
 	joinBody, _ := json.Marshal(map[string]interface{}{
 		"member_id": "c1",
-		"topic":       "cg-join-topic",
+		"topic":     "cg-join-topic",
 	})
 	resp := doRequest(t, srv, "POST", "/v1/consumers/test-group/join", joinBody)
 	if resp.StatusCode != http.StatusOK {

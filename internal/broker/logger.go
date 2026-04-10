@@ -50,10 +50,10 @@ func NewLogger(cfg LoggingConfig) *Logger {
 	}
 }
 
-func (l *Logger) Debug(msg string, args ...any)  { l.inner.Debug(msg, args...) }
-func (l *Logger) Info(msg string, args ...any)   { l.inner.Info(msg, args...) }
-func (l *Logger) Warn(msg string, args ...any)   { l.inner.Warn(msg, args...) }
-func (l *Logger) Error(msg string, args ...any)  { l.inner.Error(msg, args...) }
+func (l *Logger) Debug(msg string, args ...any) { l.inner.Debug(msg, args...) }
+func (l *Logger) Info(msg string, args ...any)  { l.inner.Info(msg, args...) }
+func (l *Logger) Warn(msg string, args ...any)  { l.inner.Warn(msg, args...) }
+func (l *Logger) Error(msg string, args ...any) { l.inner.Error(msg, args...) }
 func (l *Logger) With(args ...any) *Logger {
 	return &Logger{inner: l.inner.With(args...), level: l.level}
 }

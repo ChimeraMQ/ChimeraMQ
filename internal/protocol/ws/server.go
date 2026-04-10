@@ -234,10 +234,10 @@ func (s *wsSession) handlePublishJSON(msg *wsMessage) {
 	}
 
 	s.sendJSON(&wsMessage{
-		Op:       "puback",
-		Status:   "ok",
-		Offset:   offset,
-		Topic:    msg.Topic,
+		Op:        "puback",
+		Status:    "ok",
+		Offset:    offset,
+		Topic:     msg.Topic,
 		Partition: env.PartitionID,
 	})
 }

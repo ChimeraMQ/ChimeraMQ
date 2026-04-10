@@ -10,13 +10,13 @@ import (
 
 // Config holds SWIM gossip configuration.
 type Config struct {
-	NodeID          NodeID
-	BindAddr        string
-	BindPort        int
-	Seeds           []string
-	ProbeInterval   time.Duration
-	ProbeTimeout    time.Duration
-	IndirectNodes   int
+	NodeID           NodeID
+	BindAddr         string
+	BindPort         int
+	Seeds            []string
+	ProbeInterval    time.Duration
+	ProbeTimeout     time.Duration
+	IndirectNodes    int
 	SuspicionTimeout time.Duration
 }
 
@@ -117,8 +117,8 @@ func (s *SWIM) LocalAddr() string {
 
 func (s *SWIM) joinSeed(addr string) {
 	msg := &Message{
-		Type:       MsgPing,
-		SenderID:   s.cfg.NodeID,
+		Type:        MsgPing,
+		SenderID:    s.cfg.NodeID,
 		Incarnation: s.members.Local().Incarnation,
 	}
 	_ = s.transport.Send(addr, msg)

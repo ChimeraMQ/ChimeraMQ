@@ -18,9 +18,9 @@ import (
 
 // Server handles Chimera native protocol connections.
 type Server struct {
-	listener net.Listener
-	broker   *broker.Broker
-	clients  sync.Map
+	listener  net.Listener
+	broker    *broker.Broker
+	clients   sync.Map
 	clientSeq atomic.Uint64
 
 	ctx    context.Context
@@ -155,7 +155,7 @@ func (s *Server) handleConnection(conn net.Conn) {
 	// V-02: Authentication check
 	if s.broker.Config().Auth.Enabled {
 		_, authErr := s.authenticate(payload.Username, payload.Password)
-			if authErr != nil {
+		if authErr != nil {
 			connackPayload := encodeConnAck("", 1) // status 1 = auth failed
 			connackFrame, _ := EncodeFrame(&Frame{Version: FrameVersion, OpCode: OpConnAck, Payload: connackPayload})
 			client.writeFrame(connackFrame)

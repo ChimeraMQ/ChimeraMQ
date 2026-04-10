@@ -84,11 +84,11 @@ func (s *Server) handleConnection(conn net.Conn) {
 	}
 
 	ac := &amqpConn{
-		server:  s,
-		conn:    conn,
-		reader:  reader,
-		writer:  writer,
-		maxSize: maxFrameSize,
+		server:   s,
+		conn:     conn,
+		reader:   reader,
+		writer:   writer,
+		maxSize:  maxFrameSize,
 		channels: make(map[uint16]*amqpChannel),
 	}
 	defer ac.close()
@@ -203,13 +203,13 @@ func splitNull(s string) []string {
 // --- Connection and channel state ---
 
 type amqpConn struct {
-	server   *Server
-	conn     net.Conn
-	reader   *bufio.Reader
-	writer   *bufio.Writer
-	maxSize  uint32
-	channels map[uint16]*amqpChannel
-	mu       sync.Mutex
+	server      *Server
+	conn        net.Conn
+	reader      *bufio.Reader
+	writer      *bufio.Writer
+	maxSize     uint32
+	channels    map[uint16]*amqpChannel
+	mu          sync.Mutex
 	containerID string
 }
 
@@ -220,11 +220,11 @@ type amqpChannel struct {
 }
 
 type amqpLink struct {
-	name    string
-	handle  uint32
-	role    byte // 0=sender, 1=receiver
-	addr    string
-	credit  uint32 // available delivery credits
+	name      string
+	handle    uint32
+	role      byte // 0=sender, 1=receiver
+	addr      string
+	credit    uint32 // available delivery credits
 	delivered uint32 // deliveries sent
 }
 

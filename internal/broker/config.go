@@ -11,26 +11,26 @@ import (
 
 // Config holds all ChimeraMQ broker configuration.
 type Config struct {
-	Node      NodeConfig      `yaml:"node"`
-	Listener  ListenerConfig  `yaml:"listener"`
-	Storage   StorageConfig   `yaml:"storage"`
-	Defaults  DefaultsConfig  `yaml:"defaults"`
-	Logging   LoggingConfig   `yaml:"logging"`
-	Auth      AuthConfig      `yaml:"auth"`
-	TLS       TLSConfig       `yaml:"tls"`
-	Limits    LimitsConfig    `yaml:"limits"`
-	Protocols ProtocolsConfig `yaml:"protocols"`
-	Cluster   ClusterConfig   `yaml:"cluster"`
-	Schema     SchemaConfig     `yaml:"schema"`
-	Priority   PriorityConfig   `yaml:"priority"`
-	TTL        TTLConfigRoot    `yaml:"ttl"`
-	WASM       WASMConfig       `yaml:"wasm"`
-	ACL        ACL              `yaml:"acl"`
-	Processing     ProcessingConfig     `yaml:"processing"`
+	Node          NodeConfig          `yaml:"node"`
+	Listener      ListenerConfig      `yaml:"listener"`
+	Storage       StorageConfig       `yaml:"storage"`
+	Defaults      DefaultsConfig      `yaml:"defaults"`
+	Logging       LoggingConfig       `yaml:"logging"`
+	Auth          AuthConfig          `yaml:"auth"`
+	TLS           TLSConfig           `yaml:"tls"`
+	Limits        LimitsConfig        `yaml:"limits"`
+	Protocols     ProtocolsConfig     `yaml:"protocols"`
+	Cluster       ClusterConfig       `yaml:"cluster"`
+	Schema        SchemaConfig        `yaml:"schema"`
+	Priority      PriorityConfig      `yaml:"priority"`
+	TTL           TTLConfigRoot       `yaml:"ttl"`
+	WASM          WASMConfig          `yaml:"wasm"`
+	ACL           ACL                 `yaml:"acl"`
+	Processing    ProcessingConfig    `yaml:"processing"`
 	Observability ObservabilityConfig `yaml:"observability"`
-		DLQ        DLQConfig       `yaml:"dlq"`
-		FlowControl FlowControlConfig `yaml:"flow_control"`
-		Idempotent IdempotentConfig `yaml:"idempotent"`
+	DLQ           DLQConfig           `yaml:"dlq"`
+	FlowControl   FlowControlConfig   `yaml:"flow_control"`
+	Idempotent    IdempotentConfig    `yaml:"idempotent"`
 }
 
 // ClusterConfig controls clustering behavior.
@@ -119,13 +119,13 @@ type TLSConfig struct {
 
 // AuthConfig controls authentication.
 type AuthConfig struct {
-	Enabled    bool              `yaml:"enabled"`
-	Type       string            `yaml:"type"` // static, file, oauth, ldap
-	Users      map[string]string `yaml:"users"`
-	AuthFile   string            `yaml:"auth_file,omitempty"`
-	Tokens     map[string]string `yaml:"tokens"`
-	OAuth      OAuthConfig       `yaml:"oauth,omitempty"`
-	LDAP       LDAPConfig        `yaml:"ldap,omitempty"`
+	Enabled  bool              `yaml:"enabled"`
+	Type     string            `yaml:"type"` // static, file, oauth, ldap
+	Users    map[string]string `yaml:"users"`
+	AuthFile string            `yaml:"auth_file,omitempty"`
+	Tokens   map[string]string `yaml:"tokens"`
+	OAuth    OAuthConfig       `yaml:"oauth,omitempty"`
+	LDAP     LDAPConfig        `yaml:"ldap,omitempty"`
 }
 
 // OAuthConfig controls OAuth 2.0 / OIDC authentication.
@@ -155,18 +155,18 @@ type ACLConfig struct {
 
 // ACL contains the parsed ACL entries for config.
 type ACL struct {
-	Enabled       bool              `yaml:"enabled"`
-	DefaultPolicy string            `yaml:"default_policy"`
-	Entries       []ACLEntryConfig  `yaml:"entries"`
+	Enabled       bool             `yaml:"enabled"`
+	DefaultPolicy string           `yaml:"default_policy"`
+	Entries       []ACLEntryConfig `yaml:"entries"`
 }
 
 // ACLEntryConfig is one ACL entry in the config file.
 type ACLEntryConfig struct {
-	Principal    string `yaml:"principal"`
-	Resource     string `yaml:"resource"`
-	Name         string `yaml:"name"`
-	Operation    string `yaml:"operation"`
-	Permission   string `yaml:"permission"`
+	Principal  string `yaml:"principal"`
+	Resource   string `yaml:"resource"`
+	Name       string `yaml:"name"`
+	Operation  string `yaml:"operation"`
+	Permission string `yaml:"permission"`
 }
 
 // LimitsConfig controls resource caps.
@@ -269,10 +269,10 @@ type TTLConfigRoot struct {
 // WASMConfig controls the WASM runtime.
 type WASMConfig struct {
 	Enabled          bool   `yaml:"enabled"`
-	MaxMemoryPages   uint32 `yaml:"max_memory_pages"`   // default 256 (16MB)
-	ExecutionTimeout string `yaml:"execution_timeout"`  // default "100ms"
-	ModulePoolSize   int    `yaml:"module_pool_size"`   // default 4
-	ModulesDir       string `yaml:"modules_dir"`        // default "{data_dir}/wasm"
+	MaxMemoryPages   uint32 `yaml:"max_memory_pages"`  // default 256 (16MB)
+	ExecutionTimeout string `yaml:"execution_timeout"` // default "100ms"
+	ModulePoolSize   int    `yaml:"module_pool_size"`  // default 4
+	ModulesDir       string `yaml:"modules_dir"`       // default "{data_dir}/wasm"
 }
 
 // ProcessingConfig controls stream processing.
@@ -303,32 +303,32 @@ type TracingConfig struct {
 }
 
 // DLQConfig controls dead letter queue behavior.
-	type DLQConfig struct {
-		Enabled     bool   `yaml:"enabled"`
-		TopicPrefix string `yaml:"topic_prefix"`  // default: "__dlq_"
-		MaxRetries  int    `yaml:"max_retries"`    // default: 3
-	}
+type DLQConfig struct {
+	Enabled     bool   `yaml:"enabled"`
+	TopicPrefix string `yaml:"topic_prefix"` // default: "__dlq_"
+	MaxRetries  int    `yaml:"max_retries"`  // default: 3
+}
 
-	// FlowControlConfig controls backpressure and flow control.
-	type FlowControlConfig struct {
-		Enabled          bool    `yaml:"enabled"`
-		MaxMemoryBytes   int64   `yaml:"max_memory_bytes"`   // 0 = no limit
-		HighWatermark    float64 `yaml:"high_watermark"`     // 0.0-1.0, default 0.85
-		LowWatermark     float64 `yaml:"low_watermark"`      // 0.0-1.0, default 0.70
-		MaxConnections   int64   `yaml:"max_connections"`    // 0 = no limit
-		GlobalRateLimit  int64   `yaml:"global_rate_limit"`  // msgs/sec, 0 = unlimited
-		SlowConsumerTTL  string  `yaml:"slow_consumer_ttl"`  // default: "30s"
-		MaxSlowTicks     int     `yaml:"max_slow_ticks"`     // default: 3
-	}
+// FlowControlConfig controls backpressure and flow control.
+type FlowControlConfig struct {
+	Enabled         bool    `yaml:"enabled"`
+	MaxMemoryBytes  int64   `yaml:"max_memory_bytes"`  // 0 = no limit
+	HighWatermark   float64 `yaml:"high_watermark"`    // 0.0-1.0, default 0.85
+	LowWatermark    float64 `yaml:"low_watermark"`     // 0.0-1.0, default 0.70
+	MaxConnections  int64   `yaml:"max_connections"`   // 0 = no limit
+	GlobalRateLimit int64   `yaml:"global_rate_limit"` // msgs/sec, 0 = unlimited
+	SlowConsumerTTL string  `yaml:"slow_consumer_ttl"` // default: "30s"
+	MaxSlowTicks    int     `yaml:"max_slow_ticks"`    // default: 3
+}
 
-	// IdempotentConfig controls idempotent producer behavior.
-	type IdempotentConfig struct {
-		Enabled    bool   `yaml:"enabled"`
-		WindowSize string `yaml:"window_size"`  // default: "5m"
-		MaxEntries int    `yaml:"max_entries"`  // per producer, default: 10000
-	}
+// IdempotentConfig controls idempotent producer behavior.
+type IdempotentConfig struct {
+	Enabled    bool   `yaml:"enabled"`
+	WindowSize string `yaml:"window_size"` // default: "5m"
+	MaxEntries int    `yaml:"max_entries"` // per producer, default: 10000
+}
 
-	// EncryptionConfig controls at-rest encryption.
+// EncryptionConfig controls at-rest encryption.
 type EncryptionConfig struct {
 	Enabled   bool   `yaml:"enabled"`
 	Algorithm string `yaml:"algorithm"`

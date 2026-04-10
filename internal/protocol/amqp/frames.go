@@ -9,8 +9,8 @@ import (
 // AMQP 1.0 frame constants.
 const (
 	// Frame types
-	frameTypeAMQP  byte = 0x00
-	frameTypeSASL  byte = 0x01
+	frameTypeAMQP byte = 0x00
+	frameTypeSASL byte = 0x01
 
 	// Protocol header
 	protocolHeader = "AMQP\x00\x01\x00\x00"
@@ -24,24 +24,24 @@ const (
 
 // Frame represents an AMQP 1.0 frame.
 type Frame struct {
-	Type     byte     // 0x00=AMQP, 0x01=SASL
-	Channel  uint16   // Channel number (0 for SASL)
-	Body     []byte   // Frame body (performative + payload)
-	DataOff  byte     // Data offset in 4-byte words
+	Type    byte   // 0x00=AMQP, 0x01=SASL
+	Channel uint16 // Channel number (0 for SASL)
+	Body    []byte // Frame body (performative + payload)
+	DataOff byte   // Data offset in 4-byte words
 }
 
 // Performative type codes (descriptor codes).
 const (
 	// Connection
-	descOpen       uint64 = 0x0000000060000001
-	descBegin      uint64 = 0x0000000060000002
-	descAttach     uint64 = 0x0000000060000003
-	descFlow       uint64 = 0x0000000060000004
-	descTransfer   uint64 = 0x0000000060000005
+	descOpen        uint64 = 0x0000000060000001
+	descBegin       uint64 = 0x0000000060000002
+	descAttach      uint64 = 0x0000000060000003
+	descFlow        uint64 = 0x0000000060000004
+	descTransfer    uint64 = 0x0000000060000005
 	descDisposition uint64 = 0x0000000060000006
-	descDetach     uint64 = 0x0000000060000007
-	descEnd        uint64 = 0x0000000060000008
-	descClose      uint64 = 0x0000000060000009
+	descDetach      uint64 = 0x0000000060000007
+	descEnd         uint64 = 0x0000000060000008
+	descClose       uint64 = 0x0000000060000009
 
 	// SASL
 	descSASLInit       uint64 = 0x0000000040000001
@@ -141,25 +141,25 @@ func ReadProtocolHeader(r io.Reader) error {
 
 // Type codes for AMQP encoded values.
 const (
-	typeNull     byte = 0x40
-	typeBoolean  byte = 0x56 // boolean
-	typeUbyte    byte = 0x50
-	typeUshort   byte = 0x60
-	typeUint     byte = 0x70
-	typeUlong    byte = 0x80
-	typeByte     byte = 0x51
-	typeShort    byte = 0x61
-	typeInt      byte = 0x71
-	typeLong     byte = 0x81
-	typeFloat    byte = 0x72
-	typeDouble   byte = 0x82
-	typeVbin32   byte = 0xA0
-	typeStr32    byte = 0xA1
-	typeSymbol   byte = 0xA3
+	typeNull      byte = 0x40
+	typeBoolean   byte = 0x56 // boolean
+	typeUbyte     byte = 0x50
+	typeUshort    byte = 0x60
+	typeUint      byte = 0x70
+	typeUlong     byte = 0x80
+	typeByte      byte = 0x51
+	typeShort     byte = 0x61
+	typeInt       byte = 0x71
+	typeLong      byte = 0x81
+	typeFloat     byte = 0x72
+	typeDouble    byte = 0x82
+	typeVbin32    byte = 0xA0
+	typeStr32     byte = 0xA1
+	typeSymbol    byte = 0xA3
 	typeTimestamp byte = 0x83
-	typeList0    byte = 0x45 // empty list
-	typeList32   byte = 0xD0
-	typeMap32    byte = 0xD1
+	typeList0     byte = 0x45 // empty list
+	typeList32    byte = 0xD0
+	typeMap32     byte = 0xD1
 )
 
 // typeReader provides AMQP type reading from a byte slice.
@@ -371,11 +371,11 @@ func BuildOpen(containerID, hostname string) []byte {
 // BuildBegin builds an AMQP BEGIN frame body.
 func BuildBegin(remoteChannel uint16, nextOutgoingID uint32, incomingWindow, outgoingWindow uint32, handleMax uint32) []byte {
 	return buildDescribedList(descBegin, []interface{}{
-		nil,               // remote-channel
-		nextOutgoingID,    // next-outgoing-id
-		incomingWindow,    // incoming-window
-		outgoingWindow,    // outgoing-window
-		nil,               // handle-max
+		nil,            // remote-channel
+		nextOutgoingID, // next-outgoing-id
+		incomingWindow, // incoming-window
+		outgoingWindow, // outgoing-window
+		nil,            // handle-max
 	})
 }
 

@@ -233,9 +233,9 @@ func TestPublishWithHeaders(t *testing.T) {
 	})
 
 	env := &message.Envelope{
-		Topic:    "hdr-topic",
-		Payload:  []byte("data"),
-		Headers:  map[string][]byte{"trace-id": []byte("abc-123")},
+		Topic:   "hdr-topic",
+		Payload: []byte("data"),
+		Headers: map[string][]byte{"trace-id": []byte("abc-123")},
 	}
 	_, err := b.Publish(env)
 	if err != nil {

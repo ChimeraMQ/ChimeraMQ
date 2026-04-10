@@ -7,13 +7,13 @@ import (
 
 func TestNewManager(t *testing.T) {
 	cfg := ClusterConfig{
-		NodeID:          "node-1",
-		DataDir:         t.TempDir(),
-		Peers:           []string{"localhost:5673"},
-		GossipBindPort:  5674,
+		NodeID:            "node-1",
+		DataDir:           t.TempDir(),
+		Peers:             []string{"localhost:5673"},
+		GossipBindPort:    5674,
 		ReplicationFactor: 3,
-		MinISR:          2,
-		AckPolicy:       "quorum",
+		MinISR:            2,
+		AckPolicy:         "quorum",
 	}
 
 	m, err := NewManager(cfg)

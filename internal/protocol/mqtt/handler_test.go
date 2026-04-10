@@ -156,9 +156,10 @@ func writeRL(buf *bytes.Buffer, length int) {
 }
 
 // mqttPipe sets up a connection test:
-//   server, clientResp := mqttPipe(...)
-//   - Pass server to handleConnection
-//   - Read server responses from clientResp
+//
+//	server, clientResp := mqttPipe(...)
+//	- Pass server to handleConnection
+//	- Read server responses from clientResp
 func mqttPipe(packets ...[]byte) (server, clientResp net.Conn) {
 	server, client := net.Pipe()
 	go func() {
@@ -459,8 +460,8 @@ func TestHandlePublishRetained(t *testing.T) {
 	sess := NewSession("retain-client", true, 60)
 
 	pkt := &Packet{
-		Type:     PacketPublish,
-		Flags:    0x01, // retain flag
+		Type:      PacketPublish,
+		Flags:     0x01, // retain flag
 		Remaining: buildPublishBody("sensor/temp", []byte("25.5"), QoS0, false, 0),
 	}
 	srv.handlePublish(writer, sess, pkt)

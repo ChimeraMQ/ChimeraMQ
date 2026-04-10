@@ -30,9 +30,9 @@ type inflightMessage struct {
 type inflightState int
 
 const (
-	statePubSent  inflightState = iota // QoS 1: waiting PUBACK
-	statePubRec                        // QoS 2: waiting PUBREL
-	statePubRel                        // QoS 2: waiting PUBCOMP
+	statePubSent inflightState = iota // QoS 1: waiting PUBACK
+	statePubRec                       // QoS 2: waiting PUBREL
+	statePubRel                       // QoS 2: waiting PUBCOMP
 )
 
 type willMessage struct {

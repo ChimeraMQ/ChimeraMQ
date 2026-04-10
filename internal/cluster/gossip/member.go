@@ -10,7 +10,7 @@ import (
 type MemberState int
 
 const (
-	Alive   MemberState = iota
+	Alive MemberState = iota
 	Suspect
 	Dead
 )

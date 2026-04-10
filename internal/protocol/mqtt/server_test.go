@@ -11,11 +11,11 @@ func TestDetector(t *testing.T) {
 		peek  []byte
 		match bool
 	}{
-		{[]byte{0x10}, true},     // MQTT CONNECT
-		{[]byte{0x30}, false},    // PUBLISH (not CONNECT)
-		{[]byte{0xC0}, false},    // PINGREQ
-		{[]byte{0x00}, false},    // invalid
-		{[]byte{'G', 'E', 'T'}, false}, // HTTP
+		{[]byte{0x10}, true},                // MQTT CONNECT
+		{[]byte{0x30}, false},               // PUBLISH (not CONNECT)
+		{[]byte{0xC0}, false},               // PINGREQ
+		{[]byte{0x00}, false},               // invalid
+		{[]byte{'G', 'E', 'T'}, false},      // HTTP
 		{[]byte{'C', 'H', 'M', 'R'}, false}, // Chimera
 	}
 	for _, tt := range tests {
@@ -33,7 +33,7 @@ func TestTopicMapper(t *testing.T) {
 	tm := NewTopicMapper(".")
 
 	tests := []struct {
-		mqtt   string
+		mqtt    string
 		chimera string
 	}{
 		{"sensor/temp", "sensor.temp"},

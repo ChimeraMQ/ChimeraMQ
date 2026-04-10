@@ -16,10 +16,10 @@ type PhiAccrualDetector struct {
 }
 
 type arrivalWindow struct {
-	arrivals   []time.Duration
+	arrivals    []time.Duration
 	lastArrival time.Time
-	mean       time.Duration
-	stdDev     time.Duration
+	mean        time.Duration
+	stdDev      time.Duration
 }
 
 // NewPhiAccrualDetector creates a new phi accrual detector.

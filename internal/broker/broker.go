@@ -11,21 +11,21 @@ import (
 	"time"
 
 	"github.com/chimeramq/chimera/internal/auth"
+	"github.com/chimeramq/chimera/internal/engine/dlq"
 	"github.com/chimeramq/chimera/internal/engine/queue"
 	"github.com/chimeramq/chimera/internal/engine/stream"
 	"github.com/chimeramq/chimera/internal/engine/ttl"
+	"github.com/chimeramq/chimera/internal/flow"
+	"github.com/chimeramq/chimera/internal/idempotent"
+	"github.com/chimeramq/chimera/internal/metrics"
 	"github.com/chimeramq/chimera/internal/processing"
 	"github.com/chimeramq/chimera/internal/schema"
-	"github.com/chimeramq/chimera/internal/metrics"
 	"github.com/chimeramq/chimera/internal/storage/encrypt"
 	"github.com/chimeramq/chimera/internal/storage/hot"
 	"github.com/chimeramq/chimera/internal/storage/tier"
 	"github.com/chimeramq/chimera/internal/storage/wal"
 	"github.com/chimeramq/chimera/internal/storage/warm"
 	"github.com/chimeramq/chimera/internal/tracing"
-	"github.com/chimeramq/chimera/internal/engine/dlq"
-	"github.com/chimeramq/chimera/internal/flow"
-	"github.com/chimeramq/chimera/internal/idempotent"
 	"github.com/chimeramq/chimera/internal/wasm"
 
 	clusterpkg "github.com/chimeramq/chimera/internal/cluster"
@@ -49,8 +49,8 @@ type Broker struct {
 	warmEngine   *warm.LSMTree
 	coldMgr      *tier.ColdManager
 	migrator     *tier.Migrator
-	schemaReg   *schema.Registry
-	schemaEnf   *schema.Enforcer
+	schemaReg    *schema.Registry
+	schemaEnf    *schema.Enforcer
 	ttlExpirer   *ttl.Expirer
 	wasmRT       *wasm.Runtime
 	processor    *processing.Processor
@@ -488,15 +488,15 @@ func (b *Broker) Tracer() *tracing.Tracer { return b.otelTracer }
 func (b *Broker) ACLEngine() *auth.ACLEngine { return b.aclEngine }
 
 // DLQHandler returns the DLQ handler (nil if DLQ disabled).
-	func (b *Broker) DLQHandler() *dlq.DLQ { return b.dlqH }
+func (b *Broker) DLQHandler() *dlq.DLQ { return b.dlqH }
 
-	// FlowController returns the flow controller (nil if flow control disabled).
-	func (b *Broker) FlowController() *flow.Controller { return b.flowCtrl }
+// FlowController returns the flow controller (nil if flow control disabled).
+func (b *Broker) FlowController() *flow.Controller { return b.flowCtrl }
 
-	// Deduper returns the idempotent deduper (nil if idempotent disabled).
-	func (b *Broker) Deduper() *idempotent.Deduper { return b.deduper }
+// Deduper returns the idempotent deduper (nil if idempotent disabled).
+func (b *Broker) Deduper() *idempotent.Deduper { return b.deduper }
 
-	// IsClustered returns true if clustering is enabled.
+// IsClustered returns true if clustering is enabled.
 func (b *Broker) IsClustered() bool { return b.cluster != nil }
 
 func acquireLockFile(dataDir string) (*os.File, error) {

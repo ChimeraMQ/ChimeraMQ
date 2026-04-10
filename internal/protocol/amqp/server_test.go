@@ -1,24 +1,24 @@
 package amqp
 
 import (
-	"time"
 	"bufio"
 	"bytes"
 	"net"
 	"os"
 	"testing"
+	"time"
 
 	"github.com/chimeramq/chimera/internal/broker"
 )
 
 type nopConn struct{}
 
-func (n *nopConn) Read(b []byte) (int, error)  { return 0, nil }
-func (n *nopConn) Write(b []byte) (int, error) { return len(b), nil }
-func (n *nopConn) Close() error                { return nil }
-func (n *nopConn) LocalAddr() net.Addr         { return nil }
-func (n *nopConn) RemoteAddr() net.Addr        { return nil }
-func (n *nopConn) SetDeadline(t time.Time) error  { return nil }
+func (n *nopConn) Read(b []byte) (int, error)         { return 0, nil }
+func (n *nopConn) Write(b []byte) (int, error)        { return len(b), nil }
+func (n *nopConn) Close() error                       { return nil }
+func (n *nopConn) LocalAddr() net.Addr                { return nil }
+func (n *nopConn) RemoteAddr() net.Addr               { return nil }
+func (n *nopConn) SetDeadline(t time.Time) error      { return nil }
 func (n *nopConn) SetReadDeadline(t time.Time) error  { return nil }
 func (n *nopConn) SetWriteDeadline(t time.Time) error { return nil }
 
@@ -69,22 +69,21 @@ func newTestConn(bkr *broker.Broker) (*amqpConn, *bytes.Buffer) {
 // buildFlowBody creates a minimal FLOW performative body.
 func buildFlowBody(handle uint32, credit uint32) []byte {
 	return buildDescribedList(descFlow, []interface{}{
-		handle, // handle
+		handle,    // handle
 		uint32(0), // delivery-count
-		credit, // link-credit
-		nil, // available
+		credit,    // link-credit
+		nil,       // available
 	})
 }
 
 // buildTransferBody creates a minimal TRANSFER performative body.
 func buildTransferBody(handle uint32) []byte {
 	return buildDescribedList(descTransfer, []interface{}{
-		handle, // handle
+		handle,    // handle
 		uint32(1), // delivery-id
-		nil, // delivery-tag
+		nil,       // delivery-tag
 	})
 }
-
 
 // parseValue extracts the value portion from a described type body.
 func parseValue(body []byte) []byte {

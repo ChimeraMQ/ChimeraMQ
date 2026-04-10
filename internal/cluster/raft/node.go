@@ -36,8 +36,8 @@ type RaftNode struct {
 	heartbeatTick *time.Ticker
 
 	// Components
-	transport Transport
-	fsm       *MetadataFSM
+	transport   Transport
+	fsm         *MetadataFSM
 	snapshotter *Snapshotter
 
 	// Peer management
@@ -315,7 +315,7 @@ func (n *RaftNode) becomeLeader() {
 	}
 
 	// Append no-op entry for commit advancement
- noop := LogEntry{
+	noop := LogEntry{
 		Index: lastIdx + 1,
 		Term:  n.currentTerm,
 		Type:  EntryNoOp,
@@ -614,8 +614,8 @@ func (n *RaftNode) loadState() {
 		return
 	}
 	var state struct {
-		CurrentTerm Term    `json:"current_term"`
-		VotedFor    NodeID  `json:"voted_for"`
+		CurrentTerm Term   `json:"current_term"`
+		VotedFor    NodeID `json:"voted_for"`
 	}
 	if json.Unmarshal(data, &state) == nil {
 		n.currentTerm = state.CurrentTerm

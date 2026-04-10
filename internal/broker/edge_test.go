@@ -386,8 +386,8 @@ func TestBrokerPublishDelayedQueueMessage(t *testing.T) {
 	})
 
 	env := &message.Envelope{
-		Topic:    "delayed-q",
-		Payload:  []byte("future-msg"),
+		Topic:     "delayed-q",
+		Payload:   []byte("future-msg"),
 		DeliverAt: time.Now().Add(1 * time.Hour).UnixNano(),
 	}
 
@@ -1613,7 +1613,6 @@ func TestBrokerPublishStorageAppendErrorV3(t *testing.T) {
 		t.Error("expected error when partition Append fails")
 	}
 }
-
 
 func TestCreateTopicWALAppendMetaErrorSafe(t *testing.T) {
 	dir, err := os.MkdirTemp("", "wal-meta-safe-*")

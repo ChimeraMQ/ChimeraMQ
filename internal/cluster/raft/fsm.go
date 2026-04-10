@@ -25,9 +25,9 @@ type Command struct {
 
 // TopicEntry stores topic metadata in the FSM.
 type TopicEntry struct {
-	Name       string `json:"name"`
-	Mode       string `json:"mode"`
-	Partitions uint32 `json:"partitions"`
+	Name       string   `json:"name"`
+	Mode       string   `json:"mode"`
+	Partitions uint32   `json:"partitions"`
 	ReplicaSet []NodeID `json:"replica_set"`
 }
 
@@ -54,10 +54,10 @@ type GroupEntry struct {
 
 // MetadataFSM is the finite state machine for cluster metadata.
 type MetadataFSM struct {
-	mu       sync.RWMutex
-	topics   map[string]*TopicEntry
+	mu          sync.RWMutex
+	topics      map[string]*TopicEntry
 	assignments map[string]*PartitionAssignment // key: "topic:partition"
-	groups   map[string]*GroupEntry
+	groups      map[string]*GroupEntry
 }
 
 // NewMetadataFSM creates a new metadata FSM.
@@ -136,8 +136,8 @@ func (f *MetadataFSM) applyAssignPartition(data json.RawMessage) error {
 
 func (f *MetadataFSM) applyJoinGroup(data json.RawMessage) error {
 	var req struct {
-		Group  string `json:"group"`
-		Member string `json:"member"`
+		Group  string   `json:"group"`
+		Member string   `json:"member"`
 		Topics []string `json:"topics"`
 	}
 	if err := json.Unmarshal(data, &req); err != nil {
@@ -214,9 +214,9 @@ func (f *MetadataFSM) Snapshot() ([]byte, error) {
 	defer f.mu.RUnlock()
 
 	snap := struct {
-		Topics      map[string]*TopicEntry           `json:"topics"`
-		Assignments map[string]*PartitionAssignment   `json:"assignments"`
-		Groups      map[string]*GroupEntry            `json:"groups"`
+		Topics      map[string]*TopicEntry          `json:"topics"`
+		Assignments map[string]*PartitionAssignment `json:"assignments"`
+		Groups      map[string]*GroupEntry          `json:"groups"`
 	}{
 		Topics:      f.topics,
 		Assignments: f.assignments,
@@ -228,9 +228,9 @@ func (f *MetadataFSM) Snapshot() ([]byte, error) {
 // Restore restores FSM state from a snapshot.
 func (f *MetadataFSM) Restore(data []byte) error {
 	var snap struct {
-		Topics      map[string]*TopicEntry           `json:"topics"`
-		Assignments map[string]*PartitionAssignment   `json:"assignments"`
-		Groups      map[string]*GroupEntry            `json:"groups"`
+		Topics      map[string]*TopicEntry          `json:"topics"`
+		Assignments map[string]*PartitionAssignment `json:"assignments"`
+		Groups      map[string]*GroupEntry          `json:"groups"`
 	}
 	if err := json.Unmarshal(data, &snap); err != nil {
 		return err

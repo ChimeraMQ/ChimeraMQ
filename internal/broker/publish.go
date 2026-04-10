@@ -6,8 +6,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/chimeramq/chimera/internal/message"
 	"github.com/chimeramq/chimera/internal/engine/ttl"
+	"github.com/chimeramq/chimera/internal/message"
 	"github.com/chimeramq/chimera/internal/storage/wal"
 )
 

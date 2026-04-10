@@ -20,9 +20,9 @@ const (
 	PacketUnsubscribe byte = 10
 	PacketUnsubAck    byte = 11
 	PacketPingReq     byte = 12
-	PacketPingResp     byte = 13
-	PacketDisconnect   byte = 14
-	PacketAuth         byte = 15 // MQTT 5.0 only
+	PacketPingResp    byte = 13
+	PacketDisconnect  byte = 14
+	PacketAuth        byte = 15 // MQTT 5.0 only
 )
 
 // Protocol levels.
@@ -82,8 +82,8 @@ type ConnectPayload struct {
 
 // SubscribePayload holds parsed SUBSCRIBE data.
 type SubscribePayload struct {
-	PacketID  uint16
-	Topics    []SubTopic
+	PacketID uint16
+	Topics   []SubTopic
 }
 
 // SubTopic is a single topic in a SUBSCRIBE packet.
@@ -94,11 +94,11 @@ type SubTopic struct {
 
 // PublishPayload holds parsed PUBLISH data.
 type PublishPayload struct {
-	Topic   string
-	Payload []byte
-	QoS     byte
-	Retain  bool
-	Dup     bool
+	Topic    string
+	Payload  []byte
+	QoS      byte
+	Retain   bool
+	Dup      bool
 	PacketID uint16
 }
 

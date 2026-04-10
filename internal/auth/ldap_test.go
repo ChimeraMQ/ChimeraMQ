@@ -39,8 +39,8 @@ func TestExtractCN(t *testing.T) {
 	tests := map[string]string{
 		"cn=admin,ou=groups,dc=example,dc=com": "admin",
 		"CN=Admin,OU=Groups,DC=example":        "Admin",
-		"ou=something,dc=example":               "ou=something,dc=example", // no CN
-		"":                                      "",
+		"ou=something,dc=example":              "ou=something,dc=example", // no CN
+		"":                                     "",
 	}
 	for input, expected := range tests {
 		got := extractCN(input)

@@ -15,10 +15,10 @@ import (
 
 // Server implements the MQTT protocol handler.
 type Server struct {
-	broker      *broker.Broker
-	topics      *TopicMapper
-	retained    *RetainedStore
-	sessions    sync.Map // clientID → *Session
+	broker   *broker.Broker
+	topics   *TopicMapper
+	retained *RetainedStore
+	sessions sync.Map // clientID → *Session
 }
 
 // Detector detects the MQTT protocol.

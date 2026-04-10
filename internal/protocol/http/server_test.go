@@ -1066,16 +1066,16 @@ func TestHandleListTopicsAllModes(t *testing.T) {
 	var topics []map[string]interface{}
 	json.NewDecoder(resp.Body).Decode(&topics)
 
-		modesFound := map[string]bool{}
-		for _, tp := range topics {
-			if mode, ok := tp["mode"].(string); ok {
-				modesFound[mode] = true
-			}
-		}
-		if !modesFound["stream"] || !modesFound["queue"] || !modesFound["unified"] {
-			t.Errorf("expected all three modes, got: %v", modesFound)
+	modesFound := map[string]bool{}
+	for _, tp := range topics {
+		if mode, ok := tp["mode"].(string); ok {
+			modesFound[mode] = true
 		}
 	}
+	if !modesFound["stream"] || !modesFound["queue"] || !modesFound["unified"] {
+		t.Errorf("expected all three modes, got: %v", modesFound)
+	}
+}
 
 func TestHandleFetchWithCustomTimeout(t *testing.T) {
 	srv, _, cleanup := setupTestServer(t)
@@ -1120,10 +1120,10 @@ func TestHandleNackWithDLQ(t *testing.T) {
 
 	// Create source topic with DLQ config and MaxRetries=1
 	srcBody, _ := json.Marshal(map[string]interface{}{
-		"name":       "dlq-source-http",
-		"mode":       "queue",
-		"partitions": 1,
-		"dlq_topic":  "dlq-target-http",
+		"name":        "dlq-source-http",
+		"mode":        "queue",
+		"partitions":  1,
+		"dlq_topic":   "dlq-target-http",
 		"max_retries": 1,
 	})
 	doRequest(t, srv, "POST", "/v1/topics", srcBody)

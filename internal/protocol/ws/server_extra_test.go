@@ -407,10 +407,10 @@ func TestWSServeHTTPChimeraBinaryFrame(t *testing.T) {
 	payload := []byte("hello")
 	frame := make([]byte, 12+len(payload))
 	copy(frame[0:4], []byte("CHMR"))
-	frame[4] = 1       // version
-	frame[5] = 0x03    // opcode = publish
-	frame[6] = 0       // reserved
-	frame[7] = 0       // reserved
+	frame[4] = 1    // version
+	frame[5] = 0x03 // opcode = publish
+	frame[6] = 0    // reserved
+	frame[7] = 0    // reserved
 	frame[8] = byte(len(payload) >> 24)
 	frame[9] = byte(len(payload) >> 16)
 	frame[10] = byte(len(payload) >> 8)

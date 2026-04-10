@@ -44,7 +44,7 @@ func TestMCPCreateTopic(t *testing.T) {
 	s := NewServer(bkr)
 
 	params, _ := json.Marshal(map[string]interface{}{
-		"name":      "chimera_create_topic",
+		"name": "chimera_create_topic",
 		"arguments": map[string]interface{}{
 			"name":       "mcp-test-topic",
 			"partitions": 4,
@@ -82,7 +82,7 @@ func TestMCPPublish(t *testing.T) {
 	s := NewServer(bkr)
 
 	params, _ := json.Marshal(map[string]interface{}{
-		"name":      "chimera_publish",
+		"name": "chimera_publish",
 		"arguments": map[string]interface{}{
 			"topic": "pub-test",
 			"key":   "order-1",

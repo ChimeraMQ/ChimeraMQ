@@ -39,11 +39,11 @@ func NewAdminServer(b *broker.Broker) *AdminServer {
 		broker: b,
 		mux:    mux,
 		server: &http.Server{
-			Addr:         fmt.Sprintf("%s:%d", b.Config().Listener.Bind, b.Config().Listener.AdminPort),
-			Handler:      mux,
-			ReadTimeout:  30 * time.Second,
-			WriteTimeout: 30 * time.Second,
-			IdleTimeout:  120 * time.Second,
+			Addr:           fmt.Sprintf("%s:%d", b.Config().Listener.Bind, b.Config().Listener.AdminPort),
+			Handler:        mux,
+			ReadTimeout:    30 * time.Second,
+			WriteTimeout:   30 * time.Second,
+			IdleTimeout:    120 * time.Second,
 			MaxHeaderBytes: 1 << 20,
 		},
 	}
@@ -610,9 +610,9 @@ func (s *AdminServer) handleNack(w http.ResponseWriter, r *http.Request) {
 	}
 
 	writeJSON(w, http.StatusOK, map[string]interface{}{
-		"nacked":      nacked,
-		"dlq_routed":  dlqed,
-		"total":       len(req.Offsets),
+		"nacked":     nacked,
+		"dlq_routed": dlqed,
+		"total":      len(req.Offsets),
 	})
 }
 
@@ -1023,8 +1023,8 @@ func (s *AdminServer) handleDLQPeek(w http.ResponseWriter, r *http.Request) {
 		entries = []*dlq.DLQEntry{}
 	}
 	writeJSON(w, http.StatusOK, map[string]interface{}{
-		"topic":  topic,
-		"count":  len(entries),
+		"topic":   topic,
+		"count":   len(entries),
 		"entries": entries,
 	})
 }

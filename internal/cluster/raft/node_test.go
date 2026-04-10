@@ -10,11 +10,11 @@ import (
 
 // mockTransport records RPCs without sending them over the network.
 type mockTransport struct {
-	mu             sync.Mutex
-	appendEntries  map[NodeID][]*AppendEntriesRequest
-	requestVotes   map[NodeID][]*RequestVoteRequest
-	snapshots      map[NodeID][]*InstallSnapshotRequest
-	responses      map[NodeID]interface{}
+	mu            sync.Mutex
+	appendEntries map[NodeID][]*AppendEntriesRequest
+	requestVotes  map[NodeID][]*RequestVoteRequest
+	snapshots     map[NodeID][]*InstallSnapshotRequest
+	responses     map[NodeID]interface{}
 }
 
 func newMockTransport() *mockTransport {
@@ -52,7 +52,6 @@ func (t *mockTransport) SendInstallSnapshot(nodeID NodeID, req *InstallSnapshotR
 	t.snapshots[nodeID] = append(t.snapshots[nodeID], req)
 	return &InstallSnapshotResponse{Term: req.Term}, nil
 }
-
 
 func testConfig(t *testing.T) Config {
 	t.Helper()
@@ -594,14 +593,14 @@ func TestHandleAppendEntriesConflict(t *testing.T) {
 	// First append entries at term 1
 	node.HandleAppendEntries(&AppendEntriesRequest{
 		Term: 1, LeaderID: "node-2",
-		Entries: []LogEntry{{Index: 1, Term: 1, Data: []byte("old")}},
+		Entries:      []LogEntry{{Index: 1, Term: 1, Data: []byte("old")}},
 		PrevLogIndex: 0, PrevLogTerm: 0,
 	})
 
 	// Now send conflicting entry at same index but different term
 	resp := node.HandleAppendEntries(&AppendEntriesRequest{
 		Term: 2, LeaderID: "node-2",
-		Entries: []LogEntry{{Index: 1, Term: 2, Data: []byte("new")}},
+		Entries:      []LogEntry{{Index: 1, Term: 2, Data: []byte("new")}},
 		PrevLogIndex: 0, PrevLogTerm: 0,
 	})
 
@@ -624,7 +623,7 @@ func TestHandleRequestVoteStaleLog(t *testing.T) {
 	// Give node some log entries via AppendEntries
 	node.HandleAppendEntries(&AppendEntriesRequest{
 		Term: 1, LeaderID: "node-2",
-		Entries: []LogEntry{{Index: 1, Term: 1, Data: []byte("x")}},
+		Entries:      []LogEntry{{Index: 1, Term: 1, Data: []byte("x")}},
 		PrevLogIndex: 0, PrevLogTerm: 0,
 	})
 

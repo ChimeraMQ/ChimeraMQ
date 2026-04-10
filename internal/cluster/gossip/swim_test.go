@@ -35,7 +35,7 @@ func decodeMessage(buf []byte) (*Message, error) {
 	}
 	length := int(binary.BigEndian.Uint32(buf[:4]))
 	var msg Message
-	err := json.Unmarshal(buf[4 : 4+length], &msg)
+	err := json.Unmarshal(buf[4:4+length], &msg)
 	return &msg, err
 }
 

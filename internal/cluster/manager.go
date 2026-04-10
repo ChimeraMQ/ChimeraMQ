@@ -99,13 +99,13 @@ func (m *Manager) Start() error {
 
 	// Start SWIM gossip
 	swimCfg := gossip.Config{
-		NodeID:          gossip.NodeID(m.cfg.NodeID),
-		BindAddr:        "0.0.0.0",
-		BindPort:        m.cfg.GossipBindPort,
-		Seeds:           m.cfg.GossipSeeds,
-		ProbeInterval:   m.cfg.ProbeInterval,
-		ProbeTimeout:    m.cfg.ProbeTimeout,
-		IndirectNodes:   m.cfg.IndirectNodes,
+		NodeID:           gossip.NodeID(m.cfg.NodeID),
+		BindAddr:         "0.0.0.0",
+		BindPort:         m.cfg.GossipBindPort,
+		Seeds:            m.cfg.GossipSeeds,
+		ProbeInterval:    m.cfg.ProbeInterval,
+		ProbeTimeout:     m.cfg.ProbeTimeout,
+		IndirectNodes:    m.cfg.IndirectNodes,
 		SuspicionTimeout: m.cfg.SuspicionTimeout,
 	}
 

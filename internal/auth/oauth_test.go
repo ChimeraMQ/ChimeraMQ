@@ -2,12 +2,12 @@ package auth
 
 import (
 	"context"
+	"crypto"
 	"crypto/ecdsa"
 	"crypto/elliptic"
 	"crypto/rand"
 	"crypto/rsa"
 	"crypto/sha256"
-	"crypto"
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
@@ -27,11 +27,11 @@ func makeJWTHeader(kid string) string {
 
 func makeJWTPayload(iss, sub, aud string, exp int64, roles, groups []string) string {
 	payload := map[string]interface{}{
-		"iss":   iss,
-		"sub":   sub,
-		"exp":   exp,
-		"aud":   aud,
-		"roles": roles,
+		"iss":    iss,
+		"sub":    sub,
+		"exp":    exp,
+		"aud":    aud,
+		"roles":  roles,
 		"groups": groups,
 	}
 	b, _ := json.Marshal(payload)
@@ -59,12 +59,12 @@ func signJWTEC(header, payload string, privKey *ecdsa.PrivateKey) string {
 // testOAuthProvider creates an OAuthProvider with pre-loaded keys (no network).
 func testOAuthProvider(kid string, pubKey interface{}) *OAuthProvider {
 	p := &OAuthProvider{
-		issuer:    "https://test.example.com",
-		clientID:  "test-client",
-		audience:  "test-audience",
-		keySet:    map[string]interface{}{kid: pubKey},
+		issuer:     "https://test.example.com",
+		clientID:   "test-client",
+		audience:   "test-audience",
+		keySet:     map[string]interface{}{kid: pubKey},
 		httpClient: nil,
-		closeCh:   make(chan struct{}),
+		closeCh:    make(chan struct{}),
 	}
 	return p
 }

@@ -9,11 +9,11 @@ import (
 func newTestSWIM(t *testing.T, nodeID string) *SWIM {
 	t.Helper()
 	swim, err := NewSWIM(Config{
-		NodeID:          NodeID(nodeID),
-		BindAddr:        "127.0.0.1",
-		BindPort:        0,
-		ProbeInterval:   1 * time.Second,
-		ProbeTimeout:    500 * time.Millisecond,
+		NodeID:           NodeID(nodeID),
+		BindAddr:         "127.0.0.1",
+		BindPort:         0,
+		ProbeInterval:    1 * time.Second,
+		ProbeTimeout:     500 * time.Millisecond,
 		SuspicionTimeout: 5 * time.Second,
 	})
 	if err != nil {

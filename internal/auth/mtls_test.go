@@ -21,9 +21,9 @@ func makeTestCert(cn string, ous []string, orgs []string, sans []string) *x509.C
 			OrganizationalUnit: ous,
 			Organization:       orgs,
 		},
-		NotBefore:   time.Now(),
-		NotAfter:    time.Now().Add(time.Hour),
-		DNSNames:    sans,
+		NotBefore: time.Now(),
+		NotAfter:  time.Now().Add(time.Hour),
+		DNSNames:  sans,
 	}
 	certDER, _ := x509.CreateCertificate(rand.Reader, template, template, &key.PublicKey, key)
 	cert, _ := x509.ParseCertificate(certDER)

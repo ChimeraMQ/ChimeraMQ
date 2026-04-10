@@ -8,13 +8,13 @@ import (
 )
 
 const (
-	FrameMagic0    byte = 'C'
-	FrameMagic1    byte = 'H'
-	FrameMagic2    byte = 'M'
-	FrameMagic3    byte = 'R'
-	FrameVersion   uint8  = 1
-	FrameHeaderLen        = 11 // magic(4) + version(1) + opcode(1) + flags(1) + length(4)
-	FrameTrailerLen       = 4  // CRC32C
+	FrameMagic0     byte  = 'C'
+	FrameMagic1     byte  = 'H'
+	FrameMagic2     byte  = 'M'
+	FrameMagic3     byte  = 'R'
+	FrameVersion    uint8 = 1
+	FrameHeaderLen        = 11               // magic(4) + version(1) + opcode(1) + flags(1) + length(4)
+	FrameTrailerLen       = 4                // CRC32C
 	MaxFrameSize          = 16 * 1024 * 1024 // 16MB
 )
 
