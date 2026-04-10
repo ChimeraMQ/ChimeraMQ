@@ -336,6 +336,41 @@ func (lsm *LSMTree) compactL0() {
 	lsm.manifest.Add(1, newSST)
 }
 
+// OldSSTables returns SSTables at L1+ older than the given threshold.
+func (lsm *LSMTree) OldSSTables(olderThan time.Duration) []*SSTable {
+	lsm.mu.RLock()
+	defer lsm.mu.RUnlock()
+
+	cutoff := time.Now().Add(-olderThan)
+	var result []*SSTable
+	for i := 1; i < len(lsm.levels); i++ {
+		for _, sst := range lsm.levels[i].sstables {
+			meta := sst.Metadata()
+			if time.Unix(0, meta.MaxTimestamp).Before(cutoff) {
+				result = append(result, sst)
+			}
+		}
+	}
+	return result
+}
+
+// RemoveSSTable removes an SSTable from its level and the manifest.
+func (lsm *LSMTree) RemoveSSTable(sst *SSTable) {
+	lsm.mu.Lock()
+	defer lsm.mu.Unlock()
+
+	for i := range lsm.levels {
+		for j, s := range lsm.levels[i].sstables {
+			if s == sst {
+				lsm.levels[i].sstables = append(lsm.levels[i].sstables[:j], lsm.levels[i].sstables[j+1:]...)
+				break
+			}
+		}
+	}
+	lsm.manifest.Remove(sst.Path())
+	sst.Remove()
+}
+
 func collectEntries(sst *SSTable) map[uint64]MemTableEntry {
 	result := make(map[uint64]MemTableEntry)
 	meta := sst.Metadata()

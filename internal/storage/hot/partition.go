@@ -225,6 +225,55 @@ func (p *Partition) SegmentCount() int {
 	return len(p.segments)
 }
 
+// FrozenSegments returns segments that are not the active segment.
+func (p *Partition) FrozenSegments() []*Segment {
+	p.mu.RLock()
+	defer p.mu.RUnlock()
+	var frozen []*Segment
+	for _, seg := range p.segments {
+		if seg != p.active {
+			frozen = append(frozen, seg)
+		}
+	}
+	return frozen
+}
+
+// RemoveSegment removes a frozen segment from the partition.
+func (p *Partition) RemoveSegment(seg *Segment) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	for i, s := range p.segments {
+		if s == seg {
+			p.segments = append(p.segments[:i], p.segments[i+1:]...)
+			break
+		}
+	}
+}
+
+// AdvanceLogStart removes leading segments whose NextOffset <= targetOffset
+// and updates the log start offset. Returns the number of segments removed.
+func (p *Partition) AdvanceLogStart(targetOffset uint64) int {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+
+	removed := 0
+	for len(p.segments) > 1 && p.segments[0].NextOffset() <= targetOffset {
+		seg := p.segments[0]
+		p.segments = p.segments[1:]
+		seg.Close()
+		os.Remove(seg.path)
+		idxPath := seg.path[:len(seg.path)-4] + "idx"
+		os.Remove(idxPath)
+		removed++
+	}
+
+	if len(p.segments) > 0 {
+		p.logStart = p.segments[0].BaseOffset()
+	}
+
+	return removed
+}
+
 // ReadRecord reads a length-prefixed record at a byte position.
 func ReadRecordAt(f *os.File, position int64) ([]byte, error) {
 	var lenBuf [4]byte

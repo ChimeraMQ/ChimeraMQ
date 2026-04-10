@@ -2,6 +2,7 @@ package ttl
 
 import (
 	"context"
+	"log"
 	"sync"
 	"time"
 
@@ -122,27 +123,29 @@ func (e *Expirer) scan() {
 
 	now := time.Now().UnixNano()
 
+	// Use ForEachPartition to scan all partitions dynamically
 	for _, topic := range topics {
 		cfg := configs[topic]
 		if cfg == nil {
 			continue
 		}
 
-		// Scan partitions 0-15 (reasonable default)
-		for i := uint32(0); i < 16; i++ {
-			part, err := e.storage.GetOrCreatePartition(topic, i)
-			if err != nil {
-				continue
+		e.storage.ForEachPartition(func(t string, partID uint32, part *hot.Partition) bool {
+			if t != topic {
+				return true
 			}
 
 			hw := part.HighWatermark()
 			ls := part.LogStartOffset()
 			if hw < ls || hw == 0 {
-				continue
+				return true
 			}
 
 			// Batch scan: check up to 100 messages per tick
 			checked := 0
+			var lastExpiredOffset uint64
+			hasExpired := false
+
 			for offset := ls; offset <= hw && checked < 100; offset++ {
 				data, err := part.Read(offset)
 				if err != nil {
@@ -156,6 +159,12 @@ func (e *Expirer) scan() {
 				}
 
 				if env.TTL == 0 {
+					// Stop scanning: messages are ordered by time, if we hit
+					// a non-expiring message with no TTL, we can stop since
+					// subsequent messages are newer.
+					if hasExpired {
+						break
+					}
 					continue
 				}
 
@@ -164,8 +173,23 @@ func (e *Expirer) scan() {
 					if cfg.Action == ActionDLQ && e.onExpired != nil {
 						e.onExpired(topic, env)
 					}
+					lastExpiredOffset = offset
+					hasExpired = true
+				} else if hasExpired {
+					// Reached a non-expired message after expired ones — stop
+					break
 				}
 			}
-		}
+
+			// Delete expired messages by advancing the log start
+			if hasExpired && lastExpiredOffset > 0 {
+				removed := part.AdvanceLogStart(lastExpiredOffset + 1)
+				if removed > 0 {
+					log.Printf("ttl: expired messages on %s/%d, removed %d segments up to offset %d", topic, partID, removed, lastExpiredOffset)
+				}
+			}
+
+			return true
+		})
 	}
 }

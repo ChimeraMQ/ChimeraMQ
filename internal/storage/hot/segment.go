@@ -199,6 +199,23 @@ func (s *Segment) NextOffset() uint64 { return s.nextOff }
 // Size returns the current file size.
 func (s *Segment) Size() int64 { return s.size }
 
+// Path returns the segment file path.
+func (s *Segment) Path() string { return s.path }
+
+// Created returns the segment creation time.
+func (s *Segment) Created() time.Time { return s.created }
+
+// Frozen returns whether this segment is frozen (read-only).
+func (s *Segment) Frozen() bool { return s.frozen }
+
+// Remove closes and deletes the segment file and its index.
+func (s *Segment) Remove() error {
+	s.file.Close()
+	idxPath := s.path[:len(s.path)-4] + "idx"
+	os.Remove(idxPath) // best-effort index removal
+	return os.Remove(s.path)
+}
+
 func (s *Segment) writeHeader() error {
 	var header [SegmentHeaderLen]byte
 	binary.BigEndian.PutUint32(header[0:], SegmentMagic)

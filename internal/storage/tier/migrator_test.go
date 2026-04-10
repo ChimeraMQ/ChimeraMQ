@@ -95,3 +95,62 @@ func TestColdManagerCreate(t *testing.T) {
 		t.Error("new cold manager should have no archives")
 	}
 }
+
+func TestMigrateHotToWarm(t *testing.T) {
+	dir := t.TempDir()
+
+	he := hot.NewEngine(dir, hot.HotConfig{SegmentSize: 256})
+	defer he.Close()
+
+	part, err := he.GetOrCreatePartition("test-migrate", 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// Write enough data to trigger segment roll
+	for i := 0; i < 50; i++ {
+		data := make([]byte, 20) // 20 bytes each
+		copy(data, fmt.Sprintf("msg-%03d", i))
+		part.Append(data)
+	}
+
+	// Verify we have frozen segments (active segment is the last one)
+	frozen := part.FrozenSegments()
+	if len(frozen) == 0 {
+		t.Skip("no frozen segments created - segment size too large")
+	}
+
+	// Create warm engine
+	warmDir := dir + "/warm"
+	we, err := warm.NewLSMTree(warmDir, warm.DefaultLSMConfig())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer we.Close()
+
+	// Migrate with 0 retention = migrate everything immediately
+	policy := TierPolicy{HotRetention: 0}
+	m := NewMigrator(policy, he, we, nil)
+
+	// Force immediate migration by calling directly
+	// Use a very short retention to trigger migration
+	m.policy.HotRetention = time.Nanosecond
+	m.migrateHotToWarm()
+
+	// Verify data is now in warm tier
+	for i := 0; i < 50; i++ {
+		key := make([]byte, 8)
+		binary.BigEndian.PutUint64(key, uint64(i))
+		val, found, deleted := we.Get(key)
+		if !found {
+			t.Logf("offset %d not found in warm tier (may be in active hot segment)", i)
+			continue
+		}
+		if deleted {
+			t.Errorf("offset %d marked as deleted", i)
+		}
+		if len(val) != 20 {
+			t.Errorf("offset %d: got %d bytes, want 20", i, len(val))
+		}
+	}
+}

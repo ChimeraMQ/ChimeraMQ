@@ -95,3 +95,16 @@ func (e *Engine) FlushAll() {
 		}
 	}
 }
+
+// ForEachPartition calls fn for each partition. Stops if fn returns false.
+func (e *Engine) ForEachPartition(fn func(topic string, partID uint32, p *Partition) bool) {
+	e.mu.RLock()
+	defer e.mu.RUnlock()
+	for topic, topicParts := range e.partitions {
+		for partID, part := range topicParts {
+			if !fn(topic, partID, part) {
+				return
+			}
+		}
+	}
+}

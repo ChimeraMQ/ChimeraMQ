@@ -1,8 +1,15 @@
 package replication
 
 import (
+	"fmt"
+
 	"github.com/chimeramq/chimera/internal/cluster/raft"
 )
+
+// LocalStorage is the interface used by FollowerReplica to persist replicated data.
+type LocalStorage interface {
+	Append(topic string, partition uint32, data []byte) (uint64, error)
+}
 
 // ReplicateRequest is sent from leader to follower.
 type ReplicateRequest struct {
@@ -34,14 +41,16 @@ type FollowerReplica struct {
 	leaderID   raft.NodeID
 	localEpoch uint64
 	leo        uint64
+	storage    LocalStorage
 }
 
 // NewFollowerReplica creates a new follower replica handler.
-func NewFollowerReplica(topic string, partition uint32, leaderID raft.NodeID) *FollowerReplica {
+func NewFollowerReplica(topic string, partition uint32, leaderID raft.NodeID, storage LocalStorage) *FollowerReplica {
 	return &FollowerReplica{
 		topic:     topic,
 		partition: partition,
 		leaderID:  leaderID,
+		storage:   storage,
 	}
 }
 
@@ -52,7 +61,18 @@ func (f *FollowerReplica) Replicate(req *ReplicateRequest) error {
 		return nil // stale, ignore
 	}
 	f.localEpoch = req.Epoch
-	f.leo = req.Offset + 1
+
+	// Persist the data to local storage
+	if f.storage != nil && len(req.Data) > 0 {
+		offset, err := f.storage.Append(req.Topic, req.Partition, req.Data)
+		if err != nil {
+			return fmt.Errorf("local append: %w", err)
+		}
+		f.leo = offset + 1
+	} else {
+		f.leo = req.Offset + 1
+	}
+
 	return nil
 }
 

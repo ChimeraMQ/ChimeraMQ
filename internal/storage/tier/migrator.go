@@ -11,6 +11,7 @@ import (
 	"github.com/chimeramq/chimera/internal/storage/cold"
 	"github.com/chimeramq/chimera/internal/storage/hot"
 	"github.com/chimeramq/chimera/internal/storage/warm"
+	"log"
 )
 
 // TierPolicy controls tier migration thresholds.
@@ -155,18 +156,86 @@ func (m *Migrator) migrateHotToWarm() {
 	if m.warm == nil || m.policy.HotRetention == 0 {
 		return
 	}
-	// This is a placeholder for the actual migration logic.
-	// In production, this would iterate partitions, find frozen segments
-	// older than HotRetention, read their data, write to warm LSM, then
-	// delete the hot segment.
+
+	cutoff := time.Now().Add(-m.policy.HotRetention)
+
+	m.hot.ForEachPartition(func(topic string, partID uint32, p *hot.Partition) bool {
+		frozen := p.FrozenSegments()
+		for _, seg := range frozen {
+			if seg.Created().After(cutoff) {
+				continue
+			}
+
+			baseOff := seg.BaseOffset()
+			nextOff := seg.NextOffset()
+			migrated := 0
+
+			for off := baseOff; off < nextOff; off++ {
+				data, err := p.Read(off)
+				if err != nil {
+					continue
+				}
+
+				key := make([]byte, 8)
+				binary.BigEndian.PutUint64(key, off)
+				if err := m.warm.Put(key, data); err != nil {
+					log.Printf("tier: warm put offset %d: %v", off, err)
+					continue
+				}
+				migrated++
+			}
+
+			if migrated > 0 {
+				p.RemoveSegment(seg)
+				if err := seg.Remove(); err != nil {
+					log.Printf("tier: remove segment %s: %v", seg.Path(), err)
+				}
+				log.Printf("tier: migrated %d records from hot segment %s to warm", migrated, seg.Path())
+			}
+		}
+		return true
+	})
 }
 
 func (m *Migrator) migrateWarmToCold() {
 	if m.cold == nil || m.policy.WarmRetention == 0 {
 		return
 	}
-	// Placeholder: collect old SSTables from warm tier, create cold archive.
+
+	oldSSTs := m.warm.OldSSTables(m.policy.WarmRetention)
+	if len(oldSSTs) == 0 {
+		return
+	}
+
+	batchSize := 10
+	for i := 0; i < len(oldSSTs); i += batchSize {
+		end := i + batchSize
+		if end > len(oldSSTs) {
+			end = len(oldSSTs)
+		}
+		batch := oldSSTs[i:end]
+
+		archiveName := fmt.Sprintf("cold-%d.dat", time.Now().UnixNano())
+		archivePath := filepath.Join(m.cold.dir, archiveName)
+
+		ca, err := cold.CreateColdArchive(archivePath, batch)
+		if err != nil {
+			log.Printf("tier: create cold archive: %v", err)
+			continue
+		}
+
+		m.cold.mu.Lock()
+		m.cold.archives[archivePath] = ca
+		m.cold.mu.Unlock()
+
+		for _, sst := range batch {
+			m.warm.RemoveSSTable(sst)
+		}
+
+		log.Printf("tier: archived %d SSTables to %s", len(batch), archiveName)
+	}
 }
+
 
 func (m *Migrator) purgeExpiredCold() {
 	if m.cold == nil || m.policy.ColdRetention == 0 {

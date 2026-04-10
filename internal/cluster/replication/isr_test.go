@@ -123,7 +123,7 @@ func TestISRHasQuorum(t *testing.T) {
 }
 
 func TestFollowerReplica(t *testing.T) {
-	f := NewFollowerReplica("topic", 0, "leader-1")
+	f := NewFollowerReplica("topic", 0, "leader-1", nil)
 
 	if f.LEO() != 0 {
 		t.Errorf("initial LEO = %d, want 0", f.LEO())
