@@ -174,13 +174,13 @@ func (m *ProtocolMux) routeConnection(conn net.Conn) {
 		if len(peeked) >= n && entry.detector.Detect(peeked[:n]) {
 			// Replace conn with the buffered reader wrapper so peeked bytes are available
 			bufConn := &bufferedConn{Conn: conn, reader: br}
-			entry.handler.HandleConnection(bufConn, peeked[:n])
+			_ = entry.handler.HandleConnection(bufConn, peeked[:n])
 			return
 		}
 	}
 
 	// No protocol matched — close with a hint
-	conn.Write([]byte("ERR no matching protocol\n"))
+	_, _ = conn.Write([]byte("ERR no matching protocol\n"))
 }
 
 // Stop gracefully shuts down the multiplexer and all handlers.

@@ -399,7 +399,7 @@ func (b *Broker) Stop() error {
 	b.logger.Info("storage flushed")
 
 	// Checkpoint WAL
-	b.wal.Checkpoint(b.wal.Offset())
+	_ = b.wal.Checkpoint(b.wal.Offset())
 	b.wal.Close()
 	b.logger.Info("WAL closed")
 
@@ -409,7 +409,7 @@ func (b *Broker) Stop() error {
 
 	// Shutdown tracer
 	if b.otelTracer != nil {
-		b.otelTracer.Shutdown(context.Background())
+		_ = b.otelTracer.Shutdown(context.Background())
 		b.logger.Info("tracer shutdown")
 	}
 

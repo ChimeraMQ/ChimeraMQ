@@ -63,7 +63,7 @@ func RunServer(args []string) {
 	port := flags.Int("port", 0, "Port override")
 	adminPort := flags.Int("admin-port", 0, "Admin port override")
 	logLevel := flags.String("log-level", "", "Log level override")
-	flags.Parse(args)
+	_ = flags.Parse(args)
 
 	cliFlags := &broker.CLIFlags{
 		DataDir:   *dataDir,
@@ -126,8 +126,8 @@ func RunServer(args []string) {
 	mux.Stop()
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
-	adminServer.Shutdown(ctx)
-	b.Stop()
+	_ = adminServer.Shutdown(ctx)
+	_ = b.Stop()
 	fmt.Println("Goodbye.")
 }
 
@@ -173,7 +173,7 @@ func RunTopicCLI(args []string) {
 		name := flags.String("name", "", "Topic name")
 		mode := flags.String("mode", "unified", "Topic mode: stream, queue, unified")
 		partitions := flags.Uint("partitions", 8, "Number of partitions")
-		flags.Parse(args[1:])
+		_ = flags.Parse(args[1:])
 
 		body, _ := json.Marshal(map[string]interface{}{
 			"name":       *name,
@@ -232,7 +232,7 @@ func RunProduceCLI(args []string) {
 	topic := flags.String("topic", "", "Target topic")
 	msg := flags.String("message", "", "Message body (or stdin)")
 	count := flags.Int("count", 1, "Number of messages")
-	flags.Parse(args)
+	_ = flags.Parse(args)
 
 	adminAddr := getAdminAddr()
 
@@ -252,7 +252,7 @@ func RunProduceCLI(args []string) {
 		}
 
 		var result map[string]interface{}
-		json.NewDecoder(resp.Body).Decode(&result)
+		_ = json.NewDecoder(resp.Body).Decode(&result)
 		resp.Body.Close()
 
 		fmt.Printf("Published: partition=%v offset=%v\n", result["partition"], result["offset"])
@@ -267,7 +267,7 @@ func RunConsumeCLI(args []string) {
 	offset := flags.Uint64("offset", 0, "Start offset")
 	limit := flags.Int("limit", 10, "Max messages to fetch")
 	follow := flags.Bool("follow", false, "Keep polling for new messages")
-	flags.Parse(args)
+	_ = flags.Parse(args)
 
 	if *topic == "" {
 		fmt.Fprintln(os.Stderr, "Error: --topic is required")
@@ -298,7 +298,7 @@ func RunConsumeCLI(args []string) {
 			NextOffset uint64 `json:"next_offset"`
 			Count      int    `json:"count"`
 		}
-		json.NewDecoder(resp.Body).Decode(&result)
+		_ = json.NewDecoder(resp.Body).Decode(&result)
 		resp.Body.Close()
 
 		for _, msg := range result.Messages {

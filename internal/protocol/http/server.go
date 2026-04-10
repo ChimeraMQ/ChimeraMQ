@@ -266,7 +266,7 @@ func (s *AdminServer) HandleConnection(conn net.Conn, _ []byte) error {
 		ReadTimeout:    30 * time.Second,
 		WriteTimeout:   30 * time.Second,
 	}
-	srv.Serve(ln)
+	_ = srv.Serve(ln)
 	return nil
 }
 
@@ -274,7 +274,7 @@ func (s *AdminServer) HandleConnection(conn net.Conn, _ []byte) error {
 func (s *AdminServer) Stop() {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
-	s.server.Shutdown(ctx)
+	_ = s.server.Shutdown(ctx)
 }
 
 func (s *AdminServer) handleCreateTopic(w http.ResponseWriter, r *http.Request) {
@@ -441,7 +441,7 @@ func (s *AdminServer) handleHealth(w http.ResponseWriter, r *http.Request) {
 
 func (s *AdminServer) handleMetrics(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "text/plain")
-	w.Write([]byte(s.broker.Metrics().Expose()))
+	_, _ = w.Write([]byte(s.broker.Metrics().Expose()))
 }
 
 func (s *AdminServer) handleClusterMembers(w http.ResponseWriter, r *http.Request) {
@@ -662,7 +662,7 @@ func (s *AdminServer) handleGetConsumer(w http.ResponseWriter, r *http.Request) 
 func writeJSON(w http.ResponseWriter, status int, v interface{}) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(status)
-	json.NewEncoder(w).Encode(v)
+	_ = json.NewEncoder(w).Encode(v)
 }
 
 func writeError(w http.ResponseWriter, status int, msg string) {
@@ -910,7 +910,7 @@ func (s *AdminServer) handleCreateTopology(w http.ResponseWriter, r *http.Reques
 	}
 
 	if spec.AutoStart {
-		p.StartTopology(spec.Name)
+		_ = p.StartTopology(spec.Name)
 	}
 
 	writeJSON(w, http.StatusCreated, map[string]string{

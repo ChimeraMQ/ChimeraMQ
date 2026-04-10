@@ -145,7 +145,7 @@ func (s *Server) handleConnection(conn net.Conn) {
 
 	for {
 		if keepalive > 0 {
-			conn.SetReadDeadline(time.Now().Add(keepalive * 2))
+			_ = conn.SetReadDeadline(time.Now().Add(keepalive * 2))
 		}
 
 		pkt, err := ReadPacket(reader)
@@ -327,7 +327,7 @@ func (s *Server) publishWill(will *willMessage) {
 		Payload:     will.payload,
 		SourceProto: message.ProtoMQTT,
 	}
-	s.broker.Publish(env)
+	_, _ = s.broker.Publish(env)
 
 	if will.retain {
 		s.retained.Store(will.topic, will.payload, will.qos)
@@ -348,5 +348,5 @@ func (s *Server) authenticate(username, password string) bool {
 }
 
 func (s *Server) writePacket(w *bufio.Writer, pktType byte, flags byte, data []byte) {
-	WritePacket(w, pktType, flags, data)
+	_ = WritePacket(w, pktType, flags, data)
 }

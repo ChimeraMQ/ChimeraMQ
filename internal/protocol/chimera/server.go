@@ -158,7 +158,7 @@ func (s *Server) handleConnection(conn net.Conn) {
 		if authErr != nil {
 			connackPayload := encodeConnAck("", 1) // status 1 = auth failed
 			connackFrame, _ := EncodeFrame(&Frame{Version: FrameVersion, OpCode: OpConnAck, Payload: connackPayload})
-			client.writeFrame(connackFrame)
+			_ = client.writeFrame(connackFrame)
 			return
 		}
 	}
@@ -194,7 +194,7 @@ func (s *Server) handleConnection(conn net.Conn) {
 		if keepalive > 10*time.Minute {
 			keepalive = 10 * time.Minute
 		}
-		conn.SetReadDeadline(time.Now().Add(keepalive * 2))
+		_ = conn.SetReadDeadline(time.Now().Add(keepalive * 2))
 	}
 
 	// Main read loop
@@ -205,7 +205,7 @@ func (s *Server) handleConnection(conn net.Conn) {
 		}
 
 		if keepalive > 0 {
-			conn.SetReadDeadline(time.Now().Add(keepalive * 2))
+			_ = conn.SetReadDeadline(time.Now().Add(keepalive * 2))
 		}
 
 		switch frame.OpCode {
@@ -216,7 +216,7 @@ func (s *Server) handleConnection(conn net.Conn) {
 				if authErr != nil {
 					connackPayload := encodeConnAck("", 1)
 					connackFrame, _ := EncodeFrame(&Frame{Version: FrameVersion, OpCode: OpConnAck, Payload: connackPayload})
-					client.writeFrame(connackFrame)
+					_ = client.writeFrame(connackFrame)
 					return
 				}
 			}
@@ -233,7 +233,7 @@ func (s *Server) handleConnection(conn net.Conn) {
 			}
 			connackPayload := encodeConnAck(client.clientID, 0)
 			connackFrame, _ := EncodeFrame(&Frame{Version: FrameVersion, OpCode: OpConnAck, Payload: connackPayload})
-			client.writeFrame(connackFrame)
+			_ = client.writeFrame(connackFrame)
 		case OpPublish:
 			s.handlePublish(client, frame)
 		case OpSubscribe:
@@ -252,7 +252,7 @@ func (s *Server) handleConnection(conn net.Conn) {
 			s.handleDeleteTopic(client, frame)
 		case OpPing:
 			pong, _ := EncodeFrame(&Frame{Version: FrameVersion, OpCode: OpPong})
-			client.writeFrame(pong)
+			_ = client.writeFrame(pong)
 		case OpDisconnect:
 			return
 		}
@@ -297,7 +297,7 @@ func (s *Server) handlePublish(client *ClientConn, frame *Frame) {
 
 	ackPayload := encodePubAck(env.Topic, env.PartitionID, offset)
 	ackFrame, _ := EncodeFrame(&Frame{Version: FrameVersion, OpCode: OpPubAck, Payload: ackPayload})
-	client.writeFrame(ackFrame)
+	_ = client.writeFrame(ackFrame)
 }
 
 func (s *Server) handleSubscribe(client *ClientConn, frame *Frame) {
@@ -386,7 +386,7 @@ func (s *Server) handleNack(client *ClientConn, frame *Frame) {
 							dlqMgr := queue.NewDLQManager(topicCfg.DLQTopic)
 							dlqEnv, _ := dlqMgr.Route(env, "max-retries-exceeded", env.DeliverCount)
 							if dlqEnv != nil {
-								s.broker.Publish(dlqEnv)
+								_, _ = s.broker.Publish(dlqEnv)
 							}
 						}
 					}
@@ -413,7 +413,7 @@ func (s *Server) handleCommitOffset(client *ClientConn, frame *Frame) {
 	if ok {
 		s.broker.StreamEngine().JoinGroup(group, topic, client.clientID, topicCfg.Partitions, 0)
 	}
-	s.broker.StreamEngine().CommitOffset(group, partitionID, offset)
+	_ = s.broker.StreamEngine().CommitOffset(group, partitionID, offset)
 
 	ackFrame, _ := EncodeFrame(&Frame{Version: FrameVersion, OpCode: OpCommitAck})
 	client.writeFrame(ackFrame)

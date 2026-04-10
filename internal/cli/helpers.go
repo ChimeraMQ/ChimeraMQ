@@ -35,7 +35,7 @@ func httpDelete(url string) (*http.Response, error) {
 func printResponse(resp *http.Response) {
 	var pretty bytes.Buffer
 	body, _ := io.ReadAll(io.LimitReader(resp.Body, 1024*1024))
-	json.Indent(&pretty, body, "", "  ")
+	_ = json.Indent(&pretty, body, "", "  ")
 	fmt.Println(pretty.String())
 }
 

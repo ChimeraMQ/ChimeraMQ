@@ -76,7 +76,7 @@ func runWASMDeploy(args []string) {
 	}
 
 	var result map[string]string
-	json.Unmarshal(body, &result)
+	_ = json.Unmarshal(body, &result)
 	fmt.Printf("Module %q compiled successfully\n", result["name"])
 }
 
@@ -91,7 +91,7 @@ func runWASMList() {
 
 	body, _ := io.ReadAll(resp.Body)
 	var result map[string]interface{}
-	json.Unmarshal(body, &result)
+	_ = json.Unmarshal(body, &result)
 
 	modules, _ := result["modules"].([]interface{})
 	if len(modules) == 0 {

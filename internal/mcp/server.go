@@ -373,7 +373,7 @@ func (s *Server) handleRequest(req JSONRPCRequest) {
 		}
 	}
 
-	s.encoder.Encode(resp)
+	_ = s.encoder.Encode(resp)
 }
 
 // HandleRequest is for testing — processes a single request and returns the response.

@@ -103,7 +103,7 @@ func (t *TCPTransport) sendRPC(nodeID NodeID, rpcType string, req, resp interfac
 		return err
 	}
 	// Write newline delimiter
-	conn.Write([]byte("\n"))
+	_, _ = conn.Write([]byte("\n"))
 
 	_ = conn.SetReadDeadline(time.Now().Add(t.timeout))
 	decoder := json.NewDecoder(conn)
@@ -182,6 +182,6 @@ func handleRPCConn(conn net.Conn, handler RPCHandler) {
 		}
 		encoded, _ := json.Marshal(resp)
 		_, _ = conn.Write(encoded)
-		conn.Write([]byte("\n"))
+		_, _ = conn.Write([]byte("\n"))
 	}
 }

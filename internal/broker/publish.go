@@ -117,7 +117,7 @@ func (b *Broker) Publish(env *message.Envelope) (uint64, error) {
 
 	// Dispatch to queue consumers (if queue or unified mode)
 	if topicCfg.Mode == ModeQueue || topicCfg.Mode == ModeUnified {
-		b.queueEngine.TryDispatch(env.Topic, partID, offset, env)
+		_, _ = b.queueEngine.TryDispatch(env.Topic, partID, offset, env)
 	}
 
 	// Update metrics

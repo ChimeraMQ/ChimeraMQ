@@ -115,7 +115,7 @@ func (s *Server) handleConnection(conn net.Conn) {
 func (s *Server) negotiateSASL(reader *bufio.Reader, writer *bufio.Writer, maxSize uint32) bool {
 	// Send SASL mechanisms
 	saslFrame := BuildSASLMechanisms()
-	WriteFrame(writer, frameTypeSASL, 0, saslFrame)
+	_ = WriteFrame(writer, frameTypeSASL, 0, saslFrame)
 	writer.Flush()
 
 	// Wait for SASL INIT
@@ -162,14 +162,14 @@ func (s *Server) negotiateSASL(reader *bufio.Reader, writer *bufio.Writer, maxSi
 	// Authenticate
 	if !s.authenticate(username, password) {
 		outcome := BuildSASLOutcome(1) // auth failed
-		WriteFrame(writer, frameTypeSASL, 0, outcome)
+		_ = WriteFrame(writer, frameTypeSASL, 0, outcome)
 		writer.Flush()
 		return false
 	}
 
 	// Success
 	outcome := BuildSASLOutcome(0) // OK
-	WriteFrame(writer, frameTypeSASL, 0, outcome)
+	_ = WriteFrame(writer, frameTypeSASL, 0, outcome)
 	writer.Flush()
 	return true
 }
@@ -514,7 +514,7 @@ func (ac *amqpConn) handleEnd(channel uint16) error {
 func (ac *amqpConn) handleClose() error {
 	// Send CLOSE back
 	closeBody := BuildClose()
-	WriteFrame(ac.writer, frameTypeAMQP, 0, closeBody)
+	_ = WriteFrame(ac.writer, frameTypeAMQP, 0, closeBody)
 	ac.writer.Flush()
 	return fmt.Errorf("connection closed")
 }

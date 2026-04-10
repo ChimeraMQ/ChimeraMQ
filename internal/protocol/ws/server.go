@@ -301,7 +301,7 @@ func (s *wsSession) sendJSON(msg *wsMessage) {
 	}
 
 	ctx := context.Background()
-	s.conn.Write(ctx, websocket.MessageText, data)
+	_ = s.conn.Write(ctx, websocket.MessageText, data)
 }
 
 func (s *wsSession) sendError(msg string) {
