@@ -96,3 +96,37 @@ func TestHandlerIndexHTMLDirect(t *testing.T) {
 		t.Errorf("index.html status = %d, want 200", resp.StatusCode)
 	}
 }
+
+func TestHandlerEmptyPath(t *testing.T) {
+	h := Handler()
+	srv := httptest.NewServer(h)
+	defer srv.Close()
+
+	// Request with empty path (just /) should go directly to fallback
+	resp, err := srv.Client().Get(srv.URL + "/")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		t.Errorf("empty path status = %d, want 200", resp.StatusCode)
+	}
+}
+
+func TestHandlerExistingFile(t *testing.T) {
+	h := Handler()
+	srv := httptest.NewServer(h)
+	defer srv.Close()
+
+	// Request for style.css — exercises the fsys.Open success path
+	resp, err := srv.Client().Get(srv.URL + "/style.css")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		t.Errorf("existing file status = %d, want 200", resp.StatusCode)
+	}
+}

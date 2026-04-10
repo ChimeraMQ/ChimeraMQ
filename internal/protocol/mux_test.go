@@ -551,3 +551,103 @@ func TestRouteConnectionHTTP(t *testing.T) {
 		t.Errorf("handler count = %d, want 1", handler.Count())
 	}
 }
+
+func TestServeTLSMissingCert(t *testing.T) {
+	dir := t.TempDir()
+	cfg := &broker.Config{
+		Node:     broker.NodeConfig{ID: 1, Name: "test", DataDir: dir},
+		Listener: broker.ListenerConfig{Bind: "127.0.0.1", Port: 0, MaxConnections: 100},
+		Storage: broker.StorageConfig{
+			Hot: broker.HotConfig{SegmentSize: 1024 * 1024, SyncMode: "immediate"},
+			WAL: broker.WALConfig{MaxSize: 4 * 1024 * 1024, SyncMode: "immediate"},
+		},
+		Logging: broker.LoggingConfig{Level: "warn", Format: "text"},
+		TLS:     broker.TLSConfig{Enabled: true, CertFile: "nonexistent-cert.pem", KeyFile: "nonexistent-key.pem"},
+	}
+	b, err := broker.NewBroker(cfg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := b.Start(); err != nil {
+		t.Fatal(err)
+	}
+	defer b.Stop()
+
+	mux := NewProtocolMux(b)
+	mux.Register(&echoDetector{}, &noopHandler{})
+
+	err = mux.Serve()
+	if err == nil {
+		t.Error("expected error for missing TLS cert")
+	}
+	if err != nil && !bytes.Contains([]byte(err.Error()), []byte("TLS")) {
+		t.Errorf("error should mention TLS, got: %v", err)
+	}
+}
+
+func TestServeTLSMutualMissingCA(t *testing.T) {
+	dir := t.TempDir()
+	cfg := &broker.Config{
+		Node:     broker.NodeConfig{ID: 1, Name: "test", DataDir: dir},
+		Listener: broker.ListenerConfig{Bind: "127.0.0.1", Port: 0, MaxConnections: 100},
+		Storage: broker.StorageConfig{
+			Hot: broker.HotConfig{SegmentSize: 1024 * 1024, SyncMode: "immediate"},
+			WAL: broker.WALConfig{MaxSize: 4 * 1024 * 1024, SyncMode: "immediate"},
+		},
+		Logging: broker.LoggingConfig{Level: "warn", Format: "text"},
+		TLS:     broker.TLSConfig{Enabled: true, Mutual: true, CertFile: "cert.pem", KeyFile: "key.pem", ClientCA: "nonexistent-ca.pem"},
+	}
+	b, err := broker.NewBroker(cfg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := b.Start(); err != nil {
+		t.Fatal(err)
+	}
+	defer b.Stop()
+
+	mux := NewProtocolMux(b)
+	mux.Register(&echoDetector{}, &noopHandler{})
+
+	// Will fail on cert loading before reaching client CA
+	err = mux.Serve()
+	if err == nil {
+		t.Error("expected error for TLS config")
+	}
+}
+
+func TestRouteConnectionClosedEarly(t *testing.T) {
+	b, cleanup := newTestBrokerForMux(t)
+	defer cleanup()
+
+	mux := NewProtocolMux(b)
+	mux.Register(&echoDetector{}, &noopHandler{})
+
+	server, client := net.Pipe()
+	// Close immediately without writing
+	client.Close()
+	mux.routeConnection(server)
+	server.Close()
+	// Should not panic
+}
+
+func TestRouteConnectionAMQP(t *testing.T) {
+	b, cleanup := newTestBrokerForMux(t)
+	defer cleanup()
+
+	handler := &trackingHandler{}
+	mux := NewProtocolMux(b)
+	mux.Register(&amqp.Detector{}, handler)
+
+	server, client := net.Pipe()
+	go func() {
+		client.Write([]byte("AMQP\x00\x01\x00\x00"))
+		client.Close()
+	}()
+	mux.routeConnection(server)
+	server.Close()
+
+	if handler.Count() != 1 {
+		t.Errorf("handler count = %d, want 1", handler.Count())
+	}
+}
