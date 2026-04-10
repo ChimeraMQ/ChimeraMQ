@@ -12,8 +12,11 @@ import (
 	"strings"
 	"time"
 
+	"github.com/chimeramq/chimera/internal/auth"
 	"github.com/chimeramq/chimera/internal/broker"
 	"github.com/chimeramq/chimera/internal/message"
+	"github.com/chimeramq/chimera/internal/processing"
+	"github.com/chimeramq/chimera/internal/schema"
 )
 
 const (
@@ -60,6 +63,26 @@ func (s *AdminServer) registerRoutes() {
 	s.mux.HandleFunc("GET /v1/consumers/{group}", s.auth(s.handleGetConsumer))
 	s.mux.HandleFunc("GET /v1/health", s.handleHealth)
 	s.mux.HandleFunc("GET /v1/metrics", s.handleMetrics)
+	s.mux.HandleFunc("GET /v1/cluster/members", s.handleClusterMembers)
+	s.mux.HandleFunc("POST /v1/schemas/{subject}", s.auth(s.handleRegisterSchema))
+	s.mux.HandleFunc("GET /v1/schemas/{subject}", s.auth(s.handleListSchemas))
+	s.mux.HandleFunc("GET /v1/schemas/{subject}/latest", s.auth(s.handleGetLatestSchema))
+	s.mux.HandleFunc("GET /v1/schemas/{subject}/versions/{version}", s.auth(s.handleGetSchemaVersion))
+	s.mux.HandleFunc("DELETE /v1/schemas/{subject}", s.auth(s.handleDeleteSubject))
+	s.mux.HandleFunc("PUT /v1/schemas/{subject}/compatibility", s.auth(s.handleSetCompatibility))
+
+	// WASM module endpoints
+	s.mux.HandleFunc("POST /v1/wasm/modules", s.auth(s.handleUploadWASM))
+	s.mux.HandleFunc("GET /v1/wasm/modules", s.auth(s.handleListWASM))
+	s.mux.HandleFunc("DELETE /v1/wasm/modules/{name}", s.auth(s.handleDeleteWASM))
+
+	// Stream processor endpoints
+	s.mux.HandleFunc("POST /v1/processors", s.auth(s.handleCreateTopology))
+	s.mux.HandleFunc("GET /v1/processors", s.auth(s.handleListTopologies))
+	s.mux.HandleFunc("GET /v1/processors/{name}", s.auth(s.handleGetTopology))
+	s.mux.HandleFunc("DELETE /v1/processors/{name}", s.auth(s.handleDeleteTopology))
+	s.mux.HandleFunc("POST /v1/processors/{name}/start", s.auth(s.handleStartTopology))
+	s.mux.HandleFunc("POST /v1/processors/{name}/stop", s.auth(s.handleStopTopology))
 }
 
 // securityMiddleware adds security headers and CORS support.
@@ -80,10 +103,13 @@ func (s *AdminServer) securityMiddleware(next http.Handler) http.Handler {
 	})
 }
 
-// auth is middleware that validates authentication when enabled.
+// auth is middleware that validates authentication and ACL when enabled.
 func (s *AdminServer) auth(next http.HandlerFunc) http.HandlerFunc {
 	cfg := s.broker.Config()
-	if !cfg.Auth.Enabled {
+	provider := s.broker.AuthProvider()
+	aclEngine := s.broker.ACLEngine()
+
+	if !cfg.Auth.Enabled || provider == nil {
 		return next
 	}
 
@@ -94,32 +120,85 @@ func (s *AdminServer) auth(next http.HandlerFunc) http.HandlerFunc {
 			return
 		}
 
+		var creds auth.Credentials
+
 		// Bearer token auth
 		if strings.HasPrefix(authHeader, "Bearer ") {
-			token := strings.TrimPrefix(authHeader, "Bearer ")
-			if _, ok := cfg.Auth.Tokens[token]; ok {
-				next(w, r)
-				return
-			}
-		}
-
-		// Basic auth: decode "user:password" from base64
-		if strings.HasPrefix(authHeader, "Basic ") {
+			creds.Token = strings.TrimPrefix(authHeader, "Bearer ")
+		} else if strings.HasPrefix(authHeader, "Basic ") {
+			// Basic auth: decode "user:password" from base64
 			encoded := strings.TrimPrefix(authHeader, "Basic ")
 			decoded, err := base64.StdEncoding.DecodeString(encoded)
 			if err == nil {
 				pair := strings.SplitN(string(decoded), ":", 2)
 				if len(pair) == 2 {
-					if _, ok := cfg.Auth.Users[pair[0]]; ok {
-						// User exists — in production compare bcrypt hash
-						next(w, r)
-						return
-					}
+					creds.Username = pair[0]
+					creds.Password = pair[1]
 				}
 			}
 		}
 
-		writeError(w, http.StatusUnauthorized, "unauthorized")
+		identity, err := provider.Authenticate(r.Context(), creds)
+		if err != nil {
+			writeError(w, http.StatusUnauthorized, "unauthorized")
+			return
+		}
+
+		// Store identity in context for downstream handlers
+		ctx := context.WithValue(r.Context(), identityKey{}, identity)
+		r = r.WithContext(ctx)
+
+		// ACL check
+		if aclEngine != nil {
+			op := methodToOp(r.Method)
+			rt := auth.ResourceTopic
+			name := r.PathValue("topic")
+			if name == "" {
+				name = r.PathValue("name")
+			}
+			if name == "" {
+				name = r.PathValue("subject")
+			}
+			if r.URL.Path != "" && strings.Contains(r.URL.Path, "/schemas/") {
+				rt = auth.ResourceSchema
+			} else if strings.Contains(r.URL.Path, "/wasm/") {
+				rt = auth.ResourceWASM
+			} else if strings.Contains(r.URL.Path, "/cluster/") || strings.Contains(r.URL.Path, "/processors") {
+				rt = auth.ResourceCluster
+			}
+			if name == "" {
+				name = "*"
+			}
+			if !aclEngine.Check(identity, rt, name, op) {
+				writeError(w, http.StatusForbidden, "forbidden")
+				return
+			}
+		}
+
+		next(w, r)
+	}
+}
+
+// identityKey is the context key for storing auth identity.
+type identityKey struct{}
+
+// getIdentity extracts the identity from the request context.
+func getIdentity(r *http.Request) *auth.Identity {
+	id, _ := r.Context().Value(identityKey{}).(*auth.Identity)
+	return id
+}
+
+// methodToOp maps HTTP methods to auth operations.
+func methodToOp(method string) auth.Operation {
+	switch method {
+	case "GET":
+		return auth.OpRead
+	case "POST", "PUT":
+		return auth.OpWrite
+	case "DELETE":
+		return auth.OpDelete
+	default:
+		return auth.OpRead
 	}
 }
 
@@ -348,6 +427,46 @@ func (s *AdminServer) handleMetrics(w http.ResponseWriter, r *http.Request) {
 	w.Write([]byte(s.broker.Metrics().Expose()))
 }
 
+func (s *AdminServer) handleClusterMembers(w http.ResponseWriter, r *http.Request) {
+	if !s.broker.IsClustered() {
+		writeJSON(w, http.StatusOK, map[string]interface{}{
+			"mode":    "single-node",
+			"members": nil,
+		})
+		return
+	}
+
+	mgr := s.broker.Cluster()
+	members := mgr.Members()
+
+	type memberInfo struct {
+		ID          string `json:"id"`
+		Addr        string `json:"addr"`
+		Port        int    `json:"port"`
+		State       string `json:"state"`
+		Incarnation uint64 `json:"incarnation"`
+	}
+
+	result := make([]memberInfo, len(members))
+	for i, m := range members {
+		result[i] = memberInfo{
+			ID:          string(m.ID),
+			Addr:        m.Addr,
+			Port:        m.Port,
+			State:       m.State.String(),
+			Incarnation: m.Incarnation,
+		}
+	}
+
+	writeJSON(w, http.StatusOK, map[string]interface{}{
+		"mode":        "cluster",
+		"is_leader":   mgr.IsLeader(),
+		"leader_id":   mgr.LeaderID(),
+		"alive_count": mgr.AliveCount(),
+		"members":     result,
+	})
+}
+
 func (s *AdminServer) handleFetch(w http.ResponseWriter, r *http.Request) {
 	topic := r.PathValue("topic")
 	partitionStr := r.URL.Query().Get("partition")
@@ -550,3 +669,318 @@ func (ln *singleConnListener) Accept() (net.Conn, error) {
 func (ln *singleConnListener) Close() error { return nil }
 
 func (ln *singleConnListener) Addr() net.Addr { return ln.conn.LocalAddr() }
+
+// --- Schema Registry Handlers ---
+
+func (s *AdminServer) schemaRegistry() *schema.Registry {
+	return s.broker.SchemaRegistry()
+}
+
+func (s *AdminServer) handleRegisterSchema(w http.ResponseWriter, r *http.Request) {
+	reg := s.schemaRegistry()
+	if reg == nil {
+		http.Error(w, "schema registry not enabled", http.StatusServiceUnavailable)
+		return
+	}
+
+	subject := r.PathValue("subject")
+	if subject == "" {
+		http.Error(w, "subject is required", http.StatusBadRequest)
+		return
+	}
+
+	var req struct {
+		Type   string `json:"type"`
+		Schema string `json:"schema"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		http.Error(w, "invalid request body", http.StatusBadRequest)
+		return
+	}
+
+	schemaType := schema.InferSchemaType(req.Schema)
+	if req.Type != "" {
+		schemaType = schema.ParseSchemaType(req.Type)
+	}
+
+	sv, err := reg.Register(subject, schemaType, req.Schema)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusConflict)
+		return
+	}
+
+	writeJSON(w, http.StatusOK, sv)
+}
+
+func (s *AdminServer) handleListSchemas(w http.ResponseWriter, r *http.Request) {
+	reg := s.schemaRegistry()
+	if reg == nil {
+		http.Error(w, "schema registry not enabled", http.StatusServiceUnavailable)
+		return
+	}
+
+	subject := r.PathValue("subject")
+	versions, err := reg.List(subject)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusNotFound)
+		return
+	}
+	writeJSON(w, http.StatusOK, versions)
+}
+
+func (s *AdminServer) handleGetLatestSchema(w http.ResponseWriter, r *http.Request) {
+	reg := s.schemaRegistry()
+	if reg == nil {
+		http.Error(w, "schema registry not enabled", http.StatusServiceUnavailable)
+		return
+	}
+
+	subject := r.PathValue("subject")
+	sv, err := reg.GetLatest(subject)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusNotFound)
+		return
+	}
+	writeJSON(w, http.StatusOK, sv)
+}
+
+func (s *AdminServer) handleGetSchemaVersion(w http.ResponseWriter, r *http.Request) {
+	reg := s.schemaRegistry()
+	if reg == nil {
+		http.Error(w, "schema registry not enabled", http.StatusServiceUnavailable)
+		return
+	}
+
+	subject := r.PathValue("subject")
+	version, err := strconv.Atoi(r.PathValue("version"))
+	if err != nil {
+		http.Error(w, "invalid version", http.StatusBadRequest)
+		return
+	}
+
+	sv, err := reg.Get(subject, version)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusNotFound)
+		return
+	}
+	writeJSON(w, http.StatusOK, sv)
+}
+
+func (s *AdminServer) handleDeleteSubject(w http.ResponseWriter, r *http.Request) {
+	reg := s.schemaRegistry()
+	if reg == nil {
+		http.Error(w, "schema registry not enabled", http.StatusServiceUnavailable)
+		return
+	}
+
+	subject := r.PathValue("subject")
+	if err := reg.DeleteSubject(subject); err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
+}
+
+func (s *AdminServer) handleSetCompatibility(w http.ResponseWriter, r *http.Request) {
+	reg := s.schemaRegistry()
+	if reg == nil {
+		http.Error(w, "schema registry not enabled", http.StatusServiceUnavailable)
+		return
+	}
+
+	subject := r.PathValue("subject")
+	var req struct {
+		Mode string `json:"mode"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		http.Error(w, "invalid request body", http.StatusBadRequest)
+		return
+	}
+
+	mode := schema.ParseCompatibilityMode(req.Mode)
+	if err := reg.SetCompatibility(subject, mode); err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]string{"status": "updated"})
+}
+
+// --- WASM Module Handlers ---
+
+func (s *AdminServer) handleUploadWASM(w http.ResponseWriter, r *http.Request) {
+	rt := s.broker.WASMRuntime()
+	if rt == nil {
+		http.Error(w, "WASM runtime not enabled", http.StatusServiceUnavailable)
+		return
+	}
+
+	name := r.URL.Query().Get("name")
+	if name == "" {
+		http.Error(w, "name parameter is required", http.StatusBadRequest)
+		return
+	}
+
+	maxSize := int64(16 * 1024 * 1024)
+	body, err := io.ReadAll(io.LimitReader(r.Body, maxSize))
+	if err != nil {
+		http.Error(w, "failed to read request body", http.StatusBadRequest)
+		return
+	}
+
+	if err := rt.Compile(name, body); err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+
+	writeJSON(w, http.StatusCreated, map[string]string{
+		"name":   name,
+		"status": "compiled",
+	})
+}
+
+func (s *AdminServer) handleListWASM(w http.ResponseWriter, r *http.Request) {
+	rt := s.broker.WASMRuntime()
+	if rt == nil {
+		http.Error(w, "WASM runtime not enabled", http.StatusServiceUnavailable)
+		return
+	}
+
+	modules := rt.ListModules()
+	writeJSON(w, http.StatusOK, map[string]interface{}{
+		"modules": modules,
+		"count":   len(modules),
+	})
+}
+
+func (s *AdminServer) handleDeleteWASM(w http.ResponseWriter, r *http.Request) {
+	rt := s.broker.WASMRuntime()
+	if rt == nil {
+		http.Error(w, "WASM runtime not enabled", http.StatusServiceUnavailable)
+		return
+	}
+
+	name := r.PathValue("name")
+	if err := rt.Remove(name); err != nil {
+		http.Error(w, err.Error(), http.StatusNotFound)
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
+}
+
+// --- Stream Processor Handlers ---
+
+func (s *AdminServer) handleCreateTopology(w http.ResponseWriter, r *http.Request) {
+	p := s.broker.Processor()
+	if p == nil {
+		http.Error(w, "stream processing not enabled", http.StatusServiceUnavailable)
+		return
+	}
+
+	var spec processing.TopologySpec
+	if err := json.NewDecoder(r.Body).Decode(&spec); err != nil {
+		http.Error(w, "invalid request body", http.StatusBadRequest)
+		return
+	}
+
+	if spec.Name == "" {
+		http.Error(w, "name is required", http.StatusBadRequest)
+		return
+	}
+
+	if err := p.CreateTopology(spec); err != nil {
+		http.Error(w, err.Error(), http.StatusConflict)
+		return
+	}
+
+	if spec.AutoStart {
+		p.StartTopology(spec.Name)
+	}
+
+	writeJSON(w, http.StatusCreated, map[string]string{
+		"name":   spec.Name,
+		"status": "created",
+	})
+}
+
+func (s *AdminServer) handleListTopologies(w http.ResponseWriter, r *http.Request) {
+	p := s.broker.Processor()
+	if p == nil {
+		http.Error(w, "stream processing not enabled", http.StatusServiceUnavailable)
+		return
+	}
+
+	names := p.ListTopologies()
+	writeJSON(w, http.StatusOK, map[string]interface{}{
+		"topologies": names,
+		"count":      len(names),
+	})
+}
+
+func (s *AdminServer) handleGetTopology(w http.ResponseWriter, r *http.Request) {
+	p := s.broker.Processor()
+	if p == nil {
+		http.Error(w, "stream processing not enabled", http.StatusServiceUnavailable)
+		return
+	}
+
+	name := r.PathValue("name")
+	topo, ok := p.GetTopology(name)
+	if !ok {
+		http.Error(w, "topology not found", http.StatusNotFound)
+		return
+	}
+
+	writeJSON(w, http.StatusOK, map[string]interface{}{
+		"name":         topo.Spec.Name,
+		"state":        fmt.Sprintf("%d", topo.State),
+		"parallelism":  topo.Spec.Parallelism,
+		"source_topic": topo.Spec.Source.Topic,
+		"sink_topic":   topo.Spec.Sink.Topic,
+		"operators":    len(topo.Spec.Operators),
+	})
+}
+
+func (s *AdminServer) handleDeleteTopology(w http.ResponseWriter, r *http.Request) {
+	p := s.broker.Processor()
+	if p == nil {
+		http.Error(w, "stream processing not enabled", http.StatusServiceUnavailable)
+		return
+	}
+
+	name := r.PathValue("name")
+	if err := p.DeleteTopology(name); err != nil {
+		http.Error(w, err.Error(), http.StatusConflict)
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
+}
+
+func (s *AdminServer) handleStartTopology(w http.ResponseWriter, r *http.Request) {
+	p := s.broker.Processor()
+	if p == nil {
+		http.Error(w, "stream processing not enabled", http.StatusServiceUnavailable)
+		return
+	}
+
+	name := r.PathValue("name")
+	if err := p.StartTopology(name); err != nil {
+		http.Error(w, err.Error(), http.StatusNotFound)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]string{"status": "running"})
+}
+
+func (s *AdminServer) handleStopTopology(w http.ResponseWriter, r *http.Request) {
+	p := s.broker.Processor()
+	if p == nil {
+		http.Error(w, "stream processing not enabled", http.StatusServiceUnavailable)
+		return
+	}
+
+	name := r.PathValue("name")
+	if err := p.StopTopology(name); err != nil {
+		http.Error(w, err.Error(), http.StatusNotFound)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]string{"status": "stopped"})
+}

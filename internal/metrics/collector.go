@@ -152,6 +152,67 @@ func (c *Collector) ConsumerLag(topic string, partition uint32, group string, la
 	}, float64(lag))
 }
 
+// TierStorageBytes sets the storage size gauge for a tier.
+func (c *Collector) TierStorageBytes(tier string, bytes int64) {
+	c.SetGauge("chimera_tier_storage_bytes", map[string]string{
+		"tier": tier,
+	}, float64(bytes))
+}
+
+// TierObjectCount sets the object count gauge for a tier.
+func (c *Collector) TierObjectCount(tier string, count int) {
+	c.SetGauge("chimera_tier_object_count", map[string]string{
+		"tier": tier,
+	}, float64(count))
+}
+
+// TierMigrationTotal increments the tier migration counter.
+func (c *Collector) TierMigrationTotal(from, to string) {
+	c.IncrCounter("chimera_tier_migration_total", map[string]string{
+		"from": from,
+		"to":   to,
+	}, 1)
+}
+
+// SchemaRegistered increments the schema registration counter.
+func (c *Collector) SchemaRegistered(subject, schemaType string) {
+	c.IncrCounter("chimera_schema_registered_total", map[string]string{
+		"subject": subject,
+		"type":    schemaType,
+	}, 1)
+}
+
+// SchemaValidationFailed increments the schema validation failure counter.
+func (c *Collector) SchemaValidationFailed(topic string) {
+	c.IncrCounter("chimera_schema_validation_failed_total", map[string]string{
+		"topic": topic,
+	}, 1)
+}
+
+// MessageExpired increments the expired message counter.
+func (c *Collector) MessageExpired(topic, action string) {
+	c.IncrCounter("chimera_message_expired_total", map[string]string{
+		"topic":  topic,
+		"action": action,
+	}, 1)
+}
+
+// WASMExecOK increments the WASM execution counter.
+func (c *Collector) WASMExecOK(topic string) {
+	c.IncrCounter("chimera_wasm_executions_total", map[string]string{
+		"topic": topic,
+		"status": "ok",
+	}, 1)
+}
+
+// WASMExecError increments the WASM error counter.
+func (c *Collector) WASMExecError(topic string) {
+	c.IncrCounter("chimera_wasm_executions_total", map[string]string{
+		"topic":  topic,
+		"status": "error",
+	}, 1)
+}
+
 func labelsToKey(labels map[string]string) string {
 	if len(labels) == 0 {
 		return ""

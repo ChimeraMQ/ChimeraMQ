@@ -10,6 +10,7 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/chimeramq/chimera/internal/auth"
 	"github.com/chimeramq/chimera/internal/broker"
 	"github.com/chimeramq/chimera/internal/engine/queue"
 	"github.com/chimeramq/chimera/internal/message"
@@ -153,7 +154,8 @@ func (s *Server) handleConnection(conn net.Conn) {
 
 	// V-02: Authentication check
 	if s.broker.Config().Auth.Enabled {
-		if !s.authenticate(payload.Username, payload.Password) {
+		_, authErr := s.authenticate(payload.Username, payload.Password)
+			if authErr != nil {
 			connackPayload := encodeConnAck("", 1) // status 1 = auth failed
 			connackFrame, _ := EncodeFrame(&Frame{Version: FrameVersion, OpCode: OpConnAck, Payload: connackPayload})
 			client.writeFrame(connackFrame)
@@ -210,7 +212,8 @@ func (s *Server) handleConnection(conn net.Conn) {
 		case OpConnect:
 			newPayload := decodeConnect(frame.Payload)
 			if s.broker.Config().Auth.Enabled {
-				if !s.authenticate(newPayload.Username, newPayload.Password) {
+				_, authErr := s.authenticate(newPayload.Username, newPayload.Password)
+				if authErr != nil {
 					connackPayload := encodeConnAck("", 1)
 					connackFrame, _ := EncodeFrame(&Frame{Version: FrameVersion, OpCode: OpConnAck, Payload: connackPayload})
 					client.writeFrame(connackFrame)
@@ -256,22 +259,20 @@ func (s *Server) handleConnection(conn net.Conn) {
 	}
 }
 
-// authenticate validates username/password against broker config.
-func (s *Server) authenticate(username, password string) bool {
-	cfg := s.broker.Config()
-	if cfg.Auth.Type == "static" {
-		// Check tokens first
-		if password != "" {
-			if _, ok := cfg.Auth.Tokens[password]; ok {
-				return true
-			}
-		}
-		// Check users (in production, use bcrypt comparison)
-		if _, ok := cfg.Auth.Users[username]; ok {
-			return true
-		}
+// authenticate validates username/password using the broker's auth provider.
+func (s *Server) authenticate(username, password string) (*auth.Identity, error) {
+	provider := s.broker.AuthProvider()
+	if provider == nil {
+		return nil, fmt.Errorf("no auth provider")
 	}
-	return false
+
+	creds := auth.Credentials{
+		Username: username,
+		Password: password,
+		Token:    password, // Chimera protocol may send token as password field
+	}
+
+	return provider.Authenticate(context.Background(), creds)
 }
 
 func (s *Server) handlePublish(client *ClientConn, frame *Frame) {

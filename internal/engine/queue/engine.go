@@ -33,7 +33,7 @@ type QueueState struct {
 	mu         sync.Mutex
 	topicName  string
 	consumers  map[string]*QueueConsumer
-	dispatcher *Dispatcher
+	dispatcher DispatcherInterface
 	ackTracker *AckTracker
 	dlqManager *DLQManager
 	delayHeap  *DelayScheduler

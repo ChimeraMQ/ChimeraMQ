@@ -28,6 +28,12 @@ func main() {
 		cli.RunProduceCLI(os.Args[2:])
 	case "consume":
 		cli.RunConsumeCLI(os.Args[2:])
+	case "cluster":
+		cli.RunClusterCLI(os.Args[2:])
+	case "wasm":
+		cli.RunWASMCLI(os.Args[2:])
+	case "mcp-server":
+		cli.RunMCPServer(os.Args[2:])
 	case "version":
 		printVersion()
 	default:
@@ -45,6 +51,7 @@ func printUsage() {
 	fmt.Printf("  topic     Manage topics (create, list, describe, delete)\n")
 	fmt.Printf("  produce   Produce messages to a topic\n")
 	fmt.Printf("  consume   Consume messages from a topic\n")
+	fmt.Printf("  cluster   Cluster management (status, members)\n")
 	fmt.Printf("  version   Print version information\n")
 }
 

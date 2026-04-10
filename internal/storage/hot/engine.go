@@ -28,11 +28,26 @@ func NewEngine(baseDir string, cfg HotConfig) *Engine {
 }
 
 // GetOrCreatePartition lazily creates or returns an existing partition.
+// Uses read-lock for fast path (partition exists) and write-lock only for creation.
 func (e *Engine) GetOrCreatePartition(topic string, partID uint32) (*Partition, error) {
+	// Fast path: read lock
+	e.mu.RLock()
+	topicParts, ok := e.partitions[topic]
+	if ok {
+		part, ok := topicParts[partID]
+		if ok {
+			e.mu.RUnlock()
+			return part, nil
+		}
+	}
+	e.mu.RUnlock()
+
+	// Slow path: write lock
 	e.mu.Lock()
 	defer e.mu.Unlock()
 
-	topicParts, ok := e.partitions[topic]
+	// Double-check after acquiring write lock
+	topicParts, ok = e.partitions[topic]
 	if !ok {
 		topicParts = make(map[uint32]*Partition)
 		e.partitions[topic] = topicParts

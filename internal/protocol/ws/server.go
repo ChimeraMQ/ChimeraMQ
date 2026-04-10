@@ -5,8 +5,10 @@ import (
 	"fmt"
 	"net"
 	"net/http"
+	"strings"
 	"sync"
 
+	"github.com/chimeramq/chimera/internal/auth"
 	"github.com/chimeramq/chimera/internal/broker"
 	"github.com/chimeramq/chimera/internal/message"
 
@@ -56,6 +58,27 @@ func (s *Server) Stop() {
 // ServeHTTP handles the WebSocket upgrade on the configured path.
 // This is mounted on the HTTP mux for the WebSocket path.
 func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
+	// Auth check when enabled
+	cfg := s.broker.Config()
+	if cfg.Auth.Enabled {
+		provider := s.broker.AuthProvider()
+		if provider != nil {
+			authHeader := r.Header.Get("Authorization")
+			var creds auth.Credentials
+			if strings.HasPrefix(authHeader, "Bearer ") {
+				creds.Token = strings.TrimPrefix(authHeader, "Bearer ")
+			} else if strings.HasPrefix(authHeader, "Basic ") {
+				// Basic auth handled inline for WebSocket
+				creds.Username = authHeader
+				creds.Password = authHeader
+			}
+			if _, err := provider.Authenticate(r.Context(), creds); err != nil {
+				http.Error(w, "unauthorized", http.StatusUnauthorized)
+				return
+			}
+		}
+	}
+
 	opts := &websocket.AcceptOptions{
 		Subprotocols: []string{"chimera-json-v1", "chimera-binary-v1"},
 	}

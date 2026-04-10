@@ -20,6 +20,50 @@ type Config struct {
 	TLS       TLSConfig       `yaml:"tls"`
 	Limits    LimitsConfig    `yaml:"limits"`
 	Protocols ProtocolsConfig `yaml:"protocols"`
+	Cluster   ClusterConfig   `yaml:"cluster"`
+	Schema     SchemaConfig     `yaml:"schema"`
+	Priority   PriorityConfig   `yaml:"priority"`
+	TTL        TTLConfigRoot    `yaml:"ttl"`
+	WASM       WASMConfig       `yaml:"wasm"`
+	ACL        ACL              `yaml:"acl"`
+	Processing     ProcessingConfig     `yaml:"processing"`
+	Observability ObservabilityConfig `yaml:"observability"`
+}
+
+// ClusterConfig controls clustering behavior.
+type ClusterConfig struct {
+	Enabled     bool              `yaml:"enabled"`
+	Raft        RaftConfig        `yaml:"raft"`
+	Gossip      GossipConfig      `yaml:"gossip"`
+	Replication ReplicationConfig `yaml:"replication"`
+}
+
+// RaftConfig controls the Raft consensus layer.
+type RaftConfig struct {
+	Peers             []string `yaml:"peers"`
+	ElectionTimeout   string   `yaml:"election_timeout"`
+	HeartbeatInterval string   `yaml:"heartbeat_interval"`
+	SnapshotInterval  string   `yaml:"snapshot_interval"`
+	MaxLogEntries     int      `yaml:"max_log_entries"`
+}
+
+// GossipConfig controls the SWIM gossip layer.
+type GossipConfig struct {
+	BindPort         int      `yaml:"bind_port"`
+	Seeds            []string `yaml:"seeds"`
+	ProbeInterval    string   `yaml:"probe_interval"`
+	ProbeTimeout     string   `yaml:"probe_timeout"`
+	IndirectNodes    int      `yaml:"indirect_nodes"`
+	SuspicionTimeout string   `yaml:"suspicion_timeout"`
+}
+
+// ReplicationConfig controls partition replication.
+type ReplicationConfig struct {
+	DefaultFactor int    `yaml:"default_factor"`
+	MinISR        int    `yaml:"min_isr"`
+	AckPolicy     string `yaml:"ack_policy"` // leader, quorum, all
+	SyncMode      string `yaml:"sync_mode"`  // sync, async
+	MaxLag        int64  `yaml:"max_lag"`
 }
 
 // ProtocolsConfig controls which protocol adapters are enabled.
@@ -66,15 +110,60 @@ type TLSConfig struct {
 	KeyFile    string `yaml:"key_file"`
 	CAFile     string `yaml:"ca_file,omitempty"`
 	MinVersion string `yaml:"min_version,omitempty"`
+	Mutual     bool   `yaml:"mutual,omitempty"`
+	ClientCA   string `yaml:"client_ca,omitempty"`
 }
 
 // AuthConfig controls authentication.
 type AuthConfig struct {
-	Enabled  bool              `yaml:"enabled"`
-	Type     string            `yaml:"type"`
-	Users    map[string]string `yaml:"users"`
-	AuthFile string            `yaml:"auth_file,omitempty"`
-	Tokens   map[string]string `yaml:"tokens"`
+	Enabled    bool              `yaml:"enabled"`
+	Type       string            `yaml:"type"` // static, file, oauth, ldap
+	Users      map[string]string `yaml:"users"`
+	AuthFile   string            `yaml:"auth_file,omitempty"`
+	Tokens     map[string]string `yaml:"tokens"`
+	OAuth      OAuthConfig       `yaml:"oauth,omitempty"`
+	LDAP       LDAPConfig        `yaml:"ldap,omitempty"`
+}
+
+// OAuthConfig controls OAuth 2.0 / OIDC authentication.
+type OAuthConfig struct {
+	Issuer       string   `yaml:"issuer"`
+	ClientID     string   `yaml:"client_id"`
+	ClientSecret string   `yaml:"client_secret"`
+	Scopes       []string `yaml:"scopes"`
+	Audience     string   `yaml:"audience"`
+}
+
+// LDAPConfig controls LDAP authentication.
+type LDAPConfig struct {
+	URL          string `yaml:"url"`
+	BindDN       string `yaml:"bind_dn"`
+	BindPassword string `yaml:"bind_password"`
+	BaseDN       string `yaml:"base_dn"`
+	Filter       string `yaml:"filter"`
+	UseTLS       bool   `yaml:"tls"`
+}
+
+// ACLConfig controls access control lists.
+type ACLConfig struct {
+	Enabled       bool   `yaml:"enabled"`
+	DefaultPolicy string `yaml:"default_policy"` // "allow" or "deny"
+}
+
+// ACL contains the parsed ACL entries for config.
+type ACL struct {
+	Enabled       bool              `yaml:"enabled"`
+	DefaultPolicy string            `yaml:"default_policy"`
+	Entries       []ACLEntryConfig  `yaml:"entries"`
+}
+
+// ACLEntryConfig is one ACL entry in the config file.
+type ACLEntryConfig struct {
+	Principal    string `yaml:"principal"`
+	Resource     string `yaml:"resource"`
+	Name         string `yaml:"name"`
+	Operation    string `yaml:"operation"`
+	Permission   string `yaml:"permission"`
 }
 
 // LimitsConfig controls resource caps.
@@ -105,7 +194,10 @@ type ListenerConfig struct {
 type StorageConfig struct {
 	Hot        HotConfig        `yaml:"hot"`
 	WAL        WALConfig        `yaml:"wal"`
+	Warm       WarmConfig       `yaml:"warm"`
+	Cold       ColdConfig       `yaml:"cold"`
 	TierPolicy TierPolicyConfig `yaml:"tier_policy"`
+	Encryption EncryptionConfig `yaml:"encryption"`
 }
 
 // HotConfig controls hot tier (mmap) storage.
@@ -125,7 +217,88 @@ type WALConfig struct {
 
 // TierPolicyConfig controls tier migration thresholds.
 type TierPolicyConfig struct {
-	HotRetention string `yaml:"hot_retention"`
+	HotRetention     string `yaml:"hot_retention"`
+	WarmRetention    string `yaml:"warm_retention"`
+	ColdRetention    string `yaml:"cold_retention"`
+	HotMaxSize       int64  `yaml:"hot_max_size"`
+	WarmMaxSize      int64  `yaml:"warm_max_size"`
+	CompactOnMigrate bool   `yaml:"compact_on_migrate"`
+}
+
+// WarmConfig controls warm tier (LSM-Tree) storage.
+type WarmConfig struct {
+	Enabled            bool    `yaml:"enabled"`
+	BlockSize          int     `yaml:"block_size"`
+	BloomFPRate        float64 `yaml:"bloom_fp_rate"`
+	CompactionStrategy string  `yaml:"compaction_strategy"`
+	CompactionInterval string  `yaml:"compaction_interval"`
+	MemTableCapacity   int64   `yaml:"memtable_capacity"`
+}
+
+// ColdConfig controls cold tier (compressed archive) storage.
+type ColdConfig struct {
+	Enabled              bool   `yaml:"enabled"`
+	ArchiveSize          int64  `yaml:"archive_size"`
+	Compression          string `yaml:"compression"`
+	CompressionLevel     int    `yaml:"compression_level"`
+	DictTrainingInterval int    `yaml:"dict_training_interval"`
+}
+
+// SchemaConfig controls the schema registry.
+type SchemaConfig struct {
+	Enabled       bool   `yaml:"enabled"`
+	DefaultCompat string `yaml:"default_compat"` // none, backward, forward, full
+}
+
+// PriorityConfig controls priority queue behavior.
+type PriorityConfig struct {
+	Enabled bool `yaml:"enabled"`
+	Levels  int  `yaml:"levels"` // 1-10, default 10
+}
+
+// TTLConfigRoot controls message TTL enforcement.
+type TTLConfigRoot struct {
+	Enabled       bool   `yaml:"enabled"`
+	ScanInterval  string `yaml:"scan_interval"`  // default "1s"
+	DefaultAction string `yaml:"default_action"` // drop or dlq
+}
+
+// WASMConfig controls the WASM runtime.
+type WASMConfig struct {
+	Enabled          bool   `yaml:"enabled"`
+	MaxMemoryPages   uint32 `yaml:"max_memory_pages"`   // default 256 (16MB)
+	ExecutionTimeout string `yaml:"execution_timeout"`  // default "100ms"
+	ModulePoolSize   int    `yaml:"module_pool_size"`   // default 4
+	ModulesDir       string `yaml:"modules_dir"`        // default "{data_dir}/wasm"
+}
+
+// ProcessingConfig controls stream processing.
+type ProcessingConfig struct {
+	Enabled            bool   `yaml:"enabled"`
+	CheckpointInterval string `yaml:"checkpoint_interval"` // default "30s"
+	StateDir           string `yaml:"state_dir"`           // default "{data_dir}/state"
+}
+
+// ObservabilityConfig controls tracing and monitoring.
+type ObservabilityConfig struct {
+	Tracing TracingConfig `yaml:"tracing"`
+}
+
+// TracingConfig controls OpenTelemetry tracing.
+type TracingConfig struct {
+	Enabled    bool    `yaml:"enabled"`
+	Endpoint   string  `yaml:"endpoint"`
+	Service    string  `yaml:"service"`
+	Insecure   bool    `yaml:"insecure"`
+	SampleRate float64 `yaml:"sample_rate"`
+}
+
+// EncryptionConfig controls at-rest encryption.
+type EncryptionConfig struct {
+	Enabled   bool   `yaml:"enabled"`
+	Algorithm string `yaml:"algorithm"`
+	KeyPath   string `yaml:"key_path"`
+	KeyRotate string `yaml:"key_rotate"`
 }
 
 // DefaultsConfig holds default values for new topics.
@@ -138,6 +311,7 @@ type TopicDefaults struct {
 	Partitions    uint32 `yaml:"partitions"`
 	RetentionTime string `yaml:"retention_time"`
 	Mode          string `yaml:"mode"`
+	Replication   uint32 `yaml:"replication"`
 }
 
 // LoggingConfig controls structured logging.
@@ -210,7 +384,28 @@ func defaultConfig() *Config {
 				SyncInterval: "100ms",
 			},
 			TierPolicy: TierPolicyConfig{
-				HotRetention: "1h",
+				HotRetention:  "1h",
+				WarmRetention: "24h",
+				ColdRetention: "168h",
+			},
+			Warm: WarmConfig{
+				Enabled:            false,
+				BlockSize:          64 * 1024,
+				BloomFPRate:        0.01,
+				CompactionStrategy: "size_tiered",
+				CompactionInterval: "5m",
+				MemTableCapacity:   4 * 1024 * 1024,
+			},
+			Cold: ColdConfig{
+				Enabled:              false,
+				ArchiveSize:          1024 * 1024 * 1024,
+				Compression:          "zstd",
+				CompressionLevel:     3,
+				DictTrainingInterval: 100,
+			},
+			Encryption: EncryptionConfig{
+				Enabled:   false,
+				Algorithm: "aes-256-gcm",
 			},
 		},
 		Defaults: DefaultsConfig{
@@ -218,6 +413,7 @@ func defaultConfig() *Config {
 				Partitions:    8,
 				RetentionTime: "168h",
 				Mode:          "unified",
+				Replication:   1,
 			},
 		},
 		Logging: LoggingConfig{
@@ -254,6 +450,56 @@ func defaultConfig() *Config {
 				Enabled:      false,
 				MaxFrameSize: 128 * 1024,
 			},
+		},
+		Cluster: ClusterConfig{
+			Enabled: false,
+			Raft: RaftConfig{
+				ElectionTimeout:   "1s",
+				HeartbeatInterval: "150ms",
+				SnapshotInterval:  "5m",
+				MaxLogEntries:     100000,
+			},
+			Gossip: GossipConfig{
+				BindPort:         5674,
+				ProbeInterval:    "1s",
+				ProbeTimeout:     "500ms",
+				IndirectNodes:    3,
+				SuspicionTimeout: "5s",
+			},
+			Replication: ReplicationConfig{
+				DefaultFactor: 3,
+				MinISR:        2,
+				AckPolicy:     "quorum",
+				SyncMode:      "sync",
+				MaxLag:        10000,
+			},
+		},
+		Schema: SchemaConfig{
+			Enabled:       false,
+			DefaultCompat: "backward",
+		},
+		Priority: PriorityConfig{
+			Enabled: false,
+			Levels:  10,
+		},
+		TTL: TTLConfigRoot{
+			Enabled:       false,
+			ScanInterval:  "1s",
+			DefaultAction: "drop",
+		},
+		WASM: WASMConfig{
+			Enabled:          false,
+			MaxMemoryPages:   256,
+			ExecutionTimeout: "100ms",
+			ModulePoolSize:   4,
+		},
+		Processing: ProcessingConfig{
+			Enabled:            false,
+			CheckpointInterval: "30s",
+		},
+		ACL: ACL{
+			Enabled:       false,
+			DefaultPolicy: "allow",
 		},
 	}
 }
@@ -304,6 +550,34 @@ func applyEnvOverrides(cfg *Config) {
 	if v := os.Getenv("CHIMERA_PROTOCOL_CHIMERA_ENABLED"); v == "false" {
 		cfg.Protocols.Chimera.Enabled = false
 	}
+	if v := os.Getenv("CHIMERA_CLUSTER_ENABLED"); v == "true" {
+		cfg.Cluster.Enabled = true
+	}
+	if v := os.Getenv("CHIMERA_CLUSTER_GOSSIP_BIND_PORT"); v != "" {
+		if n, err := strconv.Atoi(v); err == nil {
+			cfg.Cluster.Gossip.BindPort = n
+		}
+	}
+	if v := os.Getenv("CHIMERA_SCHEMA_ENABLED"); v == "true" {
+		cfg.Schema.Enabled = true
+	}
+	if v := os.Getenv("CHIMERA_PRIORITY_ENABLED"); v == "true" {
+		cfg.Priority.Enabled = true
+	}
+	if v := os.Getenv("CHIMERA_TTL_ENABLED"); v == "true" {
+		cfg.TTL.Enabled = true
+	}
+	if v := os.Getenv("CHIMERA_CLUSTER_REPLICATION_FACTOR"); v != "" {
+		if n, err := strconv.Atoi(v); err == nil {
+			cfg.Cluster.Replication.DefaultFactor = n
+		}
+	}
+	if v := os.Getenv("CHIMERA_WASM_ENABLED"); v == "true" {
+		cfg.WASM.Enabled = true
+	}
+	if v := os.Getenv("CHIMERA_PROCESSING_ENABLED"); v == "true" {
+		cfg.Processing.Enabled = true
+	}
 }
 
 func applyCLIOverrides(cfg *Config, flags *CLIFlags) {
@@ -342,8 +616,10 @@ func (c *Config) Validate() error {
 		return fmt.Errorf("storage.wal.sync_mode must be immediate, interval, or os")
 	}
 	if c.Auth.Enabled {
-		if c.Auth.Type != "static" && c.Auth.Type != "file" {
-			return fmt.Errorf("auth.type must be 'static' or 'file'")
+		switch c.Auth.Type {
+		case "static", "file", "oauth", "ldap", "mtls":
+		default:
+			return fmt.Errorf("auth.type must be 'static', 'file', 'oauth', or 'ldap'")
 		}
 		if c.Auth.Type == "static" && len(c.Auth.Users) == 0 && len(c.Auth.Tokens) == 0 {
 			return fmt.Errorf("auth.enabled but no users or tokens configured")
@@ -362,6 +638,36 @@ func (c *Config) Validate() error {
 	}
 	if c.Limits.MaxFetchMessages <= 0 {
 		return fmt.Errorf("limits.max_fetch_messages must be > 0")
+	}
+	if c.Cluster.Enabled {
+		if len(c.Cluster.Raft.Peers) == 0 {
+			return fmt.Errorf("cluster.raft.peers is required when cluster is enabled")
+		}
+		if c.Cluster.Replication.DefaultFactor < 1 {
+			return fmt.Errorf("cluster.replication.default_factor must be >= 1")
+		}
+		if c.Cluster.Replication.MinISR < 1 {
+			return fmt.Errorf("cluster.replication.min_isr must be >= 1")
+		}
+		if c.Cluster.Replication.MinISR > c.Cluster.Replication.DefaultFactor {
+			return fmt.Errorf("cluster.replication.min_isr cannot exceed default_factor")
+		}
+		switch c.Cluster.Replication.AckPolicy {
+		case "leader", "quorum", "all":
+		default:
+			return fmt.Errorf("cluster.replication.ack_policy must be leader, quorum, or all")
+		}
+		switch c.Cluster.Replication.SyncMode {
+		case "sync", "async":
+		default:
+			return fmt.Errorf("cluster.replication.sync_mode must be sync or async")
+		}
+		if _, err := time.ParseDuration(c.Cluster.Raft.ElectionTimeout); err != nil {
+			return fmt.Errorf("cluster.raft.election_timeout is invalid: %w", err)
+		}
+		if _, err := time.ParseDuration(c.Cluster.Raft.HeartbeatInterval); err != nil {
+			return fmt.Errorf("cluster.raft.heartbeat_interval is invalid: %w", err)
+		}
 	}
 	return nil
 }

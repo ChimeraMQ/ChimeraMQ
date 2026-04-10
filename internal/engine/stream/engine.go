@@ -8,16 +8,18 @@ import (
 
 	"github.com/chimeramq/chimera/internal/message"
 	"github.com/chimeramq/chimera/internal/storage/hot"
+	"github.com/chimeramq/chimera/internal/storage/tier"
 )
 
 // Engine manages stream-mode topics, consumer groups, and long-poll fetches.
 type Engine struct {
-	mu      sync.RWMutex
-	groups  map[string]*ConsumerGroup // groupName → group
-	storage *hot.Engine
-	offsets *OffsetStore
-	waiters *WaiterRegistry
-	closed  atomic.Bool
+	mu       sync.RWMutex
+	groups   map[string]*ConsumerGroup // groupName → group
+	storage  *hot.Engine
+	offsets  *OffsetStore
+	waiters  *WaiterRegistry
+	migrator *tier.Migrator // optional tier-aware read fallback
+	closed   atomic.Bool
 }
 
 // NewEngine creates a new stream engine.
@@ -40,6 +42,11 @@ func (se *Engine) Close() {
 	for _, cg := range se.groups {
 		cg.Stop()
 	}
+}
+
+// SetMigrator enables tier-aware read fallback.
+func (se *Engine) SetMigrator(m *tier.Migrator) {
+	se.migrator = m
 }
 
 // JoinGroup adds a member to a consumer group (creating it if needed).
@@ -150,10 +157,21 @@ func (se *Engine) readMessages(part *hot.Partition, from, to uint64, max int) ([
 		end = from + uint64(max) - 1
 	}
 
+	topic := part.Topic()
+	partID := part.PartitionID()
+
 	for offset := from; offset <= end; offset++ {
 		data, err := part.Read(offset)
 		if err != nil {
-			break
+			// Try tier-aware fallback
+			if se.migrator != nil {
+				data, err = se.migrator.Read(topic, partID, offset)
+				if err != nil {
+					break
+				}
+			} else {
+				break
+			}
 		}
 		env, err := message.Unmarshal(data)
 		if err != nil {

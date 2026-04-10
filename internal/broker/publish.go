@@ -2,9 +2,12 @@ package broker
 
 import (
 	"fmt"
+	"strconv"
+	"strings"
 	"time"
 
 	"github.com/chimeramq/chimera/internal/message"
+	"github.com/chimeramq/chimera/internal/engine/ttl"
 	"github.com/chimeramq/chimera/internal/storage/wal"
 )
 
@@ -13,6 +16,43 @@ func (b *Broker) Publish(env *message.Envelope) (uint64, error) {
 	topicCfg, ok := b.topics.GetTopic(env.Topic)
 	if !ok {
 		return 0, fmt.Errorf("topic %q not found", env.Topic)
+	}
+
+	// Schema enforcement
+	if b.schemaEnf != nil && topicCfg.SchemaEnforcement {
+		schemaID := uint32(0)
+		if id, ok := parseSchemaIDFromHeaders(env); ok {
+			schemaID = id
+		}
+		if schemaID == 0 {
+			return 0, fmt.Errorf("schema enforcement enabled for topic %q but no schema ID provided", env.Topic)
+		}
+		result, err := b.schemaEnf.Validate(schemaID, env.Payload)
+		if err != nil {
+			return 0, fmt.Errorf("schema validation error: %w", err)
+		}
+		if !result.Valid {
+			return 0, fmt.Errorf("schema validation failed: %s", strings.Join(result.Errors, "; "))
+		}
+	}
+
+	// Apply default TTL from topic config
+	if topicCfg.DefaultTTL > 0 {
+		ttl.ApplyDefaultTTL(env, topicCfg.DefaultTTL)
+	}
+
+	// WASM transform pipeline
+	if b.wasmRT != nil && topicCfg.TransformPipeline != nil {
+		transformed, err := topicCfg.TransformPipeline.Apply(b.ctx, b.wasmRT, env)
+		if err != nil {
+			b.metrics.WASMExecError(env.Topic)
+			return 0, fmt.Errorf("transform pipeline: %w", err)
+		}
+		if transformed == nil {
+			return 0, nil // message filtered by WASM
+		}
+		env = transformed
+		b.metrics.WASMExecOK(env.Topic)
 	}
 
 	// Resolve partition
@@ -70,4 +110,19 @@ func (b *Broker) Publish(env *message.Envelope) (uint64, error) {
 	b.metrics.MessageIn(env.Topic, partID, env.SourceProto.String())
 
 	return offset, nil
+}
+
+func parseSchemaIDFromHeaders(env *message.Envelope) (uint32, bool) {
+	if env.Headers == nil {
+		return 0, false
+	}
+	v, ok := env.Headers["x-chimera-schema-id"]
+	if !ok {
+		return 0, false
+	}
+	id, err := strconv.ParseUint(string(v), 10, 32)
+	if err != nil {
+		return 0, false
+	}
+	return uint32(id), true
 }

@@ -2,11 +2,13 @@ package mqtt
 
 import (
 	"bufio"
+	"context"
 	"fmt"
 	"net"
 	"sync"
 	"time"
 
+	"github.com/chimeramq/chimera/internal/auth"
 	"github.com/chimeramq/chimera/internal/broker"
 	"github.com/chimeramq/chimera/internal/message"
 )
@@ -334,18 +336,16 @@ func (s *Server) publishWill(will *willMessage) {
 }
 
 func (s *Server) authenticate(username, password string) bool {
-	cfg := s.broker.Config()
-	if cfg.Auth.Type == "static" {
-		if password != "" {
-			if _, ok := cfg.Auth.Tokens[password]; ok {
-				return true
-			}
-		}
-		if _, ok := cfg.Auth.Users[username]; ok {
-			return true
-		}
+	provider := s.broker.AuthProvider()
+	if provider == nil {
+		return false
 	}
-	return false
+	_, err := provider.Authenticate(context.Background(), auth.Credentials{
+		Username: username,
+		Password: password,
+		Token:    password,
+	})
+	return err == nil
 }
 
 func (s *Server) writePacket(w *bufio.Writer, pktType byte, flags byte, data []byte) {

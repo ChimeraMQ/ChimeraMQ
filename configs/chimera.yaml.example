@@ -23,11 +23,25 @@ listener:
 # --- Authentication (opt-in) ---
 # auth:
 #   enabled: false
-#   type: "static"                   # static | file
+#   type: "static"                   # static | file | mtls | oauth | ldap
 #   tokens:                          # API key -> label mapping
 #     "my-secret-token": "admin"
 #   users:                           # username -> bcrypt hash
 #     admin: "$2a$10$..."
+#   auth_file: ""                    # JSON auth file path (type: file)
+#   # oauth:                         # OAuth 2.0 / OIDC (type: oauth)
+#   #   issuer: "https://auth.example.com"
+#   #   client_id: "chimera"
+#   #   client_secret: ""
+#   #   scopes: ["openid", "profile"]
+#   #   audience: "chimera-api"
+#   # ldap:                          # LDAP (type: ldap)
+#   #   url: "ldap://ldap.example.com:389"
+#   #   bind_dn: "cn=chimera,ou=services,dc=example,dc=com"
+#   #   bind_password: ""
+#   #   base_dn: "ou=users,dc=example,dc=com"
+#   #   filter: "(uid={username})"
+#   #   tls: false
 
 # --- TLS (opt-in) ---
 # tls:
@@ -36,6 +50,24 @@ listener:
 #   key_file: "/etc/chimera/tls/server.key"
 #   # ca_file: "/etc/chimera/tls/ca.crt"   # For mutual TLS
 #   min_version: "1.3"
+#   # mutual: false                        # Enable mTLS (requires client_ca)
+#   # client_ca: "/etc/chimera/tls/ca.crt" # Client CA certificate
+
+# --- Access Control Lists (Phase 7) — opt-in ---
+# acl:
+#   enabled: false
+#   default_policy: "deny"           # allow | deny
+#   entries:
+#     - principal: "admin"
+#       resource: "cluster"
+#       name: "*"
+#       operation: "all"
+#       permission: "allow"
+#     - principal: "*"
+#       resource: "topic"
+#       name: "public.*"
+#       operation: "read"
+#       permission: "allow"
 
 # --- Resource Limits ---
 limits:
@@ -57,7 +89,36 @@ storage:
     sync_mode: "interval"            # immediate | interval | os
     sync_interval: "100ms"           # Fsync interval (interval mode)
   tier_policy:
-    hot_retention: "1h"              # Time before tier migration (Phase 2)
+    hot_retention: "1h"              # Time before tier migration
+    warm_retention: "24h"            # Warm tier retention
+    cold_retention: "168h"           # Cold tier retention (7 days)
+    hot_max_size: 0                  # Max hot tier bytes per partition (0=unlimited)
+    warm_max_size: 0                 # Max warm tier bytes (0=unlimited)
+    compact_on_migrate: false        # Run compaction during hot→warm
+
+  # Warm tier (LSM-Tree) — opt-in
+  # warm:
+  #   enabled: false
+  #   block_size: 65536               # SSTable block size (64KB)
+  #   bloom_fp_rate: 0.01             # Bloom filter false positive rate
+  #   compaction_strategy: "size_tiered"  # size_tiered | leveled | tombstone
+  #   compaction_interval: "5m"       # Background compaction interval
+  #   memtable_capacity: 4194304      # 4MB MemTable capacity before flush
+
+  # Cold tier (compressed archives) — opt-in
+  # cold:
+  #   enabled: false
+  #   archive_size: 1073741824        # 1GB target archive size
+  #   compression: "zstd"             # Compression algorithm
+  #   compression_level: 3            # Zstd compression level (1-22)
+  #   dict_training_interval: 100     # Entries between dictionary training
+
+  # At-rest encryption — opt-in
+  # encryption:
+  #   enabled: false
+  #   algorithm: "aes-256-gcm"        # AES-256-GCM (only option)
+  #   key_path: ""                    # Path to encryption key (auto-generated if empty)
+  #   key_rotate: ""                  # Key rotation interval (empty = no rotation)
 
 # --- Topic Defaults ---
 defaults:
@@ -105,3 +166,70 @@ protocols:
   # amqp:
   #   enabled: false
   #   max_frame_size: 131072           # 128KB max frame size
+
+# --- Clustering (Phase 3) ---
+# cluster:
+#   enabled: false                     # Enable clustered mode
+#   raft:
+#     peers:                           # Raft peer addresses (host:raft_port)
+#       - "node-1.example.com:5673"
+#       - "node-2.example.com:5673"
+#       - "node-3.example.com:5673"
+#     election_timeout: "1s"           # Raft election timeout
+#     heartbeat_interval: "150ms"      # Leader heartbeat interval
+#     snapshot_interval: "5m"          # Snapshot frequency
+#     max_log_entries: 100000          # Entries before snapshot trigger
+#   gossip:
+#     bind_port: 5674                  # SWIM gossip UDP port
+#     seeds:                           # Seed nodes for cluster discovery
+#       - "node-1.example.com:5674"
+#       - "node-2.example.com:5674"
+#     probe_interval: "1s"             # Probe cycle interval
+#     probe_timeout: "500ms"           # Per-probe timeout
+#     indirect_nodes: 3                # K indirect probes on failure
+#     suspicion_timeout: "5s"          # Suspect → Dead timeout
+#   replication:
+#     default_factor: 3                # Default replication factor
+#     min_isr: 2                       # Min in-sync replicas for writes
+#     ack_policy: "quorum"             # leader | quorum | all
+#     sync_mode: "sync"                # sync | async
+#     max_lag: 10000                   # Max offset lag before ISR shrink
+
+# --- Schema Registry (Phase 5) — opt-in ---
+# schema:
+#   enabled: false
+#   default_compat: "backward"         # none | backward | forward | full
+
+# --- Priority Queues (Phase 5) — opt-in ---
+# priority:
+#   enabled: false
+#   levels: 10                          # 0-9 priority levels (max 10)
+
+# --- Message TTL (Phase 5) — opt-in ---
+# ttl:
+#   enabled: false
+#   scan_interval: "1s"                # How often to scan for expired messages
+#   default_action: "drop"             # drop | dlq
+
+# --- WASM Runtime (Phase 6) — opt-in ---
+# wasm:
+#   enabled: false
+#   max_memory_pages: 256              # 16MB per module instance
+#   execution_timeout: "100ms"         # Transform execution timeout
+#   module_pool_size: 4                # Pre-instantiated instances per module
+#   modules_dir: ""                    # Auto-set to {data_dir}/wasm
+
+# --- Stream Processing (Phase 6) — opt-in ---
+# processing:
+#   enabled: false
+#   checkpoint_interval: "30s"         # State checkpoint frequency
+#   state_dir: ""                      # Auto-set to {data_dir}/state
+
+# --- Observability (Phase 7) — opt-in ---
+# observability:
+#   tracing:
+#     enabled: false
+#     endpoint: "localhost:4317"        # OTLP gRPC endpoint
+#     service: "chimera"                # Service name for spans
+#     insecure: true                    # Use insecure gRPC
+#     sample_rate: 1.0                  # 0.0-1.0 trace sampling

@@ -132,6 +132,12 @@ func (p *Partition) HighWatermark() uint64 {
 	return p.highWater
 }
 
+// Topic returns the topic name for this partition.
+func (p *Partition) Topic() string { return p.topicName }
+
+// PartitionID returns the partition identifier.
+func (p *Partition) PartitionID() uint32 { return p.partitionID }
+
 // LogStartOffset returns the earliest available offset.
 func (p *Partition) LogStartOffset() uint64 {
 	p.mu.RLock()

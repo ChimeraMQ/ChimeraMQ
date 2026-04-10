@@ -4,7 +4,7 @@ COMMIT   := $(shell git rev-parse --short HEAD 2>/dev/null || echo "unknown")
 DATE     := $(shell date -u +"%Y-%m-%dT%H:%M:%SZ")
 LDFLAGS  := -s -w -X main.version=$(VERSION) -X main.commit=$(COMMIT) -X main.date=$(DATE)
 
-.PHONY: build test bench clean lint docker release integration cover
+.PHONY: build test bench clean lint docker release integration cover chaos
 
 build:
 	CGO_ENABLED=0 go build -ldflags "$(LDFLAGS)" -o bin/$(BINARY) ./cmd/chimera/

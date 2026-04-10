@@ -19,6 +19,41 @@ import (
 	"github.com/chimeramq/chimera/internal/protocol/ws"
 )
 
+// RunClusterCLI manages cluster operations via the admin API.
+func RunClusterCLI(args []string) {
+	if len(args) < 1 {
+		fmt.Println("Usage: chimera cluster [status|members]")
+		os.Exit(1)
+	}
+
+	adminAddr := getAdminAddr()
+
+	switch args[0] {
+	case "status":
+		resp, err := httpGet(adminAddr + "/v1/health")
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "Error: %v\n", err)
+			os.Exit(1)
+		}
+		defer resp.Body.Close()
+		printResponse(resp)
+
+	case "members":
+		resp, err := httpGet(adminAddr + "/v1/cluster/members")
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "Error: %v\n", err)
+			os.Exit(1)
+		}
+		defer resp.Body.Close()
+		printResponse(resp)
+
+	default:
+		fmt.Printf("Unknown cluster command: %s\n", args[0])
+		fmt.Println("Usage: chimera cluster [status|members]")
+		os.Exit(1)
+	}
+}
+
 // RunServer starts the ChimeraMQ broker.
 func RunServer(args []string) {
 	flags := flag.NewFlagSet("server", flag.ExitOnError)

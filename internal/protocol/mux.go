@@ -4,9 +4,11 @@ import (
 	"bufio"
 	"context"
 	"crypto/tls"
+	"crypto/x509"
 	"fmt"
 	"log/slog"
 	"net"
+	"os"
 	"sync"
 	"sync/atomic"
 
@@ -83,6 +85,18 @@ func (m *ProtocolMux) Serve() error {
 		m.tlsConfig = &tls.Config{
 			Certificates: []tls.Certificate{cert},
 			MinVersion:   tls.VersionTLS12,
+		}
+		if cfg.TLS.Mutual {
+			caPEM, rerr := os.ReadFile(cfg.TLS.ClientCA)
+			if rerr != nil {
+				return fmt.Errorf("read client CA: %w", rerr)
+			}
+			clientCAs := x509.NewCertPool()
+			if !clientCAs.AppendCertsFromPEM(caPEM) {
+				return fmt.Errorf("failed to parse client CA certificates")
+			}
+			m.tlsConfig.ClientCAs = clientCAs
+			m.tlsConfig.ClientAuth = tls.RequireAndVerifyClientCert
 		}
 		m.listener, err = tls.Listen("tcp", addr, m.tlsConfig)
 		if err != nil {
