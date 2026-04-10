@@ -44,3 +44,55 @@ func TestHandlerSPAFallback(t *testing.T) {
 		t.Errorf("SPA fallback status = %d, want 200", resp.StatusCode)
 	}
 }
+
+func TestHandlerSPAFallbackDeepPath(t *testing.T) {
+	h := Handler()
+	srv := httptest.NewServer(h)
+	defer srv.Close()
+
+	resp, err := srv.Client().Get(srv.URL + "/consumers/group/detail")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		t.Errorf("deep SPA fallback status = %d, want 200", resp.StatusCode)
+	}
+}
+
+func TestHandlerStaticAsset(t *testing.T) {
+	h := Handler()
+	srv := httptest.NewServer(h)
+	defer srv.Close()
+
+	// Try to get a CSS file — may or may not exist in the embedded FS
+	resp, err := srv.Client().Get(srv.URL + "/assets/style.css")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp.Body.Close()
+
+	// Either 200 (if exists) or falls back to index.html (200)
+	if resp.StatusCode != http.StatusOK {
+		t.Errorf("static asset status = %d, want 200", resp.StatusCode)
+	}
+}
+
+func TestHandlerIndexHTMLDirect(t *testing.T) {
+	h := Handler()
+	srv := httptest.NewServer(h)
+	defer srv.Close()
+
+	// Direct request for index.html should serve it
+	resp, err := srv.Client().Get(srv.URL + "/index.html")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp.Body.Close()
+
+	// index.html hits the fallback path
+	if resp.StatusCode != http.StatusOK {
+		t.Errorf("index.html status = %d, want 200", resp.StatusCode)
+	}
+}

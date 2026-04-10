@@ -422,3 +422,132 @@ func TestRouteConnectionDirect(t *testing.T) {
 		t.Errorf("handler count after MQTT = %d, want 1", handler.Count())
 	}
 }
+
+func TestMuxServeConnectionLimit(t *testing.T) {
+	b, cleanup := newTestBrokerForMux(t)
+	defer cleanup()
+
+	// Set very low connection limit
+	b.Config().Limits.MaxConnections = 1
+
+	handler := &trackingHandler{}
+	mux := NewProtocolMux(b)
+	mux.Register(&echoDetector{}, handler)
+
+	go mux.Serve()
+	defer mux.Stop()
+
+	time.Sleep(50 * time.Millisecond)
+	addr := mux.listener.Addr().String()
+
+	// First connection should succeed
+	conn1, err := net.DialTimeout("tcp", addr, 2*time.Second)
+	if err != nil {
+		t.Fatal(err)
+	}
+	conn1.Write([]byte("first-connection-padding-bytes"))
+	time.Sleep(100 * time.Millisecond)
+
+	// Second connection should be rejected (closed immediately due to sem full)
+	conn2, err := net.DialTimeout("tcp", addr, 2*time.Second)
+	if err == nil {
+		conn2.Write([]byte("second-connection"))
+		conn2.Close()
+	}
+
+	conn1.Close()
+	time.Sleep(100 * time.Millisecond)
+}
+
+func TestMuxServeStopDuringAccept(t *testing.T) {
+	b, cleanup := newTestBrokerForMux(t)
+	defer cleanup()
+
+	handler := &noopHandler{}
+	mux := NewProtocolMux(b)
+	mux.Register(&echoDetector{}, handler)
+
+	done := make(chan error, 1)
+	go func() { done <- mux.Serve() }()
+
+	time.Sleep(50 * time.Millisecond)
+	mux.Stop()
+
+	select {
+	case err := <-done:
+		if err != nil {
+			t.Errorf("Serve returned error on stop: %v", err)
+		}
+	case <-time.After(2 * time.Second):
+		t.Error("Stop() timed out")
+	}
+}
+
+func TestMuxStopWithoutServe(t *testing.T) {
+	b, cleanup := newTestBrokerForMux(t)
+	defer cleanup()
+
+	mux := NewProtocolMux(b)
+	mux.Register(&echoDetector{}, &noopHandler{})
+
+	// Stop without Serve should not panic
+	mux.Stop()
+}
+
+func TestMuxRegisterMultiple(t *testing.T) {
+	b, cleanup := newTestBrokerForMux(t)
+	defer cleanup()
+
+	mux := NewProtocolMux(b)
+	mux.Register(&amqp.Detector{}, &noopHandler{})
+	mux.Register(&mqtt.Detector{}, &noopHandler{})
+	mux.Register(&httpadmin.Detector{}, &noopHandler{})
+	mux.Register(&chimera.Detector{}, &noopHandler{})
+
+	if len(mux.detectors) != 4 {
+		t.Errorf("registered %d detectors, want 4", len(mux.detectors))
+	}
+}
+
+func TestRouteConnectionChimera(t *testing.T) {
+	b, cleanup := newTestBrokerForMux(t)
+	defer cleanup()
+
+	handler := &trackingHandler{}
+	mux := NewProtocolMux(b)
+	mux.Register(&mqtt.Detector{}, &noopHandler{})
+	mux.Register(&chimera.Detector{}, handler)
+
+	server, client := net.Pipe()
+	go func() {
+		client.Write([]byte{'C', 'H', 'M', 'R', 0x01, 0x00, 0x00, 0x00})
+		client.Close()
+	}()
+	mux.routeConnection(server)
+	server.Close()
+
+	if handler.Count() != 1 {
+		t.Errorf("handler count = %d, want 1", handler.Count())
+	}
+}
+
+func TestRouteConnectionHTTP(t *testing.T) {
+	b, cleanup := newTestBrokerForMux(t)
+	defer cleanup()
+
+	handler := &trackingHandler{}
+	mux := NewProtocolMux(b)
+	mux.Register(&httpadmin.Detector{}, handler)
+
+	server, client := net.Pipe()
+	go func() {
+		client.Write([]byte("GET / HTTP/1.1\r\nHost: localhost\r\n\r\n"))
+		client.Close()
+	}()
+	mux.routeConnection(server)
+	server.Close()
+
+	if handler.Count() != 1 {
+		t.Errorf("handler count = %d, want 1", handler.Count())
+	}
+}

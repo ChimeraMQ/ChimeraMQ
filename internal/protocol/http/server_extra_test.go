@@ -6,10 +6,12 @@ import (
 	"net"
 	"net/http"
 	"net/http/httptest"
+	"os"
 	"testing"
 	"time"
 
 	"github.com/chimeramq/chimera/internal/auth"
+	"github.com/chimeramq/chimera/internal/broker"
 )
 
 func TestDetector(t *testing.T) {
@@ -304,5 +306,141 @@ func TestHandleListConsumers(t *testing.T) {
 	resp := doRequest(t, srv, "GET", "/v1/consumers", nil)
 	if resp.StatusCode != http.StatusOK {
 		t.Errorf("status = %d, want 200", resp.StatusCode)
+	}
+}
+
+func setupAuthTestServer(t *testing.T) (*AdminServer, func()) {
+	t.Helper()
+	dir, err := os.MkdirTemp("", "chimera-http-auth-*")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	cfg := &broker.Config{
+		Node: broker.NodeConfig{ID: 1, Name: "auth-node", DataDir: dir},
+		Listener: broker.ListenerConfig{
+			Bind: "127.0.0.1", Port: 0, AdminPort: 0, MaxConnections: 100,
+		},
+		Storage: broker.StorageConfig{
+			Hot: broker.HotConfig{SegmentSize: 1024 * 1024, SyncMode: "immediate"},
+			WAL: broker.WALConfig{MaxSize: 4 * 1024 * 1024, SyncMode: "immediate"},
+		},
+		Defaults: broker.DefaultsConfig{
+			Topic: broker.TopicDefaults{Partitions: 4, RetentionTime: "1h", Mode: "unified"},
+		},
+		Logging: broker.LoggingConfig{Level: "warn", Format: "text"},
+		Auth: broker.AuthConfig{
+			Enabled: true,
+			Type:    "static",
+			Users:   map[string]string{"admin": "password123"},
+			Tokens:  map[string]string{"my-token": "admin"},
+		},
+	}
+
+	b, err := broker.NewBroker(cfg)
+	if err != nil {
+		os.RemoveAll(dir)
+		t.Fatalf("NewBroker: %v", err)
+	}
+	if err := b.Start(); err != nil {
+		os.RemoveAll(dir)
+		t.Fatalf("Start: %v", err)
+	}
+
+	srv := NewAdminServer(b)
+	cleanup := func() {
+		b.Stop()
+		os.RemoveAll(dir)
+	}
+	return srv, cleanup
+}
+
+func TestAuthNoHeader(t *testing.T) {
+	srv, cleanup := setupAuthTestServer(t)
+	defer cleanup()
+
+	resp := doRequest(t, srv, "GET", "/v1/topics", nil)
+	if resp.StatusCode != http.StatusUnauthorized {
+		t.Errorf("status = %d, want 401", resp.StatusCode)
+	}
+}
+
+func TestAuthBearerToken(t *testing.T) {
+	srv, cleanup := setupAuthTestServer(t)
+	defer cleanup()
+
+	req := httptest.NewRequest("GET", "/v1/topics", nil)
+	req.Header.Set("Authorization", "Bearer my-token")
+	w := httptest.NewRecorder()
+	srv.mux.ServeHTTP(w, req)
+
+	if w.Result().StatusCode == http.StatusUnauthorized {
+		t.Error("valid token should not be unauthorized")
+	}
+}
+
+func TestAuthInvalidBearerToken(t *testing.T) {
+	srv, cleanup := setupAuthTestServer(t)
+	defer cleanup()
+
+	req := httptest.NewRequest("GET", "/v1/topics", nil)
+	req.Header.Set("Authorization", "Bearer invalid-token")
+	w := httptest.NewRecorder()
+	srv.mux.ServeHTTP(w, req)
+
+	if w.Result().StatusCode != http.StatusUnauthorized {
+		t.Errorf("status = %d, want 401", w.Result().StatusCode)
+	}
+}
+
+func TestAuthBasicAuth(t *testing.T) {
+	srv, cleanup := setupAuthTestServer(t)
+	defer cleanup()
+
+	// Base64("admin:password123") = "YWRtaW46cGFzc3dvcmQxMjM="
+	req := httptest.NewRequest("GET", "/v1/topics", nil)
+	req.Header.Set("Authorization", "Basic YWRtaW46cGFzc3dvcmQxMjM=")
+	w := httptest.NewRecorder()
+	srv.mux.ServeHTTP(w, req)
+
+	if w.Result().StatusCode == http.StatusUnauthorized {
+		t.Error("valid basic auth should not be unauthorized")
+	}
+}
+
+func TestAuthBasicInvalidPassword(t *testing.T) {
+	srv, cleanup := setupAuthTestServer(t)
+	defer cleanup()
+
+	// Base64("admin:wrong") = "YWRtaW46d3Jvbg=="
+	req := httptest.NewRequest("GET", "/v1/topics", nil)
+	req.Header.Set("Authorization", "Basic YWRtaW46d3Jvbg==")
+	w := httptest.NewRecorder()
+	srv.mux.ServeHTTP(w, req)
+
+	if w.Result().StatusCode != http.StatusUnauthorized {
+		t.Errorf("status = %d, want 401", w.Result().StatusCode)
+	}
+}
+
+func TestHealthNoAuth(t *testing.T) {
+	srv, cleanup := setupAuthTestServer(t)
+	defer cleanup()
+
+	// Health endpoint should NOT require auth (no auth wrapper)
+	resp := doRequest(t, srv, "GET", "/v1/health", nil)
+	if resp.StatusCode != http.StatusOK {
+		t.Errorf("health status = %d, want 200", resp.StatusCode)
+	}
+}
+
+func TestClusterMembersNoAuth(t *testing.T) {
+	srv, cleanup := setupAuthTestServer(t)
+	defer cleanup()
+
+	// Cluster members endpoint should NOT require auth
+	resp := doRequest(t, srv, "GET", "/v1/cluster/members", nil)
+	if resp.StatusCode != http.StatusOK {
+		t.Errorf("cluster members status = %d, want 200", resp.StatusCode)
 	}
 }
