@@ -1,0 +1,152 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: chimera-config
+  labels:
+    app: chimera
+data:
+  chimera.yaml: |
+    node:
+      id: 1
+      name: chimera-01
+      data_dir: /var/lib/chimera
+    listener:
+      bind: 0.0.0.0
+      port: 5672
+      admin_port: 9090
+      max_connections: 50000
+    storage:
+      hot:
+        segment_size: 268435456
+        sync_mode: interval
+        sync_interval: 200ms
+    defaults:
+      topic:
+        partitions: 8
+        mode: unified
+    logging:
+      level: info
+      format: json
+    auth:
+      type: static
+      tokens:
+        admin: "${CHIMERA_ADMIN_TOKEN}"
+    observability:
+      tracing:
+        enabled: false
+      dashboard:
+        enabled: true
+    dlq:
+      enabled: true
+      topic_prefix: "__dlq_"
+      max_retries: 3
+    flow_control:
+      enabled: true
+      high_watermark_mb: 512
+      low_watermark_mb: 256
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: chimera
+  labels:
+    app: chimera
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: chimera
+  template:
+    metadata:
+      labels:
+        app: chimera
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/port: "9090"
+        prometheus.io/path: "/v1/metrics"
+    spec:
+      containers:
+        - name: chimera
+          image: ghcr.io/chimeramq/chimera:latest
+          ports:
+            - containerPort: 5672
+              name: protocol
+            - containerPort: 9090
+              name: admin
+          env:
+            - name: CHIMERA_LOG_LEVEL
+              value: "info"
+            - name: CHIMERA_ADMIN_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: chimera-secrets
+                  key: admin-token
+          volumeMounts:
+            - name: config
+              mountPath: /etc/chimera/chimera.yaml
+              subPath: chimera.yaml
+            - name: data
+              mountPath: /var/lib/chimera
+          livenessProbe:
+            httpGet:
+              path: /v1/health
+              port: admin
+            initialDelaySeconds: 10
+            periodSeconds: 30
+          readinessProbe:
+            httpGet:
+              path: /v1/health
+              port: admin
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          resources:
+            requests:
+              memory: "256Mi"
+              cpu: "500m"
+            limits:
+              memory: "1Gi"
+              cpu: "2000m"
+      volumes:
+        - name: config
+          configMap:
+            name: chimera-config
+        - name: data
+          persistentVolumeClaim:
+            claimName: chimera-data
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: chimera
+  labels:
+    app: chimera
+spec:
+  type: ClusterIP
+  ports:
+    - port: 5672
+      targetPort: protocol
+      name: protocol
+    - port: 9090
+      targetPort: admin
+      name: admin
+  selector:
+    app: chimera
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: chimera-data
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: 10Gi
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: chimera-secrets
+type: Opaque
+stringData:
+  admin-token: "change-me-in-production"
