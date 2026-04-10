@@ -1,0 +1,59 @@
+version: "3.8"
+
+services:
+  chimera:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: chimera
+    ports:
+      - "5672:5672"    # Protocol port (Chimera TCP, AMQP)
+      - "9090:9090"    # Admin HTTP API
+    volumes:
+      - chimera-data:/var/lib/chimera
+      - ./configs/chimera.yaml:/etc/chimera/chimera.yaml:ro
+    environment:
+      CHIMERA_LOG_LEVEL: info
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://localhost:9090/v1/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 5s
+    restart: unless-stopped
+
+  # Optional: Prometheus for metrics scraping
+  prometheus:
+    image: prom/prometheus:v2.51.0
+    container_name: chimera-prometheus
+    ports:
+      - "9091:9090"
+    volumes:
+      - ./configs/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - prometheus-data:/prometheus
+    depends_on:
+      chimera:
+        condition: service_healthy
+    profiles:
+      - observability
+
+  # Optional: Grafana for dashboards
+  grafana:
+    image: grafana/grafana:10.4.0
+    container_name: chimera-grafana
+    ports:
+      - "3000:3000"
+    environment:
+      GF_SECURITY_ADMIN_PASSWORD: admin
+      GF_AUTH_ANONYMOUS_ENABLED: "true"
+    volumes:
+      - grafana-data:/var/lib/grafana
+    depends_on:
+      - prometheus
+    profiles:
+      - observability
+
+volumes:
+  chimera-data:
+  prometheus-data:
+  grafana-data:

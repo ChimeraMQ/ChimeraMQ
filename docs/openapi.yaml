@@ -1,0 +1,726 @@
+openapi: 3.0.3
+info:
+  title: ChimeraMQ Admin API
+  description: Unified message queue and event streaming platform
+  version: 0.8.0
+  contact:
+    name: ChimeraMQ
+    url: https://github.com/ChimeraMQ/ChimeraMQ
+
+servers:
+  - url: http://localhost:9090
+    description: Local development
+
+security: []
+
+paths:
+  /v1/health:
+    get:
+      summary: Health check
+      operationId: getHealth
+      responses:
+        "200":
+          description: Broker health status
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status:
+                    type: string
+                    example: healthy
+                  node_id:
+                    type: integer
+                  name:
+                    type: string
+                  uptime:
+                    type: string
+
+  /v1/metrics:
+    get:
+      summary: Prometheus metrics
+      operationId: getMetrics
+      responses:
+        "200":
+          description: Prometheus text format metrics
+          content:
+            text/plain:
+              schema:
+                type: string
+
+  # --- Topics ---
+  /v1/topics:
+    post:
+      summary: Create a topic
+      operationId: createTopic
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [name]
+              properties:
+                name:
+                  type: string
+                mode:
+                  type: string
+                  enum: [stream, queue, unified]
+                  default: unified
+                partitions:
+                  type: integer
+                  minimum: 1
+                  default: 8
+                schema_enforcement:
+                  type: boolean
+                  default: false
+                default_ttl:
+                  type: string
+                transform_pipeline:
+                  type: object
+      responses:
+        "201":
+          description: Topic created
+        "409":
+          description: Topic already exists
+      tags: [Topics]
+
+    get:
+      summary: List all topics
+      operationId: listTopics
+      responses:
+        "200":
+          description: Topic list
+      tags: [Topics]
+
+  /v1/topics/{name}:
+    get:
+      summary: Get topic details
+      operationId: getTopic
+      parameters:
+        - name: name
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Topic details
+        "404":
+          description: Topic not found
+      tags: [Topics]
+
+    delete:
+      summary: Delete a topic
+      operationId: deleteTopic
+      parameters:
+        - name: name
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Topic deleted
+        "404":
+          description: Topic not found
+      tags: [Topics]
+
+  # --- Messages ---
+  /v1/messages/{topic}:
+    post:
+      summary: Publish a message
+      operationId: publishMessage
+      parameters:
+        - name: topic
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/octet-stream:
+            schema:
+              type: string
+              format: binary
+      responses:
+        "200":
+          description: Message published
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  offset:
+                    type: integer
+                    format: uint64
+                  partition:
+                    type: integer
+                    format: uint32
+                  topic:
+                    type: string
+        "503":
+          description: Broker overloaded (flow control)
+      tags: [Messages]
+
+    get:
+      summary: Fetch messages
+      operationId: fetchMessages
+      parameters:
+        - name: topic
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: partition
+          in: query
+          schema:
+            type: integer
+            default: 0
+        - name: offset
+          in: query
+          schema:
+            type: integer
+            default: 0
+        - name: limit
+          in: query
+          schema:
+            type: integer
+            default: 10
+        - name: timeout
+          in: query
+          description: Long-poll timeout in milliseconds
+          schema:
+            type: integer
+            default: 5000
+      responses:
+        "200":
+          description: Fetched messages
+      tags: [Messages]
+
+  /v1/messages/{topic}/ack:
+    post:
+      summary: Acknowledge messages
+      operationId: ackMessages
+      parameters:
+        - name: topic
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                offsets:
+                  type: array
+                  items:
+                    type: integer
+                    format: uint64
+      responses:
+        "200":
+          description: Ack result
+      tags: [Messages]
+
+  /v1/messages/{topic}/nack:
+    post:
+      summary: Negative acknowledge messages
+      operationId: nackMessages
+      parameters:
+        - name: topic
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                offsets:
+                  type: array
+                  items:
+                    type: integer
+                    format: uint64
+      responses:
+        "200":
+          description: Nack result
+      tags: [Messages]
+
+  # --- Consumer Groups ---
+  /v1/consumers:
+    get:
+      summary: List consumer groups
+      operationId: listConsumers
+      responses:
+        "200":
+          description: Group list
+      tags: [Consumer Groups]
+
+  /v1/consumers/{group}:
+    get:
+      summary: Get consumer group details
+      operationId: getConsumer
+      parameters:
+        - name: group
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Group details with members and assignments
+        "404":
+          description: Group not found
+      tags: [Consumer Groups]
+
+  /v1/consumers/{group}/join:
+    post:
+      summary: Join a consumer group
+      operationId: consumerJoin
+      parameters:
+        - name: group
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [member_id, topic]
+              properties:
+                member_id:
+                  type: string
+                topic:
+                  type: string
+                partitions:
+                  type: integer
+                  default: 1
+                strategy:
+                  type: string
+                  enum: [range, round_robin]
+                  default: range
+      responses:
+        "200":
+          description: Joined with current assignments
+      tags: [Consumer Groups]
+
+  /v1/consumers/{group}/leave:
+    post:
+      summary: Leave a consumer group
+      operationId: consumerLeave
+      parameters:
+        - name: group
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [member_id]
+              properties:
+                member_id:
+                  type: string
+      responses:
+        "200":
+          description: Left group
+      tags: [Consumer Groups]
+
+  /v1/consumers/{group}/heartbeat:
+    post:
+      summary: Send consumer heartbeat
+      operationId: consumerHeartbeat
+      parameters:
+        - name: group
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [member_id]
+              properties:
+                member_id:
+                  type: string
+      responses:
+        "200":
+          description: Heartbeat accepted
+        "404":
+          description: Member not in group
+      tags: [Consumer Groups]
+
+  /v1/consumers/{group}/offsets:
+    get:
+      summary: Get committed offsets
+      operationId: getConsumerOffsets
+      parameters:
+        - name: group
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Offset map
+        "404":
+          description: Group not found
+      tags: [Consumer Groups]
+
+    post:
+      summary: Commit offsets
+      operationId: commitConsumerOffsets
+      parameters:
+        - name: group
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [offsets]
+              properties:
+                offsets:
+                  type: object
+                  additionalProperties:
+                    type: integer
+                    format: uint64
+                  description: '"partitionID" → offset'
+      responses:
+        "200":
+          description: Commit result
+      tags: [Consumer Groups]
+
+  # --- Schema Registry ---
+  /v1/schemas/{subject}:
+    post:
+      summary: Register a schema
+      operationId: registerSchema
+      parameters:
+        - name: subject
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [type, definition]
+              properties:
+                type:
+                  type: string
+                  enum: [json]
+                definition:
+                  type: string
+      responses:
+        "200":
+          description: Schema registered
+      tags: [Schemas]
+
+    get:
+      summary: List schemas for a subject
+      operationId: listSchemas
+      parameters:
+        - name: subject
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Schema versions
+      tags: [Schemas]
+
+    delete:
+      summary: Delete all schemas for a subject
+      operationId: deleteSubject
+      parameters:
+        - name: subject
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Subject deleted
+      tags: [Schemas]
+
+  /v1/schemas/{subject}/latest:
+    get:
+      summary: Get latest schema version
+      operationId: getLatestSchema
+      parameters:
+        - name: subject
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Latest schema
+        "404":
+          description: No schemas found
+      tags: [Schemas]
+
+  /v1/schemas/{subject}/versions/{version}:
+    get:
+      summary: Get specific schema version
+      operationId: getSchemaVersion
+      parameters:
+        - name: subject
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: version
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: Schema version
+        "404":
+          description: Version not found
+      tags: [Schemas]
+
+  /v1/schemas/{subject}/compatibility:
+    put:
+      summary: Set compatibility mode
+      operationId: setCompatibility
+      parameters:
+        - name: subject
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                mode:
+                  type: string
+                  enum: [none, backward, forward, full]
+      responses:
+        "200":
+          description: Compatibility updated
+      tags: [Schemas]
+
+  # --- Dead Letter Queue ---
+  /v1/dlq/{topic}:
+    get:
+      summary: Peek DLQ entries
+      operationId: dlqPeek
+      parameters:
+        - name: topic
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: limit
+          in: query
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: DLQ entries
+        "503":
+          description: DLQ not enabled
+      tags: [DLQ]
+
+    delete:
+      summary: Clear DLQ for a topic
+      operationId: dlqClear
+      parameters:
+        - name: topic
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: DLQ cleared
+      tags: [DLQ]
+
+  /v1/dlq/{topic}/replay:
+    post:
+      summary: Replay all DLQ entries
+      operationId: dlqReplay
+      parameters:
+        - name: topic
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Replay result with count
+      tags: [DLQ]
+
+  # --- Cluster ---
+  /v1/cluster/members:
+    get:
+      summary: List cluster members
+      operationId: listClusterMembers
+      responses:
+        "200":
+          description: Member list
+      tags: [Cluster]
+
+  # --- WASM ---
+  /v1/wasm/modules:
+    post:
+      summary: Upload a WASM module
+      operationId: uploadWasm
+      requestBody:
+        content:
+          application/octet-stream:
+            schema:
+              type: string
+              format: binary
+      responses:
+        "200":
+          description: Module uploaded
+      tags: [WASM]
+
+    get:
+      summary: List WASM modules
+      operationId: listWasm
+      responses:
+        "200":
+          description: Module list
+      tags: [WASM]
+
+  /v1/wasm/modules/{name}:
+    delete:
+      summary: Delete a WASM module
+      operationId: deleteWasm
+      parameters:
+        - name: name
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Module deleted
+        "404":
+          description: Module not found
+      tags: [WASM]
+
+  # --- Stream Processing ---
+  /v1/processors:
+    post:
+      summary: Create a stream processor topology
+      operationId: createProcessor
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+      responses:
+        "200":
+          description: Topology created
+      tags: [Processors]
+
+    get:
+      summary: List stream processor topologies
+      operationId: listProcessors
+      responses:
+        "200":
+          description: Topology list
+      tags: [Processors]
+
+  /v1/processors/{name}:
+    get:
+      summary: Get topology details
+      operationId: getProcessor
+      parameters:
+        - name: name
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Topology details
+        "404":
+          description: Not found
+      tags: [Processors]
+
+    delete:
+      summary: Delete a topology
+      operationId: deleteProcessor
+      parameters:
+        - name: name
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Topology deleted
+      tags: [Processors]
+
+  /v1/processors/{name}/start:
+    post:
+      summary: Start a topology
+      operationId: startProcessor
+      parameters:
+        - name: name
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Topology started
+      tags: [Processors]
+
+  /v1/processors/{name}/stop:
+    post:
+      summary: Stop a topology
+      operationId: stopProcessor
+      parameters:
+        - name: name
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Topology stopped
+      tags: [Processors]
+
+tags:
+  - name: Topics
+  - name: Messages
+  - name: Consumer Groups
+  - name: Schemas
+  - name: DLQ
+  - name: Cluster
+  - name: WASM
+  - name: Processors

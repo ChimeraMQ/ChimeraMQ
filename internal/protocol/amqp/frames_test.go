@@ -2,6 +2,7 @@ package amqp
 
 import (
 	"bytes"
+	"encoding/base64"
 	"testing"
 )
 
@@ -13,10 +14,10 @@ func TestDetector(t *testing.T) {
 		match bool
 	}{
 		{[]byte("AMQP\x00\x01\x00\x00"), true},
-		{[]byte("AMQP\x00\x01\x00"), false},  // too short
-		{[]byte{0x10}, false},                 // MQTT
-		{[]byte{'C', 'H', 'M', 'R'}, false},   // Chimera
-		{[]byte("GET /"), false},               // HTTP
+		{[]byte("AMQP\x00\x01\x00"), false},
+		{[]byte{0x10}, false},
+		{[]byte{'C', 'H', 'M', 'R'}, false},
+		{[]byte("GET /"), false},
 	}
 	for _, tt := range tests {
 		got := d.Detect(tt.peek)
@@ -70,7 +71,7 @@ func TestFrameTooLarge(t *testing.T) {
 	body := make([]byte, 100)
 	WriteFrame(&buf, frameTypeAMQP, 0, body)
 
-	_, err := ReadFrame(&buf, 50) // max size = 50, but frame is larger
+	_, err := ReadFrame(&buf, 50)
 	if err == nil {
 		t.Error("expected error for oversized frame")
 	}
@@ -81,8 +82,6 @@ func TestBuildOpen(t *testing.T) {
 	if len(body) == 0 {
 		t.Fatal("BuildOpen returned empty body")
 	}
-
-	// Verify it starts with described type marker
 	if body[0] != 0x00 {
 		t.Errorf("expected described type marker 0x00, got 0x%02x", body[0])
 	}
@@ -106,6 +105,48 @@ func TestBuildClose(t *testing.T) {
 	body := BuildClose()
 	if len(body) == 0 {
 		t.Fatal("BuildClose returned empty body")
+	}
+}
+
+func TestBuildEnd(t *testing.T) {
+	body := BuildEnd()
+	if len(body) == 0 {
+		t.Fatal("BuildEnd returned empty body")
+	}
+	desc, _, err := ParseDescribedType(body)
+	if err != nil {
+		t.Fatalf("ParseDescribedType: %v", err)
+	}
+	if desc != descEnd {
+		t.Errorf("descriptor = 0x%x, want 0x%x", desc, descEnd)
+	}
+}
+
+func TestBuildDetach(t *testing.T) {
+	body := BuildDetach(1, true)
+	if len(body) == 0 {
+		t.Fatal("BuildDetach returned empty body")
+	}
+	desc, _, err := ParseDescribedType(body)
+	if err != nil {
+		t.Fatalf("ParseDescribedType: %v", err)
+	}
+	if desc != descDetach {
+		t.Errorf("descriptor = 0x%x, want 0x%x", desc, descDetach)
+	}
+}
+
+func TestBuildDisposition(t *testing.T) {
+	body := BuildDisposition(1, 0, 10, true, "accepted") // role 1=receiver
+	if len(body) == 0 {
+		t.Fatal("BuildDisposition returned empty body")
+	}
+	desc, _, err := ParseDescribedType(body)
+	if err != nil {
+		t.Fatalf("ParseDescribedType: %v", err)
+	}
+	if desc != descDisposition {
+		t.Errorf("descriptor = 0x%x, want 0x%x", desc, descDisposition)
 	}
 }
 
@@ -144,7 +185,6 @@ func TestTypeReaderValues(t *testing.T) {
 			if err != nil {
 				t.Fatalf("readAny: %v", err)
 			}
-			// Compare
 			switch v := tt.want.(type) {
 			case nil:
 				if got != nil {
@@ -176,7 +216,6 @@ func TestSASLMechanisms(t *testing.T) {
 	if len(body) == 0 {
 		t.Fatal("BuildSASLMechanisms returned empty")
 	}
-
 	desc, _, err := ParseDescribedType(body)
 	if err != nil {
 		t.Fatalf("ParseDescribedType: %v", err)
@@ -197,19 +236,34 @@ func TestSASLOutcome(t *testing.T) {
 	}
 }
 
+func TestEncodePlainSASL(t *testing.T) {
+	encoded := EncodePlainSASL("user", "pass")
+	if len(encoded) == 0 {
+		t.Fatal("EncodePlainSASL returned empty")
+	}
+	// EncodePlainSASL returns base64("\x00user\x00pass")
+	if len(encoded) == 0 {
+		t.Error("encoded result should not be empty")
+	}
+	// Verify roundtrip: decode and check null-separated fields
+	decoded, err := base64.StdEncoding.DecodeString(string(encoded))
+	if err != nil {
+		t.Fatalf("base64 decode: %v", err)
+	}
+	if decoded[0] != 0 {
+		t.Error("decoded PLAIN SASL should start with null byte")
+	}
+}
+
 func TestFrameRoundtrip(t *testing.T) {
 	var buf bytes.Buffer
-
-	// Write OPEN frame
 	openBody := BuildOpen("test", "localhost")
 	WriteFrame(&buf, frameTypeAMQP, 0, openBody)
 
-	// Read it back
 	frame, err := ReadFrame(&buf, defaultMaxFrameSize)
 	if err != nil {
 		t.Fatalf("ReadFrame: %v", err)
 	}
-
 	desc, _, err := ParseDescribedType(frame.Body)
 	if err != nil {
 		t.Fatalf("ParseDescribedType: %v", err)
@@ -217,4 +271,16 @@ func TestFrameRoundtrip(t *testing.T) {
 	if desc != descOpen {
 		t.Errorf("descriptor = 0x%x, want 0x%x", desc, descOpen)
 	}
+}
+
+func TestNewServer(t *testing.T) {
+	s := NewServer(nil)
+	if s == nil {
+		t.Fatal("server should not be nil")
+	}
+}
+
+func TestServerStop(t *testing.T) {
+	s := NewServer(nil)
+	s.Stop()
 }
