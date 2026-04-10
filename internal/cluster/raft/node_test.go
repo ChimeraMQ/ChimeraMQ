@@ -445,3 +445,318 @@ func mustMarshal(v interface{}) []byte {
 	}
 	return data
 }
+
+func TestFSMAssignPartition(t *testing.T) {
+	fsm := NewMetadataFSM()
+
+	paData, _ := json.Marshal(PartitionAssignment{
+		Topic: "orders", Partition: 0, Leader: "n1", Replicas: []NodeID{"n1", "n2"},
+	})
+	fsm.Apply(LogEntry{Index: 1, Term: 1, Type: EntryCommand,
+		Data: mustMarshal(Command{Type: CmdAssignPartition, Data: paData}),
+	})
+
+	assignment := fsm.GetAssignment("orders", 0)
+	if assignment == nil {
+		t.Fatal("assignment not found")
+	}
+	if assignment.Leader != "n1" {
+		t.Errorf("leader = %q, want n1", assignment.Leader)
+	}
+}
+
+func TestFSMJoinLeaveGroup(t *testing.T) {
+	fsm := NewMetadataFSM()
+
+	joinData, _ := json.Marshal(map[string]interface{}{
+		"group": "cg1", "member": "c1", "topics": []string{"orders"},
+	})
+	fsm.Apply(LogEntry{Index: 1, Term: 1, Type: EntryCommand,
+		Data: mustMarshal(Command{Type: CmdJoinGroup, Data: joinData}),
+	})
+
+	grp := fsm.GetGroup("cg1")
+	if grp == nil {
+		t.Fatal("group not found")
+	}
+	if _, ok := grp.Members["c1"]; !ok {
+		t.Error("member c1 not in group")
+	}
+
+	leaveData, _ := json.Marshal(map[string]string{"group": "cg1", "member": "c1"})
+	fsm.Apply(LogEntry{Index: 2, Term: 1, Type: EntryCommand,
+		Data: mustMarshal(Command{Type: CmdLeaveGroup, Data: leaveData}),
+	})
+
+	if fsm.GetGroup("cg1") != nil {
+		t.Error("group should be removed after last member leaves")
+	}
+}
+
+func TestFSMDeleteTopicCleanup(t *testing.T) {
+	fsm := NewMetadataFSM()
+
+	createData, _ := json.Marshal(TopicEntry{Name: "del-me", Partitions: 2})
+	fsm.Apply(LogEntry{Index: 1, Term: 1, Type: EntryCommand,
+		Data: mustMarshal(Command{Type: CmdCreateTopic, Data: createData}),
+	})
+
+	paData, _ := json.Marshal(PartitionAssignment{Topic: "del-me", Partition: 0, Leader: "n1"})
+	fsm.Apply(LogEntry{Index: 2, Term: 1, Type: EntryCommand,
+		Data: mustMarshal(Command{Type: CmdAssignPartition, Data: paData}),
+	})
+
+	if fsm.GetAssignment("del-me", 0) == nil {
+		t.Fatal("assignment should exist")
+	}
+
+	delData, _ := json.Marshal(map[string]string{"name": "del-me"})
+	fsm.Apply(LogEntry{Index: 3, Term: 1, Type: EntryCommand,
+		Data: mustMarshal(Command{Type: CmdDeleteTopic, Data: delData}),
+	})
+
+	if fsm.GetTopic("del-me") != nil {
+		t.Error("topic should be deleted")
+	}
+	if fsm.GetAssignment("del-me", 0) != nil {
+		t.Error("assignments should be cleaned up on topic delete")
+	}
+}
+
+func TestFSMListTopics(t *testing.T) {
+	fsm := NewMetadataFSM()
+	if len(fsm.ListTopics()) != 0 {
+		t.Error("new FSM should have no topics")
+	}
+
+	for i := 0; i < 3; i++ {
+		data, _ := json.Marshal(TopicEntry{Name: "t" + string(rune('A'+i)), Partitions: 1})
+		fsm.Apply(LogEntry{Index: Index(i + 1), Term: 1, Type: EntryCommand,
+			Data: mustMarshal(Command{Type: CmdCreateTopic, Data: data}),
+		})
+	}
+
+	topics := fsm.ListTopics()
+	if len(topics) != 3 {
+		t.Errorf("ListTopics = %d, want 3", len(topics))
+	}
+}
+
+func TestFSMInvalidJSON(t *testing.T) {
+	fsm := NewMetadataFSM()
+	err := fsm.Apply(LogEntry{Index: 1, Term: 1, Type: EntryCommand, Data: []byte("not json")})
+	if err == nil {
+		t.Error("expected error for invalid JSON")
+	}
+}
+
+func TestFSMUnknownCommand(t *testing.T) {
+	fsm := NewMetadataFSM()
+	err := fsm.Apply(LogEntry{Index: 1, Term: 1, Type: EntryCommand,
+		Data: mustMarshal(Command{Type: "unknown_cmd", Data: []byte("{}")}),
+	})
+	if err != nil {
+		t.Errorf("unknown command should be no-op, got: %v", err)
+	}
+}
+
+func TestHandleAppendEntriesWithEntries(t *testing.T) {
+	cfg := testConfig(t)
+	node, err := NewRaftNode(cfg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	transport := newMockTransport()
+	node.SetTransport(transport)
+	node.Start()
+	defer node.Stop()
+
+	resp := node.HandleAppendEntries(&AppendEntriesRequest{
+		Term:     1,
+		LeaderID: "node-2",
+		Entries: []LogEntry{
+			{Index: 1, Term: 1, Type: EntryCommand, Data: []byte("cmd1")},
+			{Index: 2, Term: 1, Type: EntryCommand, Data: []byte("cmd2")},
+		},
+		PrevLogIndex: 0,
+		PrevLogTerm:  0,
+		LeaderCommit: 2,
+	})
+
+	if !resp.Success {
+		t.Error("AppendEntries should succeed")
+	}
+	if node.CommitIndex() != 2 {
+		t.Errorf("commitIndex = %d, want 2", node.CommitIndex())
+	}
+}
+
+func TestHandleAppendEntriesConflict(t *testing.T) {
+	cfg := testConfig(t)
+	node, err := NewRaftNode(cfg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	transport := newMockTransport()
+	node.SetTransport(transport)
+	node.Start()
+	defer node.Stop()
+
+	// First append entries at term 1
+	node.HandleAppendEntries(&AppendEntriesRequest{
+		Term: 1, LeaderID: "node-2",
+		Entries: []LogEntry{{Index: 1, Term: 1, Data: []byte("old")}},
+		PrevLogIndex: 0, PrevLogTerm: 0,
+	})
+
+	// Now send conflicting entry at same index but different term
+	resp := node.HandleAppendEntries(&AppendEntriesRequest{
+		Term: 2, LeaderID: "node-2",
+		Entries: []LogEntry{{Index: 1, Term: 2, Data: []byte("new")}},
+		PrevLogIndex: 0, PrevLogTerm: 0,
+	})
+
+	if !resp.Success {
+		t.Error("conflicting AppendEntries should succeed (overwrite)")
+	}
+}
+
+func TestHandleRequestVoteStaleLog(t *testing.T) {
+	cfg := testConfig(t)
+	node, err := NewRaftNode(cfg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	transport := newMockTransport()
+	node.SetTransport(transport)
+	node.Start()
+	defer node.Stop()
+
+	// Give node some log entries via AppendEntries
+	node.HandleAppendEntries(&AppendEntriesRequest{
+		Term: 1, LeaderID: "node-2",
+		Entries: []LogEntry{{Index: 1, Term: 1, Data: []byte("x")}},
+		PrevLogIndex: 0, PrevLogTerm: 0,
+	})
+
+	// RequestVote with stale log (LastLogIndex=0 when we have index 1)
+	resp := node.HandleRequestVote(&RequestVoteRequest{
+		Term: 2, CandidateID: "node-3", LastLogIndex: 0, LastLogTerm: 0,
+	})
+	if resp.VoteGranted {
+		t.Error("should reject vote for stale log")
+	}
+}
+
+func TestHandleRequestVoteAlreadyVoted(t *testing.T) {
+	cfg := testConfig(t)
+	node, err := NewRaftNode(cfg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	transport := newMockTransport()
+	node.SetTransport(transport)
+	node.Start()
+	defer node.Stop()
+
+	// First vote
+	resp1 := node.HandleRequestVote(&RequestVoteRequest{
+		Term: 1, CandidateID: "node-2", LastLogIndex: 0, LastLogTerm: 0,
+	})
+	if !resp1.VoteGranted {
+		t.Error("first vote should be granted")
+	}
+
+	// Try voting for different candidate in same term
+	resp2 := node.HandleRequestVote(&RequestVoteRequest{
+		Term: 1, CandidateID: "node-3", LastLogIndex: 0, LastLogTerm: 0,
+	})
+	if resp2.VoteGranted {
+		t.Error("should not grant vote to different candidate in same term")
+	}
+}
+
+func TestHandleInstallSnapshot(t *testing.T) {
+	cfg := testConfig(t)
+	node, err := NewRaftNode(cfg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	transport := newMockTransport()
+	node.SetTransport(transport)
+	node.Start()
+	defer node.Stop()
+
+	// Build a snapshot
+	fsm := NewMetadataFSM()
+	createData, _ := json.Marshal(TopicEntry{Name: "snap-topic", Partitions: 3})
+	fsm.Apply(LogEntry{Index: 1, Term: 1, Type: EntryCommand,
+		Data: mustMarshal(Command{Type: CmdCreateTopic, Data: createData}),
+	})
+	snapData, _ := fsm.Snapshot()
+
+	resp := node.HandleInstallSnapshot(&InstallSnapshotRequest{
+		Term:              5,
+		LeaderID:          "node-2",
+		LastIncludedIndex: 10,
+		LastIncludedTerm:  5,
+		Data:              snapData,
+	})
+
+	if resp.Term != 5 {
+		t.Errorf("term = %d, want 5", resp.Term)
+	}
+	if node.CommitIndex() != 10 {
+		t.Errorf("commitIndex = %d, want 10", node.CommitIndex())
+	}
+	if node.FSM().GetTopic("snap-topic") == nil {
+		t.Error("topic should be restored from snapshot")
+	}
+}
+
+func TestNodeStateString(t *testing.T) {
+	tests := []struct {
+		state NodeState
+		want  string
+	}{
+		{Follower, "follower"},
+		{Candidate, "candidate"},
+		{Leader, "leader"},
+		{Shutdown, "shutdown"},
+		{NodeState(99), "unknown"},
+	}
+	for _, tt := range tests {
+		got := tt.state.String()
+		if got != tt.want {
+			t.Errorf("NodeState(%d).String() = %q, want %q", tt.state, got, tt.want)
+		}
+	}
+}
+
+func TestRaftLogEdgeCases(t *testing.T) {
+	dir := t.TempDir()
+	log := NewRaftLog(dir)
+
+	// Range on empty log
+	entries := log.Range(1, 10)
+	if len(entries) != 0 {
+		t.Errorf("Range on empty log = %d, want 0", len(entries))
+	}
+
+	// TermAt for nonexistent index
+	if log.TermAt(99) != 0 {
+		t.Error("TermAt(99) should be 0")
+	}
+
+	// Compact on empty log (no-op)
+	removed := log.Compact(5)
+	if removed != 0 {
+		t.Errorf("Compact on empty log removed %d, want 0", removed)
+	}
+
+	// TruncateAfter on empty log
+	log.TruncateAfter(10)
+	if log.LastIndex() != 0 {
+		t.Error("TruncateAfter on empty log should be no-op")
+	}
+}
