@@ -368,7 +368,7 @@ func (lsm *LSMTree) RemoveSSTable(sst *SSTable) {
 		}
 	}
 	lsm.manifest.Remove(sst.Path())
-	sst.Remove()
+	_ = sst.Remove()
 }
 
 func collectEntries(sst *SSTable) map[uint64]MemTableEntry {

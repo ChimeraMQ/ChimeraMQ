@@ -9,7 +9,7 @@ import (
 )
 
 var (
-	ErrNoConsumers     = errors.New("no consumers available")
+	ErrNoConsumers      = errors.New("no consumers available")
 	ErrAllConsumersBusy = errors.New("all consumers at prefetch capacity")
 )
 
@@ -40,8 +40,8 @@ type QueueState struct {
 
 // Engine manages all queue-mode topics.
 type Engine struct {
-	mu      sync.RWMutex
-	queues  map[string]*QueueState
+	mu     sync.RWMutex
+	queues map[string]*QueueState
 }
 
 // NewEngine creates a new queue engine.

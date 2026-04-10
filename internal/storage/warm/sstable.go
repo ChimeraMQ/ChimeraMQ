@@ -196,7 +196,7 @@ func OpenSSTable(path string) (*SSTable, error) {
 		if bloomEnd > uint32(dataSize) {
 			bloomEnd = uint32(dataSize)
 		}
-		bloom.UnmarshalBinary(data[bloomOffset:bloomEnd])
+		_ = bloom.UnmarshalBinary(data[bloomOffset:bloomEnd])
 	}
 
 	// Read block index
@@ -241,7 +241,7 @@ func (sst *SSTable) Get(key []byte) ([]byte, bool, bool) {
 	// Read block data
 	dataSize, _ := sst.file.Seek(0, 2)
 	allData := make([]byte, dataSize)
-	sst.file.ReadAt(allData, 0)
+	_, _ = sst.file.ReadAt(allData, 0)
 
 	blockEnd := block.Offset + block.Length
 	if blockEnd > uint32(len(allData)) {

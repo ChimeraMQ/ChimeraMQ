@@ -105,7 +105,7 @@ func (t *TCPTransport) sendRPC(nodeID NodeID, rpcType string, req, resp interfac
 	// Write newline delimiter
 	conn.Write([]byte("\n"))
 
-	conn.SetReadDeadline(time.Now().Add(t.timeout))
+	_ = conn.SetReadDeadline(time.Now().Add(t.timeout))
 	decoder := json.NewDecoder(conn)
 	if err := decoder.Decode(resp); err != nil {
 		t.invalidateConn(nodeID)
@@ -167,21 +167,21 @@ func handleRPCConn(conn net.Conn, handler RPCHandler) {
 		switch msg.Type {
 		case "append_entries":
 			var req AppendEntriesRequest
-			json.Unmarshal(msg.Data, &req)
+			_ = json.Unmarshal(msg.Data, &req)
 			resp = handler.HandleAppendEntries(&req)
 		case "request_vote":
 			var req RequestVoteRequest
-			json.Unmarshal(msg.Data, &req)
+			_ = json.Unmarshal(msg.Data, &req)
 			resp = handler.HandleRequestVote(&req)
 		case "install_snapshot":
 			var req InstallSnapshotRequest
-			json.Unmarshal(msg.Data, &req)
+			_ = json.Unmarshal(msg.Data, &req)
 			resp = handler.HandleInstallSnapshot(&req)
 		default:
 			continue
 		}
 		encoded, _ := json.Marshal(resp)
-		conn.Write(encoded)
+		_, _ = conn.Write(encoded)
 		conn.Write([]byte("\n"))
 	}
 }

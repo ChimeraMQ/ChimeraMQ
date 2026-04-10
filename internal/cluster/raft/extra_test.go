@@ -239,7 +239,7 @@ func TestFSMJoinExistingGroup(t *testing.T) {
 	})
 	grp = fsm.GetGroup("g1")
 	if grp == nil {
-		t.Error("group should still exist with one member")
+		t.Fatal("group should still exist with one member")
 	}
 	if len(grp.Members) != 1 {
 		t.Errorf("members = %d, want 1", len(grp.Members))

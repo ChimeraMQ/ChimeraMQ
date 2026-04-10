@@ -33,17 +33,17 @@ type WindowState struct {
 
 // window tracks a single time-based window.
 type window struct {
-	openTime int64
+	openTime  int64
 	closeTime int64
-	keys     map[string]*WindowState
+	keys      map[string]*WindowState
 }
 
 // WindowManager manages windows for a topology operator.
 type WindowManager struct {
-	mu      sync.Mutex
-	config  WindowConfig
-	windows map[int64]*window // open timestamp -> window
-	onEmit  func(key string, state *WindowState)
+	mu       sync.Mutex
+	config   WindowConfig
+	windows  map[int64]*window // open timestamp -> window
+	onEmit   func(key string, state *WindowState)
 	lastTick int64
 }
 

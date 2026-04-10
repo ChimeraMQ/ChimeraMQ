@@ -105,6 +105,6 @@ func (m *Manifest) SSTCount(level int) int {
 func (m *Manifest) save() {
 	data, _ := json.Marshal(m.entries)
 	tmp := m.path + ".tmp"
-	os.WriteFile(tmp, data, 0644)
-	os.Rename(tmp, m.path)
+	_ = os.WriteFile(tmp, data, 0644)
+	_ = os.Rename(tmp, m.path)
 }

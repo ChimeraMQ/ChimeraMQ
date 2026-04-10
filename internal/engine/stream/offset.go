@@ -18,7 +18,7 @@ type OffsetStore struct {
 // NewOffsetStore creates a new offset store.
 func NewOffsetStore(dataDir string) *OffsetStore {
 	dir := filepath.Join(dataDir, "consumers")
-	os.MkdirAll(dir, 0750)
+	_ = os.MkdirAll(dir, 0750)
 
 	s := &OffsetStore{
 		dir:   dir,
@@ -53,7 +53,7 @@ func (s *OffsetStore) Get(group string, partitionID uint32) uint64 {
 
 func (s *OffsetStore) persist(group string) error {
 	path := filepath.Join(s.dir, group, "offsets.json")
-	os.MkdirAll(filepath.Dir(path), 0750)
+	_ = os.MkdirAll(filepath.Dir(path), 0750)
 	data, err := json.Marshal(s.cache[group])
 	if err != nil {
 		return fmt.Errorf("marshal offsets: %w", err)

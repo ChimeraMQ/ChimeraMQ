@@ -78,8 +78,8 @@ func (s TopologyState) String() string {
 
 // Topology is a running or stopped stream processing pipeline.
 type Topology struct {
-	Spec   TopologySpec
-	State  TopologyState
+	Spec    TopologySpec
+	State   TopologyState
 	offsets map[uint32]uint64 // per-partition consume offset
 
 	mu     sync.Mutex

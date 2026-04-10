@@ -2083,7 +2083,6 @@ func TestEngineGetOrCreatePartitionDifferentTopics(t *testing.T) {
 	}
 }
 
-
 func TestSparseIndexSaveToDirError(t *testing.T) {
 	dir := t.TempDir()
 	idxPath := filepath.Join(dir, "test.idx")

@@ -138,7 +138,7 @@ func (lc *LogCompactor) Compact(p *Partition) error {
 			return err
 		}
 	}
-	compactedFile.Sync()
+	_ = compactedFile.Sync()
 	compactedFile.Close()
 
 	// Replace old segments with compacted one
