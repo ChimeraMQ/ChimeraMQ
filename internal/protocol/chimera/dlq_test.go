@@ -25,12 +25,6 @@ func TestHandleNackDLQRouting(t *testing.T) {
 	readFrame(h.clientR) // ack
 
 	// Create source topic with DLQ config
-	var srcPayload []byte
-	srcPayload = appendUint16(srcPayload, uint16(len("dlq-src")))
-	srcPayload = append(srcPayload, "dlq-src"...)
-	srcPayload = appendUint16(srcPayload, uint16(len("queue")))
-	srcPayload = append(srcPayload, "queue"...)
-	srcPayload = appendUint32(srcPayload, 1)
 	// Note: CreateTopic payload doesn't support DLQ config via protocol,
 	// so we set it directly on the broker's topic manager
 	topicCfg, ok := h.broker.Topics().GetTopic("dlq-src")

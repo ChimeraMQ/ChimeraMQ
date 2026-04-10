@@ -11,14 +11,14 @@ import (
 
 // LDAPProvider authenticates against an LDAP directory.
 type LDAPProvider struct {
-	url         string
-	bindDN      string
-	bindPass    string
-	baseDN      string
-	filter      string
-	useTLS      bool
-	roleAttr    string // attribute for roles (default: "memberOf")
-	groupAttr   string // attribute for groups
+	url       string
+	bindDN    string
+	bindPass  string
+	baseDN    string
+	filter    string
+	useTLS    bool
+	roleAttr  string // attribute for roles (default: "memberOf")
+	groupAttr string // attribute for groups
 }
 
 // NewLDAPProvider creates an LDAP auth provider.

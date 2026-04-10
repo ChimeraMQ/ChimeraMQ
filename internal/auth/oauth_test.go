@@ -116,6 +116,7 @@ func TestOAuthECDSA(t *testing.T) {
 	// Update alg for EC
 	hMap := map[string]interface{}{"alg": "ES256", "typ": "JWT", "kid": kid}
 	hb, _ := json.Marshal(hMap)
+	_ = header // RS256 header replaced with ES256 below
 	header = base64.RawURLEncoding.EncodeToString(hb)
 
 	payload := makeJWTPayload(

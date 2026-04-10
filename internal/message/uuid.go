@@ -48,7 +48,7 @@ func (g *UUIDv7Generator) Generate() [16]byte {
 	uuid[6] = (uuid[6] & 0x0F) | 0x70 // Version 7
 
 	// Bytes 8-15: variant (10) + 62-bit random
-	rand.Read(uuid[8:])
+	_, _ = rand.Read(uuid[8:])
 	uuid[8] = (uuid[8] & 0x3F) | 0x80 // Variant 10
 
 	return uuid

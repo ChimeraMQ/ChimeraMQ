@@ -170,10 +170,10 @@ func TestZeroCopyPayload(t *testing.T) {
 
 func TestEstimateSize(t *testing.T) {
 	e := &Envelope{
-		Topic:      "test.topic",
-		Payload:    make([]byte, 100),
-		Headers:    map[string][]byte{"k": {}},
-		TraceID:    [16]byte{1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16},
+		Topic:   "test.topic",
+		Payload: make([]byte, 100),
+		Headers: map[string][]byte{"k": {}},
+		TraceID: [16]byte{1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16},
 	}
 	estimated := e.EstimateSize()
 	data, _ := Marshal(e)
@@ -206,9 +206,9 @@ func BenchmarkUnmarshal(b *testing.B) {
 
 func TestMarshalUnmarshalWithTTL(t *testing.T) {
 	original := &Envelope{
-		Topic:    "ttl-topic",
-		Payload:  []byte("expiring"),
-		TTL:      5000,
+		Topic:   "ttl-topic",
+		Payload: []byte("expiring"),
+		TTL:     5000,
 	}
 
 	data, err := Marshal(original)
@@ -231,10 +231,10 @@ func TestMarshalUnmarshalWithTTL(t *testing.T) {
 
 func TestMarshalUnmarshalWithTrace(t *testing.T) {
 	original := &Envelope{
-		Topic:    "traced",
-		Payload:  []byte("traced-msg"),
-		TraceID:  [16]byte{0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08, 0x09, 0x0A, 0x0B, 0x0C, 0x0D, 0x0E, 0x0F, 0x10},
-		SpanID:   [8]byte{0xAA, 0xBB, 0xCC, 0xDD, 0xEE, 0xFF, 0x00, 0x11},
+		Topic:   "traced",
+		Payload: []byte("traced-msg"),
+		TraceID: [16]byte{0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08, 0x09, 0x0A, 0x0B, 0x0C, 0x0D, 0x0E, 0x0F, 0x10},
+		SpanID:  [8]byte{0xAA, 0xBB, 0xCC, 0xDD, 0xEE, 0xFF, 0x00, 0x11},
 	}
 
 	data, err := Marshal(original)
@@ -321,9 +321,9 @@ func TestUnmarshalHeadersExtendBeyond(t *testing.T) {
 
 func TestUnmarshalTraceExtendsBeyond(t *testing.T) {
 	e := &Envelope{
-		Topic:    "t",
-		Payload:  []byte("p"),
-		TraceID:  [16]byte{1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16},
+		Topic:   "t",
+		Payload: []byte("p"),
+		TraceID: [16]byte{1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16},
 	}
 	data, _ := Marshal(e)
 

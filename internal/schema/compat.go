@@ -231,7 +231,7 @@ func protoFields(protoText string) map[int]protoField {
 		}
 		numStr := strings.TrimSpace(line[eqIdx+1 : semiIdx])
 		var num int
-		fmt.Sscanf(numStr, "%d", &num)
+		_, _ = fmt.Sscanf(numStr, "%d", &num)
 		if num > 0 {
 			fields[num] = protoField{num: num, typ: parts[0]}
 		}

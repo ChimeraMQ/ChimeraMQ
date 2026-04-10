@@ -11,8 +11,8 @@ type Controller struct {
 	mu sync.RWMutex
 
 	// Per-topic rate limiting
-	topicLimits  map[string]*rateLimit
-	globalLimit  *rateLimit
+	topicLimits map[string]*rateLimit
+	globalLimit *rateLimit
 
 	// Memory-based backpressure
 	maxMemoryBytes  int64
@@ -21,9 +21,9 @@ type Controller struct {
 	lowWatermark    float64 // 0.0–1.0, default 0.70
 
 	// Slow consumer tracking
-	slowThreshold   time.Duration
-	slowConsumers   map[string]*slowEntry // consumerID → entry
-	maxSlowTicks    int
+	slowThreshold time.Duration
+	slowConsumers map[string]*slowEntry // consumerID → entry
+	maxSlowTicks  int
 
 	// Connection tracking
 	connectionCount atomic.Int64
@@ -33,11 +33,11 @@ type Controller struct {
 }
 
 type rateLimit struct {
-	tokens    atomic.Int64
-	maxTokens int64
-	refillRate int64 // tokens per second
+	tokens     atomic.Int64
+	maxTokens  int64
+	refillRate int64        // tokens per second
 	lastRefill atomic.Int64 // unix nanoseconds
-	mu        sync.Mutex
+	mu         sync.Mutex
 }
 
 type slowEntry struct {
@@ -47,14 +47,14 @@ type slowEntry struct {
 
 // Config holds flow control configuration.
 type Config struct {
-	Enabled          bool
-	MaxMemoryBytes   int64
-	HighWatermark    float64
-	LowWatermark     float64
-	MaxConnections   int64
-	SlowConsumerTTL  time.Duration
-	MaxSlowTicks     int
-	GlobalRateLimit  int64 // messages/sec, 0 = unlimited
+	Enabled         bool
+	MaxMemoryBytes  int64
+	HighWatermark   float64
+	LowWatermark    float64
+	MaxConnections  int64
+	SlowConsumerTTL time.Duration
+	MaxSlowTicks    int
+	GlobalRateLimit int64 // messages/sec, 0 = unlimited
 }
 
 // NewController creates a new flow controller.

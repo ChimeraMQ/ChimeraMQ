@@ -156,7 +156,7 @@ func (n *RaftNode) Propose(data []byte) (Index, error) {
 		Data:  data,
 	}
 	n.log.Append(entry)
-	n.log.Save()
+	_ = n.log.Save()
 
 	// Replicate to followers
 	go n.replicateLog()
@@ -321,7 +321,7 @@ func (n *RaftNode) becomeLeader() {
 		Type:  EntryNoOp,
 	}
 	n.log.Append(noop)
-	n.log.Save()
+	_ = n.log.Save()
 
 	n.resetElectionTimerLocked()
 
@@ -447,7 +447,7 @@ func (n *RaftNode) applyCommitted() {
 		n.lastApplied++
 		entry := n.log.Get(n.lastApplied)
 		if entry != nil && entry.Type == EntryCommand {
-			n.fsm.Apply(*entry)
+			_ = n.fsm.Apply(*entry)
 		}
 	}
 }
@@ -496,7 +496,7 @@ func (n *RaftNode) HandleAppendEntries(req *AppendEntriesRequest) *AppendEntries
 			n.log.Append(entry)
 		}
 	}
-	n.log.Save()
+	_ = n.log.Save()
 
 	resp.Success = true
 
@@ -574,7 +574,7 @@ func (n *RaftNode) HandleInstallSnapshot(req *InstallSnapshotRequest) *InstallSn
 	n.log.Compact(req.LastIncludedIndex)
 	n.commitIndex = req.LastIncludedIndex
 	n.lastApplied = req.LastIncludedIndex
-	n.log.Save()
+	_ = n.log.Save()
 
 	return resp
 }
@@ -602,7 +602,7 @@ func (n *RaftNode) maybeSnapshot() {
 	n.mu.Unlock()
 
 	if shouldSnapshot {
-		n.snapshotter.TakeSnapshot()
+		_, _ = n.snapshotter.TakeSnapshot()
 	}
 }
 
@@ -626,7 +626,7 @@ func (n *RaftNode) loadState() {
 // saveState persists term and votedFor to disk.
 func (n *RaftNode) saveState() {
 	path := filepath.Join(n.cfg.DataDir, "raft", "state.json")
-	os.MkdirAll(filepath.Dir(path), 0755)
+	_ = os.MkdirAll(filepath.Dir(path), 0755)
 	state := struct {
 		CurrentTerm Term   `json:"current_term"`
 		VotedFor    NodeID `json:"voted_for"`
@@ -635,7 +635,7 @@ func (n *RaftNode) saveState() {
 		VotedFor:    n.votedFor,
 	}
 	data, _ := json.Marshal(state)
-	os.WriteFile(path, data, 0644)
+	_ = os.WriteFile(path, data, 0644)
 }
 
 // SetTransport sets the transport layer.

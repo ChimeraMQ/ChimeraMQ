@@ -2,10 +2,10 @@ package wal
 
 import (
 	"encoding/json"
+	"fmt"
 	"os"
 	"path/filepath"
 	"sync/atomic"
-	"fmt"
 	"testing"
 	"time"
 )
@@ -982,7 +982,6 @@ func TestWALRecoverListSegmentsError(t *testing.T) {
 	}
 }
 
-
 func TestWALRecoverListSegmentsBadDir(t *testing.T) {
 	// Create a WAL pointing to an invalid dir
 	w2 := &WAL{
@@ -1389,7 +1388,6 @@ func TestWALRecoverWithCallbackError(t *testing.T) {
 		t.Errorf("expected 2 calls before error, got %d", count)
 	}
 }
-
 
 func TestWALAppendRotateTriggerError(t *testing.T) {
 	if os.Getenv("OS") == "Windows_NT" {

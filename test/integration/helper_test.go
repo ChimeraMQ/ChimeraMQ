@@ -6,7 +6,6 @@ import (
 	"math/rand"
 	nethttp "net/http"
 	"os"
-	"path/filepath"
 	"testing"
 	"time"
 
@@ -86,9 +85,7 @@ func newTestBroker(t *testing.T) *testBroker {
 	srv := adminhttp.NewAdminServer(b)
 
 	go func() {
-		if err := srv.Serve(); err != nil && err != nethttp.ErrServerClosed {
-			// Server stopped
-		}
+		_ = srv.Serve()
 	}()
 
 	// Wait for server to be ready
@@ -112,10 +109,6 @@ func (tb *testBroker) close() {
 	tb.server.Shutdown(ctx)
 	tb.broker.Stop()
 	os.RemoveAll(tb.tmpDir)
-}
-
-func (tb *testBroker) dataDir() string {
-	return tb.tmpDir
 }
 
 // recreateBroker stops the current broker/server and creates a new one
@@ -169,8 +162,4 @@ func tmpDataDir(t *testing.T) string {
 	}
 	t.Cleanup(func() { os.RemoveAll(dir) })
 	return dir
-}
-
-func topicMetaPath(dataDir, topic string) string {
-	return filepath.Join(dataDir, "topics", topic, "meta.json")
 }

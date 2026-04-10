@@ -10,7 +10,7 @@ import (
 type ResourceType int
 
 const (
-	ResourceTopic         ResourceType = iota
+	ResourceTopic ResourceType = iota
 	ResourceConsumerGroup
 	ResourceCluster
 	ResourceSchema
@@ -21,7 +21,7 @@ const (
 type Operation int
 
 const (
-	OpRead     Operation = iota
+	OpRead Operation = iota
 	OpWrite
 	OpCreate
 	OpDelete
@@ -40,10 +40,10 @@ const (
 
 // ACLEntry defines a single access control rule.
 type ACLEntry struct {
-	Principal    string       // user/group ID, "*" matches all
+	Principal    string // user/group ID, "*" matches all
 	ResourceType ResourceType
-	ResourceName string       // specific name or "*" for wildcard
-	Operation    Operation    // OpAll matches all operations
+	ResourceName string    // specific name or "*" for wildcard
+	Operation    Operation // OpAll matches all operations
 	Permission   Permission
 }
 

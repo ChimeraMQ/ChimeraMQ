@@ -121,7 +121,7 @@ func (s *SWIM) joinSeed(addr string) {
 		SenderID:   s.cfg.NodeID,
 		Incarnation: s.members.Local().Incarnation,
 	}
-	s.transport.Send(addr, msg)
+	_ = s.transport.Send(addr, msg)
 }
 
 // run is the main protocol loop.
@@ -200,7 +200,7 @@ func (s *SWIM) indirectProbe(target *Member) {
 			TargetID:    target.ID,
 			TargetAddr:  addr,
 		}
-		s.transport.Send(addr, pingReq)
+		_ = s.transport.Send(addr, pingReq)
 		sent++
 	}
 
@@ -315,7 +315,7 @@ func (s *SWIM) handlePing(msg *Message, addr *net.UDPAddr) {
 		Incarnation: s.members.Local().Incarnation,
 	}
 	replyAddr := addr.String()
-	s.transport.Send(replyAddr, ack)
+	_ = s.transport.Send(replyAddr, ack)
 
 	// Record sender as alive
 	if m := s.members.Get(msg.SenderID); m != nil {
@@ -347,7 +347,7 @@ func (s *SWIM) handlePingReq(msg *Message, addr *net.UDPAddr) {
 		SenderID:    s.cfg.NodeID,
 		Incarnation: s.members.Local().Incarnation,
 	}
-	s.transport.Send(targetAddr, ping)
+	_ = s.transport.Send(targetAddr, ping)
 
 	// Note: In a full implementation, we'd wait for ack from target,
 	// then forward that ack back to the original requester.
@@ -368,7 +368,7 @@ func (s *SWIM) handleSuspect(msg *Message) {
 		// Broadcast to all members
 		for _, m := range s.members.AliveMembers() {
 			addr := fmt.Sprintf("%s:%d", m.Addr, m.Port)
-			s.transport.Send(addr, alive)
+			_ = s.transport.Send(addr, alive)
 		}
 		return
 	}
@@ -399,7 +399,7 @@ func (s *SWIM) handleDead(msg *Message) {
 		}
 		for _, m := range s.members.AliveMembers() {
 			addr := fmt.Sprintf("%s:%d", m.Addr, m.Port)
-			s.transport.Send(addr, alive)
+			_ = s.transport.Send(addr, alive)
 		}
 		return
 	}
@@ -456,7 +456,7 @@ func (s *SWIM) BroadcastState() {
 
 	for _, m := range s.members.AliveMembers() {
 		addr := fmt.Sprintf("%s:%d", m.Addr, m.Port)
-		s.transport.Send(addr, syncMsg)
+		_ = s.transport.Send(addr, syncMsg)
 	}
 }
 

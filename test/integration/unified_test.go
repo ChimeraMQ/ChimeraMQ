@@ -53,10 +53,8 @@ func TestUnifiedModePublishDispatchesToBoth(t *testing.T) {
 		t.Errorf("expected 1 stream message, got %d", len(msgs))
 	}
 
-	// Same offset
-	if offset != 0 && len(msgs) > 0 {
-		// offset may differ from 0 if partition creation writes something
-	}
+	// Same offset — offset may differ from 0 if partition creation writes something
+	_ = offset != 0 && len(msgs) > 0
 }
 
 func TestUnifiedModeStreamAndQueueSimultaneously(t *testing.T) {

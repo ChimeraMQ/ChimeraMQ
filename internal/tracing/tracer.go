@@ -21,10 +21,10 @@ type Tracer struct {
 
 // Config holds tracing configuration.
 type Config struct {
-	Enabled  bool   `yaml:"enabled"`
-	Endpoint string `yaml:"endpoint"` // OTLP gRPC endpoint (default: localhost:4317)
-	Service  string `yaml:"service"`  // Service name (default: chimera)
-	Insecure bool   `yaml:"insecure"` // Use insecure gRPC connection
+	Enabled    bool    `yaml:"enabled"`
+	Endpoint   string  `yaml:"endpoint"`    // OTLP gRPC endpoint (default: localhost:4317)
+	Service    string  `yaml:"service"`     // Service name (default: chimera)
+	Insecure   bool    `yaml:"insecure"`    // Use insecure gRPC connection
 	SampleRate float64 `yaml:"sample_rate"` // 0.0-1.0 (default: 1.0)
 }
 
@@ -93,7 +93,7 @@ func (t *Tracer) Shutdown(ctx context.Context) error {
 	if t.provider == nil {
 		return nil
 	}
- shutdownCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
+	shutdownCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
 	defer cancel()
 	return t.provider.Shutdown(shutdownCtx)
 }

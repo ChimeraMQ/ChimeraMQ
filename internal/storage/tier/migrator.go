@@ -25,7 +25,6 @@ type TierPolicy struct {
 
 // Migrator orchestrates data migration between storage tiers.
 type Migrator struct {
-	mu     sync.RWMutex
 	policy TierPolicy
 	hot    *hot.Engine
 	warm   *warm.LSMTree
@@ -248,7 +247,7 @@ func (m *Migrator) purgeExpiredCold() {
 	now := time.Now()
 	for path, ca := range m.cold.archives {
 		if now.Sub(ca.CreatedAt()) > m.policy.ColdRetention {
-			ca.Remove()
+			_ = ca.Remove()
 			delete(m.cold.archives, path)
 		}
 	}

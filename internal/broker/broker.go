@@ -527,7 +527,7 @@ func acquireLockFile(dataDir string) (*os.File, error) {
 		}
 	}
 	fmt.Fprintf(f, "%d\n", os.Getpid())
-	f.Sync()
+	_ = f.Sync()
 	return f, nil
 }
 

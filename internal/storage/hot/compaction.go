@@ -20,9 +20,9 @@ const (
 
 // LogCompactor performs log compaction on a partition.
 type LogCompactor struct {
-	mu       sync.Mutex
-	mode     CompactionMode
-	enabled  bool
+	mu      sync.Mutex
+	mode    CompactionMode
+	enabled bool
 }
 
 // NewLogCompactor creates a new compactor.
@@ -164,9 +164,7 @@ func (lc *LogCompactor) Compact(p *Partition) error {
 
 	// Rebuild segment list: compacted + remaining (active)
 	rebuilt := []*Segment{compactedSeg}
-	for _, seg := range newSegments {
-		rebuilt = append(rebuilt, seg)
-	}
+	rebuilt = append(rebuilt, newSegments...)
 	p.segments = rebuilt
 
 	// Update log start offset

@@ -200,7 +200,7 @@ func (c *Collector) MessageExpired(topic, action string) {
 // WASMExecOK increments the WASM execution counter.
 func (c *Collector) WASMExecOK(topic string) {
 	c.IncrCounter("chimera_wasm_executions_total", map[string]string{
-		"topic": topic,
+		"topic":  topic,
 		"status": "ok",
 	}, 1)
 }

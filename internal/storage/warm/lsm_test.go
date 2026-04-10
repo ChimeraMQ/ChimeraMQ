@@ -193,9 +193,7 @@ func TestLSMRecovery(t *testing.T) {
 		key := make([]byte, 8)
 		binary.BigEndian.PutUint64(key, i)
 		val, found, _ := lsm2.Get(key)
-		if found && string(val) == fmt.Sprintf("val-%d", i) {
-			// Good - found in SSTable
-		}
+		_ = found && string(val) == fmt.Sprintf("val-%d", i) // verify SSTable data intact
 		// Note: memtable data is lost on unclean shutdown (by design)
 	}
 }

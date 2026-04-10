@@ -43,7 +43,7 @@ func closeSSTables(ssts []*warm.SSTable) {
 func TestColdArchiveCreateAndRead(t *testing.T) {
 	dir := t.TempDir()
 	sstDir := filepath.Join(dir, "sst")
-	ssts := createTestSSTables(t, sstDir, []struct{ min, max uint64}{
+	ssts := createTestSSTables(t, sstDir, []struct{ min, max uint64 }{
 		{0, 49},
 		{50, 99},
 	})
@@ -77,7 +77,7 @@ func TestColdArchiveCreateAndRead(t *testing.T) {
 func TestColdArchiveOutOfRange(t *testing.T) {
 	dir := t.TempDir()
 	sstDir := filepath.Join(dir, "sst")
-	ssts := createTestSSTables(t, sstDir, []struct{ min, max uint64}{
+	ssts := createTestSSTables(t, sstDir, []struct{ min, max uint64 }{
 		{10, 20},
 	})
 	defer closeSSTables(ssts)
@@ -95,7 +95,7 @@ func TestColdArchiveOutOfRange(t *testing.T) {
 func TestColdArchiveReopen(t *testing.T) {
 	dir := t.TempDir()
 	sstDir := filepath.Join(dir, "sst")
-	ssts := createTestSSTables(t, sstDir, []struct{ min, max uint64}{
+	ssts := createTestSSTables(t, sstDir, []struct{ min, max uint64 }{
 		{0, 20},
 	})
 
@@ -119,7 +119,7 @@ func TestColdArchiveReopen(t *testing.T) {
 func TestColdArchiveSize(t *testing.T) {
 	dir := t.TempDir()
 	sstDir := filepath.Join(dir, "sst")
-	ssts := createTestSSTables(t, sstDir, []struct{ min, max uint64}{
+	ssts := createTestSSTables(t, sstDir, []struct{ min, max uint64 }{
 		{0, 99},
 	})
 	defer closeSSTables(ssts)

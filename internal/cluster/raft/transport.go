@@ -97,7 +97,7 @@ func (t *TCPTransport) sendRPC(nodeID NodeID, rpcType string, req, resp interfac
 		return err
 	}
 
-	conn.SetWriteDeadline(time.Now().Add(t.timeout))
+	_ = conn.SetWriteDeadline(time.Now().Add(t.timeout))
 	if _, err := conn.Write(encoded); err != nil {
 		t.invalidateConn(nodeID)
 		return err

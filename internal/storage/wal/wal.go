@@ -240,7 +240,7 @@ func (w *WAL) Close() error {
 		w.writeBuf = nil
 	}
 	if w.activeFile != nil {
-		w.activeFile.Sync()
+		_ = w.activeFile.Sync()
 		err := w.activeFile.Close()
 		w.activeFile = nil
 		return err
@@ -253,7 +253,7 @@ func (w *WAL) rotate() error {
 		w.writeBuf.Flush()
 	}
 	if w.activeFile != nil {
-		w.activeFile.Sync()
+		_ = w.activeFile.Sync()
 		w.activeFile.Close()
 		w.activeFile = nil
 	}
@@ -362,7 +362,7 @@ func (w *WAL) syncLoop() {
 				w.writeBuf.Flush()
 			}
 			if w.activeFile != nil {
-				w.activeFile.Sync()
+				_ = w.activeFile.Sync()
 			}
 			w.mu.Unlock()
 		case <-w.syncStop:

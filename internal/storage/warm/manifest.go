@@ -16,10 +16,10 @@ type Manifest struct {
 
 // ManifestEntry records an SSTable's position in the LSM tree.
 type ManifestEntry struct {
-	Level    int    `json:"level"`
-	SSTPath  string `json:"sst_path"`
-	MinOff   uint64 `json:"min_off"`
-	MaxOff   uint64 `json:"max_off"`
+	Level      int    `json:"level"`
+	SSTPath    string `json:"sst_path"`
+	MinOff     uint64 `json:"min_off"`
+	MaxOff     uint64 `json:"max_off"`
 	EntryCount uint32 `json:"entry_count"`
 }
 

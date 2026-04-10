@@ -32,10 +32,10 @@ type JSONRPCRequest struct {
 
 // JSONRPCResponse is a JSON-RPC 2.0 response.
 type JSONRPCResponse struct {
-	JSONRPC string    `json:"jsonrpc"`
-	ID      int       `json:"id"`
+	JSONRPC string      `json:"jsonrpc"`
+	ID      int         `json:"id"`
 	Result  interface{} `json:"result,omitempty"`
-	Error   *RPCError `json:"error,omitempty"`
+	Error   *RPCError   `json:"error,omitempty"`
 }
 
 // RPCError is a JSON-RPC error.
@@ -263,9 +263,9 @@ func (s *Server) toolPublish(raw json.RawMessage) (interface{}, error) {
 	}
 
 	env := &message.Envelope{
-		Topic:       args.Topic,
-		RoutingKey:  args.Key,
-		Payload:     []byte(args.Value),
+		Topic:      args.Topic,
+		RoutingKey: args.Key,
+		Payload:    []byte(args.Value),
 	}
 
 	offset, err := s.broker.Publish(env)

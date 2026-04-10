@@ -49,16 +49,10 @@ func (p *MTLSProvider) Authenticate(ctx context.Context, creds Credentials) (*Id
 	}
 
 	// Extract organization units as roles
-	var roles []string
-	for _, ou := range cert.Subject.OrganizationalUnit {
-		roles = append(roles, ou)
-	}
+	roles := append([]string{}, cert.Subject.OrganizationalUnit...)
 
 	// Extract organizations as groups
-	var groups []string
-	for _, org := range cert.Subject.Organization {
-		groups = append(groups, org)
-	}
+	groups := append([]string{}, cert.Subject.Organization...)
 
 	return &Identity{
 		UserID: userID,

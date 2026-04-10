@@ -339,9 +339,8 @@ func TestTopicManagerResolvePartitionWithRoutingKey(t *testing.T) {
 
 	// Different keys should produce different partitions (usually)
 	p3 := tm.ResolvePartition("test", "user-456", 4)
-	if p3 == p1 && p3 == p2 {
-		// Not a hard error — just very unlikely with good hash
-	}
+	// Not a hard error if p3 == p1 && p3 == p2 — just very unlikely with good hash
+	_ = p3
 }
 
 func TestTopicManagerResolvePartitionRoundRobin(t *testing.T) {

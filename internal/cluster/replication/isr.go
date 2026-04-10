@@ -9,13 +9,13 @@ import (
 
 // ISRSet tracks in-sync replicas for a partition.
 type ISRSet struct {
-	mu       sync.RWMutex
-	topic    string
+	mu        sync.RWMutex
+	topic     string
 	partition uint32
-	leaderID raft.NodeID
-	replicas map[raft.NodeID]ReplicaState
-	isr      map[raft.NodeID]struct{}
-	maxLag   int64
+	leaderID  raft.NodeID
+	replicas  map[raft.NodeID]ReplicaState
+	isr       map[raft.NodeID]struct{}
+	maxLag    int64
 }
 
 // ReplicaState tracks a replica's replication progress.

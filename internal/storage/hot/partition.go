@@ -10,15 +10,15 @@ import (
 
 // Partition manages multiple segments for a single topic-partition.
 type Partition struct {
-	mu         sync.RWMutex
-	topicName  string
+	mu          sync.RWMutex
+	topicName   string
 	partitionID uint32
-	dir        string
-	segments   []*Segment
-	active     *Segment
-	highWater  uint64
-	logStart   uint64
-	maxSegSize int64
+	dir         string
+	segments    []*Segment
+	active      *Segment
+	highWater   uint64
+	logStart    uint64
+	maxSegSize  int64
 }
 
 // OpenPartition loads or creates a partition's segment chain.

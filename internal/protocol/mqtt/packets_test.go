@@ -94,12 +94,12 @@ func TestConnAck(t *testing.T) {
 }
 
 func TestBuildPublish(t *testing.T) {
-	flags, data := BuildPublish("test/topic", []byte("hello"), QoS0, false, 0)
+	flags, _ := BuildPublish("test/topic", []byte("hello"), QoS0, false, 0)
 	if flags != 0 {
 		t.Errorf("QoS0 flags = %d, want 0", flags)
 	}
 
-	flags, data = BuildPublish("test/topic", []byte("hello"), QoS1, true, 42)
+	flags, data := BuildPublish("test/topic", []byte("hello"), QoS1, true, 42)
 	if flags&0x01 == 0 {
 		t.Error("expected retain flag set")
 	}

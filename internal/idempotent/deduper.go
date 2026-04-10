@@ -7,8 +7,8 @@ import (
 
 // Deduper tracks recent message IDs per producer to enable idempotent publishing.
 type Deduper struct {
-	mu        sync.RWMutex
-	windows   map[string]*dedupWindow // producerID → window
+	mu         sync.RWMutex
+	windows    map[string]*dedupWindow // producerID → window
 	windowSize time.Duration
 	maxEntries int
 	enabled    bool

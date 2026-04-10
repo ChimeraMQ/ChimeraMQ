@@ -79,7 +79,9 @@ func NewRuntime(cfg RuntimeConfig) *Runtime {
 			}
 		}).
 		Export("chimera_log")
-	builder.Instantiate(ctx)
+	if _, err := builder.Instantiate(ctx); err != nil {
+		log.Printf("wasm: failed to instantiate host module: %v", err)
+	}
 
 	return &Runtime{
 		rt:      rt,

@@ -35,7 +35,6 @@ type QueueState struct {
 	consumers  map[string]*QueueConsumer
 	dispatcher DispatcherInterface
 	ackTracker *AckTracker
-	dlqManager *DLQManager
 	delayHeap  *DelayScheduler
 }
 

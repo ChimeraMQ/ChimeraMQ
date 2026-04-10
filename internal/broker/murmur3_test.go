@@ -21,9 +21,8 @@ func TestMurmur3DifferentInputs(t *testing.T) {
 
 func TestMurmur3Empty(t *testing.T) {
 	h := murmur3Hash([]byte{})
-	if h == 0 {
-		// Empty string hash is valid but let's check it doesn't panic
-	}
+	// Empty string hash is valid; just verify it doesn't panic
+	_ = h
 }
 
 func TestMurmur3Distribution(t *testing.T) {

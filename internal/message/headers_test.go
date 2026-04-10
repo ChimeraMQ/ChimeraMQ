@@ -32,9 +32,9 @@ func TestMarshalUnmarshalHeadersSingle(t *testing.T) {
 
 func TestMarshalUnmarshalHeadersMultiple(t *testing.T) {
 	original := map[string][]byte{
-		"trace-id":   []byte("abc123"),
-		"source":     []byte("test"),
-		"priority":   []byte("high"),
+		"trace-id": []byte("abc123"),
+		"source":   []byte("test"),
+		"priority": []byte("high"),
 	}
 	encoded := marshalHeaders(original)
 	decoded := unmarshalHeaders(encoded)
@@ -98,7 +98,7 @@ func TestUnmarshalHeadersTruncatedKey(t *testing.T) {
 	// keyLen=10 but only 2 bytes of key data
 	var data []byte
 	data = append(data, 0x00, 0x0A) // keyLen=10
-	data = append(data, "ab"...)     // only 2 bytes
+	data = append(data, "ab"...)    // only 2 bytes
 	result := unmarshalHeaders(data)
 	if len(result) != 0 {
 		t.Errorf("expected empty map for truncated key, got %d", len(result))
@@ -120,10 +120,10 @@ func TestUnmarshalHeadersTruncatedValLen(t *testing.T) {
 func TestUnmarshalHeadersTruncatedVal(t *testing.T) {
 	// key and valLen complete but val truncated
 	var data []byte
-	data = append(data, 0x00, 0x03) // keyLen=3
-	data = append(data, "key"...)   // key data
+	data = append(data, 0x00, 0x03)             // keyLen=3
+	data = append(data, "key"...)               // key data
 	data = append(data, 0x00, 0x00, 0x00, 0x0A) // valLen=10
-	data = append(data, "val"...)   // only 3 bytes of val
+	data = append(data, "val"...)               // only 3 bytes of val
 	result := unmarshalHeaders(data)
 	if len(result) != 0 {
 		t.Errorf("expected empty map for truncated val, got %d", len(result))

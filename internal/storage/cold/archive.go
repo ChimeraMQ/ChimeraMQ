@@ -39,7 +39,6 @@ type ColdArchive struct {
 	mu          sync.RWMutex
 	path        string
 	offsetRange OffsetRange
-	timeRange   TimeRange
 	segIndex    []ArchiveSegIndex
 	size        int64
 	file        *os.File
@@ -47,9 +46,9 @@ type ColdArchive struct {
 
 // ColdConfig holds configuration for the cold tier.
 type ColdConfig struct {
-	Dir             string
-	ArchiveSize     int64
-	Compression     string
+	Dir              string
+	ArchiveSize      int64
+	Compression      string
 	CompressionLevel int
 }
 
@@ -164,10 +163,10 @@ func CreateColdArchive(path string, sstables []*warm.SSTable) (*ColdArchive, err
 	if err != nil {
 		return nil, err
 	}
-	file.Write(header)
-	file.Write(dataBuf)
-	file.Write(segIndexData)
-	file.Write(footer)
+	file.Write(header)     //nolint:errcheck
+	file.Write(dataBuf)    //nolint:errcheck
+	file.Write(segIndexData) //nolint:errcheck
+	file.Write(footer)     //nolint:errcheck
 	file.Close()
 
 	return OpenColdArchive(path)
@@ -190,7 +189,10 @@ func OpenColdArchive(path string) (*ColdArchive, error) {
 
 	// Read header
 	header := make([]byte, archiveHeader)
-	f.ReadAt(header, 0)
+	if _, err := f.ReadAt(header, 0); err != nil {
+		f.Close()
+		return nil, fmt.Errorf("read archive header: %w", err)
+	}
 
 	magic := binary.BigEndian.Uint32(header[0:4])
 	if magic != archiveMagic {
@@ -205,7 +207,10 @@ func OpenColdArchive(path string) (*ColdArchive, error) {
 	// Read segment index (before footer)
 	segIndexSize := int(segCount) * 16
 	segIndexData := make([]byte, segIndexSize)
-	f.ReadAt(segIndexData, size-int64(archiveFooter)-int64(segIndexSize))
+	if _, err := f.ReadAt(segIndexData, size-int64(archiveFooter)-int64(segIndexSize)); err != nil {
+		f.Close()
+		return nil, fmt.Errorf("read segment index: %w", err)
+	}
 
 	segIdx := make([]ArchiveSegIndex, segCount)
 	for i := uint32(0); i < segCount; i++ {
@@ -218,11 +223,11 @@ func OpenColdArchive(path string) (*ColdArchive, error) {
 	}
 
 	return &ColdArchive{
-		path: path,
+		path:        path,
 		offsetRange: OffsetRange{Min: minOff, Max: maxOff},
-		segIndex: segIdx,
-		size: size,
-		file: f,
+		segIndex:    segIdx,
+		size:        size,
+		file:        f,
 	}, nil
 }
 
@@ -238,7 +243,9 @@ func (ca *ColdArchive) Get(offset uint64) ([]byte, error) {
 	// Find segment containing this offset
 	for _, si := range ca.segIndex {
 		segData := make([]byte, si.Length)
-		ca.file.ReadAt(segData, int64(archiveHeader)+int64(si.Position))
+		if _, err := ca.file.ReadAt(segData, int64(archiveHeader)+int64(si.Position)); err != nil {
+			continue
+		}
 
 		// Scan segment for offset
 		off := 0

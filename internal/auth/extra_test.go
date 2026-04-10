@@ -648,7 +648,7 @@ func TestOAuthWrongStringAudience(t *testing.T) {
 // ---------------------------------------------------------------------------
 
 func TestPeerCertsFromContextNil(t *testing.T) {
-	certs := PeerCertsFromContext(nil)
+	certs := PeerCertsFromContext(context.TODO())
 	if certs != nil {
 		t.Errorf("nil context should return nil, got %v", certs)
 	}

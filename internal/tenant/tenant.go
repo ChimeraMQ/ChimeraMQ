@@ -9,16 +9,16 @@ import (
 
 // Manager handles multi-tenancy isolation and quotas.
 type Manager struct {
-	mu       sync.RWMutex
-	tenants  map[string]*Tenant
-	enabled  atomic.Bool
+	mu      sync.RWMutex
+	tenants map[string]*Tenant
+	enabled atomic.Bool
 }
 
 // Tenant represents an isolated namespace.
 type Tenant struct {
 	ID          string
-	TopicPrefix string            // e.g., "tenant-1_"
-	Quotas      QuotaConfig       // per-tenant limits
+	TopicPrefix string              // e.g., "tenant-1_"
+	Quotas      QuotaConfig         // per-tenant limits
 	Topics      map[string]struct{} // registered topics
 	Metadata    map[string]string
 }
@@ -35,9 +35,9 @@ type QuotaConfig struct {
 
 // Config holds multi-tenancy configuration.
 type Config struct {
-	Enabled  bool            `yaml:"enabled"`
+	Enabled   bool           `yaml:"enabled"`
 	Separator string         `yaml:"separator"` // default: "_"
-	Tenants  []TenantConfig  `yaml:"tenants"`
+	Tenants   []TenantConfig `yaml:"tenants"`
 }
 
 // TenantConfig is the YAML config for a tenant.

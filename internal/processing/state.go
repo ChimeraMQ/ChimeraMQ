@@ -43,8 +43,7 @@ func (s *StateStore) Get(key []byte) ([]byte, bool, bool) {
 	defer s.mu.RUnlock()
 
 	// Check cache first
-	k := string(key)
-	if val, ok := s.cache[k]; ok {
+	if val, ok := s.cache[string(key)]; ok {
 		if val == nil {
 			return nil, false, true // deleted in cache
 		}

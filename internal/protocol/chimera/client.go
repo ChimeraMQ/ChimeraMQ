@@ -31,10 +31,8 @@ func (c *ClientConn) writeFrame(data []byte) error {
 
 // Subscription tracks a client's subscription state.
 type Subscription struct {
-	topic         string
-	mode          uint8
-	consumerGroup string
-	prefetch      int
+	topic string
+	mode  uint8
 }
 
 // Payload types

@@ -1,6 +1,7 @@
 package chaos
 
 import (
+	"context"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -120,7 +121,7 @@ func TestConcurrentAuth(t *testing.T) {
 					creds = auth.Credentials{Username: "admin", Password: "admin123"}
 				}
 
-				_, err := p.Authenticate(nil, creds)
+				_, err := p.Authenticate(context.TODO(), creds)
 				if err != nil {
 					failures.Add(1)
 				} else {
@@ -194,7 +195,7 @@ func TestConcurrentMTLSIdentities(t *testing.T) {
 			defer wg.Done()
 			// No certs → should return ErrInvalidCredentials
 			for j := 0; j < 100; j++ {
-				_, err := p.Authenticate(nil, auth.Credentials{})
+				_, err := p.Authenticate(context.TODO(), auth.Credentials{})
 				if err != auth.ErrInvalidCredentials {
 					errors.Add(1)
 				}

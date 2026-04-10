@@ -16,7 +16,6 @@ type Session struct {
 	inflight   map[uint16]*inflightMessage
 	nextPID    atomic.Uint32
 	will       *willMessage
-	connected  bool
 	lastActive time.Time
 }
 

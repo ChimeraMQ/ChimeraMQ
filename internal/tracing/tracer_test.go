@@ -17,9 +17,7 @@ func TestTracerDisabled(t *testing.T) {
 	}
 
 	ctx, span := tr.StartSpan(context.Background(), "test")
-	if !span.IsRecording() {
-		// Expected for disabled tracer
-	}
+	_ = span.IsRecording() // always false for disabled tracer
 	_ = ctx
 
 	if err := tr.Shutdown(context.Background()); err != nil {
@@ -44,9 +42,7 @@ func TestTracerEnabled(t *testing.T) {
 	}
 
 	ctx, span := tr.StartSpan(context.Background(), "test-operation")
-	if span.SpanContext().IsValid() {
-		// Span was created successfully
-	}
+	_ = span.SpanContext().IsValid() // verify span context
 	span.End()
 	_ = ctx
 }
@@ -112,9 +108,7 @@ func TestTracerSpanFromContext(t *testing.T) {
 
 func TestConfigDefaults(t *testing.T) {
 	cfg := Config{Enabled: true}
-	if cfg.Endpoint != "" {
-		// Will be set by NewTracer
-	}
+	// Endpoint will be set by NewTracer if empty
 	tr, err := NewTracer(cfg)
 	if err != nil {
 		t.Fatal(err)

@@ -62,8 +62,8 @@ type Registry struct {
 	mu         sync.RWMutex
 	schemasDir string
 	globalID   uint32
-	versions   map[string][]*SchemaVersion // subject -> ordered versions
-	byID       map[uint32]*SchemaVersion   // global ID -> schema
+	versions   map[string][]*SchemaVersion  // subject -> ordered versions
+	byID       map[uint32]*SchemaVersion    // global ID -> schema
 	compat     map[string]CompatibilityMode // subject -> compatibility mode
 }
 
@@ -391,6 +391,6 @@ func (r *Registry) saveGlobalID() {
 	tmpPath := path + ".tmp"
 	if os.WriteFile(tmpPath, data, 0640) == nil {
 		os.Remove(path)
-		os.Rename(tmpPath, path)
+		_ = os.Rename(tmpPath, path)
 	}
 }

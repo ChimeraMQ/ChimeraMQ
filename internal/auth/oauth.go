@@ -56,12 +56,12 @@ type oidcDiscovery struct {
 // NewOAuthProvider creates an OAuth provider that validates JWTs from the given issuer.
 func NewOAuthProvider(issuer, clientID, audience string) (*OAuthProvider, error) {
 	p := &OAuthProvider{
-		issuer:    issuer,
-		clientID:  clientID,
-		audience:  audience,
-		keySet:    make(map[string]interface{}),
+		issuer:     issuer,
+		clientID:   clientID,
+		audience:   audience,
+		keySet:     make(map[string]interface{}),
 		httpClient: &http.Client{Timeout: 10 * time.Second},
-		closeCh:   make(chan struct{}),
+		closeCh:    make(chan struct{}),
 	}
 
 	// Fetch initial JWKS

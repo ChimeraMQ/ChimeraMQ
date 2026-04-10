@@ -395,4 +395,3 @@ func TestOffsetStoreSaveMultiplePartitions(t *testing.T) {
 		t.Errorf("after reload p3 = %d, want 400", store2.Get("multi-part-group", 3))
 	}
 }
-

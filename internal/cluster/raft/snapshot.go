@@ -80,7 +80,7 @@ func (s *Snapshotter) TakeSnapshot() (*SnapshotMeta, error) {
 	// Compact log
 	if lastIndex > 0 {
 		s.log.Compact(lastIndex)
-		s.log.Save()
+		_ = s.log.Save()
 	}
 
 	return meta, nil

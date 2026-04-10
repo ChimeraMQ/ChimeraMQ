@@ -96,9 +96,7 @@ func newAuthTestBroker(t *testing.T) *testBroker {
 	srv := adminhttp.NewAdminServer(b)
 
 	go func() {
-		if err := srv.Serve(); err != nil && err != http.ErrServerClosed {
-			// Server stopped
-		}
+		_ = srv.Serve()
 	}()
 
 	addr := fmt.Sprintf("http://127.0.0.1:%d", adminPort)

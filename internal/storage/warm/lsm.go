@@ -101,14 +101,14 @@ func NewLSMTree(dir string, config LSMConfig) (*LSMTree, error) {
 	}
 
 	lsm := &LSMTree{
-		dir:        dir,
-		config:     config,
-		memtable:   NewMemTable(config.MemTableCapacity),
-		levels:     levels,
-		manifest:   manifest,
-		flushCh:    make(chan struct{}, 1),
-		stopCh:     make(chan struct{}),
-		done:       make(chan struct{}),
+		dir:      dir,
+		config:   config,
+		memtable: NewMemTable(config.MemTableCapacity),
+		levels:   levels,
+		manifest: manifest,
+		flushCh:  make(chan struct{}, 1),
+		stopCh:   make(chan struct{}),
+		done:     make(chan struct{}),
 	}
 
 	go lsm.run()
@@ -291,8 +291,8 @@ func (lsm *LSMTree) compactL0() {
 	lsm.mu.Unlock()
 
 	// Merge all entries from SSTables
-	merged := make(map[uint64][]byte)  // offset -> value
-	deleted := make(map[uint64]bool)   // offset -> deleted
+	merged := make(map[uint64][]byte) // offset -> value
+	deleted := make(map[uint64]bool)  // offset -> deleted
 
 	for _, sst := range toCompact {
 		entries := collectEntries(sst)
@@ -308,9 +308,9 @@ func (lsm *LSMTree) compactL0() {
 		key := make([]byte, 8)
 		binary.BigEndian.PutUint64(key, off)
 		if deleted[off] {
-			mt.Delete(key)
+			_ = mt.Delete(key)
 		} else {
-			mt.Put(key, val)
+			_ = mt.Put(key, val)
 		}
 	}
 	mt.Freeze()
@@ -327,7 +327,7 @@ func (lsm *LSMTree) compactL0() {
 	// Remove old SSTables
 	for _, sst := range toCompact {
 		lsm.manifest.Remove(sst.Path())
-		sst.Remove()
+		_ = sst.Remove()
 	}
 
 	lsm.mu.Lock()

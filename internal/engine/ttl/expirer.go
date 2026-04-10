@@ -26,9 +26,9 @@ type TopicTTLConfig struct {
 
 // Expirer scans partitions and removes expired messages.
 type Expirer struct {
-	mu      sync.RWMutex
-	storage *hot.Engine
-	configs map[string]*TopicTTLConfig // topic -> config
+	mu        sync.RWMutex
+	storage   *hot.Engine
+	configs   map[string]*TopicTTLConfig                // topic -> config
 	onExpired func(topic string, env *message.Envelope) // optional callback
 
 	ctx    context.Context

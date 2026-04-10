@@ -19,7 +19,6 @@ type Server struct {
 	topics      *TopicMapper
 	retained    *RetainedStore
 	sessions    sync.Map // clientID → *Session
-	clientSeq   sync.Map // connection counter
 }
 
 // Detector detects the MQTT protocol.

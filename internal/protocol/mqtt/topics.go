@@ -7,7 +7,6 @@ import (
 
 // TopicMapper handles MQTT topic to ChimeraMQ topic conversion.
 type TopicMapper struct {
-	mu        sync.RWMutex
 	separator string // ChimeraMQ separator (default ".")
 }
 

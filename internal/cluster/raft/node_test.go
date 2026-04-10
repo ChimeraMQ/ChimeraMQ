@@ -53,17 +53,6 @@ func (t *mockTransport) SendInstallSnapshot(nodeID NodeID, req *InstallSnapshotR
 	return &InstallSnapshotResponse{Term: req.Term}, nil
 }
 
-func (t *mockTransport) setResponse(nodeID NodeID, resp interface{}) {
-	t.mu.Lock()
-	defer t.mu.Unlock()
-	t.responses[nodeID] = resp
-}
-
-func (t *mockTransport) voteCount(nodeID NodeID) int {
-	t.mu.Lock()
-	defer t.mu.Unlock()
-	return len(t.requestVotes[nodeID])
-}
 
 func testConfig(t *testing.T) Config {
 	t.Helper()

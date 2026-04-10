@@ -12,9 +12,9 @@ import (
 type AckPolicy int
 
 const (
-	AckLeader  AckPolicy = iota // Ack after local write
-	AckQuorum                    // Ack after majority of ISR confirms
-	AckAll                       // Ack after all ISR confirms
+	AckLeader AckPolicy = iota // Ack after local write
+	AckQuorum                  // Ack after majority of ISR confirms
+	AckAll                     // Ack after all ISR confirms
 )
 
 func ParseAckPolicy(s string) AckPolicy {
@@ -30,15 +30,15 @@ func ParseAckPolicy(s string) AckPolicy {
 
 // Replicator manages leader-side replication for a partition.
 type Replicator struct {
-	mu         sync.Mutex
-	topic      string
-	partition  uint32
-	leaderID   raft.NodeID
-	epoch      uint64
-	policy     AckPolicy
-	isr        *ISRSet
-	hw         uint64 // High watermark
-	transport  ReplicationTransport
+	mu        sync.Mutex
+	topic     string
+	partition uint32
+	leaderID  raft.NodeID
+	epoch     uint64
+	policy    AckPolicy
+	isr       *ISRSet
+	hw        uint64 // High watermark
+	transport ReplicationTransport
 }
 
 // ReplicationTransport sends replication requests to followers.

@@ -179,8 +179,8 @@ func TestHeartbeatExpiresMember(t *testing.T) {
 		assignments:    map[uint32]string{0: "m1", 1: "m1", 2: "m2", 3: "m2"},
 		committed:      make(map[uint32]uint64),
 		strategy:       StrategyRange,
-		sessionTimeout: 2 * time.Second,		offsetStore:    offsets,
-		stopCh:         make(chan struct{}),
+		sessionTimeout: 2 * time.Second, offsetStore: offsets,
+		stopCh: make(chan struct{}),
 	}
 	se.groups["hb-test"] = cg
 
