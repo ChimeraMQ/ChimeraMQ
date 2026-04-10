@@ -1,0 +1,320 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>ChimeraMQ Dashboard</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
+  <style>
+    .sidebar-link.active { background: rgba(99,102,241,0.15); color: #818cf8; border-right: 3px solid #818cf8; }
+    .fade-in { animation: fadeIn 0.2s ease-in; }
+    @keyframes fadeIn { from { opacity: 0; transform: translateY(4px); } to { opacity: 1; transform: translateY(0); } }
+    .stat-card { transition: transform 0.15s; }
+    .stat-card:hover { transform: translateY(-2px); }
+    pre { white-space: pre-wrap; word-break: break-all; }
+  </style>
+</head>
+<body class="bg-gray-950 text-gray-200 min-h-screen flex">
+
+  <!-- Sidebar -->
+  <nav class="w-56 bg-gray-900 border-r border-gray-800 flex flex-col shrink-0">
+    <div class="p-4 border-b border-gray-800">
+      <h1 class="text-lg font-bold text-indigo-400">ChimeraMQ</h1>
+      <p class="text-xs text-gray-500 mt-0.5">Admin Dashboard</p>
+    </div>
+    <div class="flex-1 py-2" id="nav-links">
+      <a href="#/" class="sidebar-link active block px-4 py-2.5 text-sm hover:bg-gray-800 cursor-pointer" data-page="overview">Overview</a>
+      <a href="#/topics" class="sidebar-link block px-4 py-2.5 text-sm hover:bg-gray-800 cursor-pointer" data-page="topics">Topics</a>
+      <a href="#/consumers" class="sidebar-link block px-4 py-2.5 text-sm hover:bg-gray-800 cursor-pointer" data-page="consumers">Consumers</a>
+      <a href="#/schemas" class="sidebar-link block px-4 py-2.5 text-sm hover:bg-gray-800 cursor-pointer" data-page="schemas">Schemas</a>
+      <a href="#/dlq" class="sidebar-link block px-4 py-2.5 text-sm hover:bg-gray-800 cursor-pointer" data-page="dlq">DLQ</a>
+      <a href="#/cluster" class="sidebar-link block px-4 py-2.5 text-sm hover:bg-gray-800 cursor-pointer" data-page="cluster">Cluster</a>
+    </div>
+    <div class="p-3 border-t border-gray-800 text-xs text-gray-600">v0.8.0</div>
+  </nav>
+
+  <!-- Main Content -->
+  <main class="flex-1 overflow-auto">
+    <div class="p-6" id="app"></div>
+  </main>
+
+  <script>
+    var API = '';
+    var appEl = document.getElementById('app');
+
+    /* Router */
+    function route() {
+      var hash = location.hash.slice(1) || '/';
+      document.querySelectorAll('.sidebar-link').forEach(function(l) { l.classList.remove('active'); });
+      var page = hash.split('/')[1] || 'overview';
+      var link = document.querySelector('[data-page="' + page + '"]');
+      if (link) link.classList.add('active');
+      appEl.textContent = '';
+      if (page === 'overview') renderOverview();
+      else if (page === 'topics') renderTopics();
+      else if (page === 'consumers') renderConsumers();
+      else if (page === 'schemas') renderSchemas();
+      else if (page === 'dlq') renderDLQ();
+      else if (page === 'cluster') renderCluster();
+      else renderOverview();
+    }
+    window.addEventListener('hashchange', route);
+    route();
+
+    /* Helpers */
+    function api(path, opts) {
+      opts = opts || {};
+      return fetch(API + path, opts)
+        .then(function(r) { return r.json(); })
+        .catch(function(e) { return { error: e.message }; });
+    }
+
+    function el(tag, attrs) {
+      var e = document.createElement(tag);
+      if (attrs) {
+        Object.keys(attrs).forEach(function(k) {
+          if (k === 'class') e.className = attrs[k];
+          else if (k.startsWith('on')) e.addEventListener(k.slice(2), attrs[k]);
+          else e.setAttribute(k, attrs[k]);
+        });
+      }
+      for (var i = 2; i < arguments.length; i++) {
+        var c = arguments[i];
+        if (typeof c === 'string' || typeof c === 'number') e.appendChild(document.createTextNode(String(c)));
+        else if (c) e.appendChild(c);
+      }
+      return e;
+    }
+
+    function card(title, content) {
+      return el('div', { class: 'bg-gray-900 rounded-lg border border-gray-800 p-4 fade-in' },
+        el('h3', { class: 'text-sm font-semibold text-gray-400 mb-3' }, title),
+        content
+      );
+    }
+
+    function stat(label, value, color) {
+      color = color || 'text-indigo-400';
+      return el('div', { class: 'stat-card bg-gray-900 rounded-lg border border-gray-800 p-4 fade-in' },
+        el('p', { class: 'text-xs text-gray-500 uppercase tracking-wide' }, label),
+        el('p', { class: 'text-2xl font-bold mt-1 ' + color }, String(value))
+      );
+    }
+
+    function safeText(obj) {
+      try { return JSON.stringify(obj, null, 2); }
+      catch(e) { return String(obj); }
+    }
+
+    function buildTable(headers, rows) {
+      var thead = el('thead', {},
+        el('tr', { class: 'border-b border-gray-800' },
+          headers.map(function(h_) { return el('th', { class: 'text-left text-xs text-gray-500 py-2 px-3 font-medium' }, h_); })
+        )
+      );
+      var tbody = el('tbody', {},
+        rows.map(function(row) {
+          return el('tr', { class: 'border-b border-gray-800/50 hover:bg-gray-800/30' },
+            row.map(function(cell) { return el('td', { class: 'text-sm py-2 px-3' }, String(cell)); })
+          );
+        })
+      );
+      return el('div', { class: 'overflow-x-auto' }, el('table', { class: 'w-full' }, thead, tbody));
+    }
+
+    function clearApp() { while (appEl.firstChild) appEl.removeChild(appEl.firstChild); }
+
+    /* Overview */
+    function renderOverview() {
+      api('/v1/health').then(function(health) {
+        clearApp();
+        appEl.appendChild(el('h2', { class: 'text-xl font-bold mb-4' }, 'Cluster Overview'));
+        var grid = el('div', { class: 'grid grid-cols-4 gap-4 mb-6' },
+          stat('Status', health.status || '--', health.status === 'healthy' ? 'text-emerald-400' : 'text-red-400'),
+          stat('Node ID', health.node_id != null ? health.node_id : '--'),
+          stat('Name', health.name || '--'),
+          stat('Uptime', health.uptime || '--')
+        );
+        appEl.appendChild(grid);
+        var charts = el('div', { class: 'grid grid-cols-2 gap-4' },
+          card('Throughput', el('canvas', { id: 'throughput-chart', height: '200' })),
+          card('Info', el('div', { class: 'text-sm text-gray-500' }, 'Live metrics from /v1/metrics'))
+        );
+        appEl.appendChild(charts);
+        renderThroughputChart();
+      });
+    }
+
+    function renderThroughputChart() {
+      var canvas = document.getElementById('throughput-chart');
+      if (!canvas) return;
+      fetch(API + '/v1/metrics').then(function(r) { return r.text(); }).catch(function() { return ''; }).then(function(text) {
+        var published = parseMetric(text, 'chimera_messages_published_total');
+        var consumed = parseMetric(text, 'chimera_messages_consumed_total');
+        new Chart(canvas, {
+          type: 'bar',
+          data: {
+            labels: ['Published', 'Consumed'],
+            datasets: [{ data: [published, consumed], backgroundColor: ['#818cf8', '#34d399'], borderRadius: 6 }]
+          },
+          options: {
+            responsive: true,
+            plugins: { legend: { display: false } },
+            scales: {
+              y: { grid: { color: 'rgba(255,255,255,0.05)' }, ticks: { color: '#6b7280' } },
+              x: { grid: { display: false }, ticks: { color: '#6b7280' } }
+            }
+          }
+        });
+      });
+    }
+
+    function parseMetric(text, name) {
+      var lines = text.split('\n');
+      for (var i = 0; i < lines.length; i++) {
+        if (lines[i].startsWith(name)) {
+          var parts = lines[i].split(' ');
+          return parseFloat(parts[parts.length - 1]) || 0;
+        }
+      }
+      return 0;
+    }
+
+    /* Topics */
+    function renderTopics() {
+      api('/v1/topics').then(function(data) {
+        var list = Array.isArray(data) ? data : (data.topics || []);
+        clearApp();
+        var header = el('div', { class: 'flex justify-between items-center mb-4' },
+          el('h2', { class: 'text-xl font-bold' }, 'Topics'),
+          el('button', { class: 'bg-indigo-600 hover:bg-indigo-700 text-white text-sm px-4 py-2 rounded-lg', onclick: showCreateTopicModal }, '+ Create Topic')
+        );
+        appEl.appendChild(header);
+        appEl.appendChild(card('All Topics', buildTable(
+          ['Name', 'Mode', 'Partitions', 'Created'],
+          list.map(function(t) { return [t.name || t, t.mode || '--', t.partitions || '--', t.created_at || '--']; })
+        )));
+      });
+    }
+
+    function showCreateTopicModal() {
+      var overlay = el('div', { class: 'fixed inset-0 bg-black/60 flex items-center justify-center z-50' });
+      overlay.addEventListener('click', function(e) { if (e.target === overlay) overlay.remove(); });
+      var nameInput = el('input', { id: 'topic-name', class: 'w-full bg-gray-800 border border-gray-700 rounded px-3 py-2 text-sm mb-3', placeholder: 'Topic name' });
+      var modeSelect = el('select', { id: 'topic-mode', class: 'w-full bg-gray-800 border border-gray-700 rounded px-3 py-2 text-sm mb-3' },
+        el('option', { value: 'unified' }, 'unified'),
+        el('option', { value: 'stream' }, 'stream'),
+        el('option', { value: 'queue' }, 'queue')
+      );
+      var partsInput = el('input', { id: 'topic-parts', type: 'number', value: '8', class: 'w-full bg-gray-800 border border-gray-700 rounded px-3 py-2 text-sm mb-4', placeholder: 'Partitions' });
+      var cancelBtn = el('button', { class: 'px-4 py-2 text-sm text-gray-400 hover:text-white', onclick: function() { overlay.remove(); } }, 'Cancel');
+      var createBtn = el('button', { class: 'bg-indigo-600 hover:bg-indigo-700 text-white text-sm px-4 py-2 rounded-lg' }, 'Create');
+      createBtn.addEventListener('click', function() {
+        var name = nameInput.value;
+        var mode = modeSelect.value;
+        var partitions = parseInt(partsInput.value) || 8;
+        api('/v1/topics', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ name: name, mode: mode, partitions: partitions })
+        }).then(function() { overlay.remove(); renderTopics(); });
+      });
+      var modal = el('div', { class: 'bg-gray-900 rounded-xl border border-gray-700 p-6 w-96 fade-in' },
+        el('h3', { class: 'text-lg font-bold mb-4' }, 'Create Topic'),
+        nameInput, modeSelect, partsInput,
+        el('div', { class: 'flex gap-2 justify-end' }, cancelBtn, createBtn)
+      );
+      overlay.appendChild(modal);
+      document.body.appendChild(overlay);
+    }
+
+    /* Consumers */
+    function renderConsumers() {
+      api('/v1/consumers').then(function(data) {
+        var list = Array.isArray(data) ? data : (data.groups || []);
+        clearApp();
+        appEl.appendChild(el('h2', { class: 'text-xl font-bold mb-4' }, 'Consumer Groups'));
+        appEl.appendChild(card('Groups', buildTable(
+          ['Group', 'Members', 'Topic'],
+          list.map(function(g) { return [g.group || g, g.members ? (Array.isArray(g.members) ? g.members.length : g.members) : '--', g.topic || '--']; })
+        )));
+      });
+    }
+
+    /* Schemas */
+    function renderSchemas() {
+      clearApp();
+      appEl.appendChild(el('h2', { class: 'text-xl font-bold mb-4' }, 'Schema Registry'));
+      var input = el('input', { id: 'schema-subject', class: 'flex-1 bg-gray-800 border border-gray-700 rounded px-3 py-2 text-sm', placeholder: 'Subject name' });
+      var btn = el('button', { class: 'bg-indigo-600 hover:bg-indigo-700 text-white text-sm px-4 py-2 rounded-lg' }, 'Lookup');
+      btn.addEventListener('click', function() { lookupSchema(input.value); });
+      var resultDiv = el('div', { id: 'schema-result', class: 'mt-4' });
+      appEl.appendChild(card('Lookup Schema', el('div', { class: 'flex gap-2' }, input, btn)));
+      appEl.appendChild(resultDiv);
+    }
+
+    function lookupSchema(subject) {
+      api('/v1/schemas/' + encodeURIComponent(subject) + '/latest').then(function(result) {
+        var container = document.getElementById('schema-result');
+        while (container.firstChild) container.removeChild(container.firstChild);
+        if (result.error) {
+          container.appendChild(el('p', { class: 'text-red-400 text-sm' }, 'Error: ' + result.error));
+        } else {
+          container.appendChild(card('Schema: ' + subject,
+            el('pre', { class: 'bg-gray-800 rounded p-3 text-xs text-green-400 overflow-auto' }, safeText(result))
+          ));
+        }
+      });
+    }
+
+    /* DLQ */
+    function renderDLQ() {
+      clearApp();
+      appEl.appendChild(el('h2', { class: 'text-xl font-bold mb-4' }, 'Dead Letter Queue'));
+      var input = el('input', { id: 'dlq-topic', class: 'flex-1 bg-gray-800 border border-gray-700 rounded px-3 py-2 text-sm', placeholder: 'Topic name' });
+      var peekBtn = el('button', { class: 'bg-indigo-600 hover:bg-indigo-700 text-white text-sm px-4 py-2 rounded-lg' }, 'Peek');
+      var clearBtn = el('button', { class: 'bg-red-600 hover:bg-red-700 text-white text-sm px-4 py-2 rounded-lg' }, 'Clear');
+      var replayBtn = el('button', { class: 'bg-emerald-600 hover:bg-emerald-700 text-white text-sm px-4 py-2 rounded-lg' }, 'Replay');
+      var resultDiv = el('div', { id: 'dlq-result', class: 'mt-4' });
+      peekBtn.addEventListener('click', function() { peekDLQ(input.value); });
+      clearBtn.addEventListener('click', function() {
+        api('/v1/dlq/' + encodeURIComponent(input.value), { method: 'DELETE' }).then(function() { peekDLQ(input.value); });
+      });
+      replayBtn.addEventListener('click', function() {
+        api('/v1/dlq/' + encodeURIComponent(input.value) + '/replay', { method: 'POST' }).then(function(result) {
+          while (resultDiv.firstChild) resultDiv.removeChild(resultDiv.firstChild);
+          resultDiv.appendChild(card('Replay Result',
+            el('pre', { class: 'bg-gray-800 rounded p-3 text-xs text-emerald-400' }, safeText(result))
+          ));
+        });
+      });
+      appEl.appendChild(card('DLQ Lookup', el('div', { class: 'flex gap-2' }, input, peekBtn, clearBtn, replayBtn)));
+      appEl.appendChild(resultDiv);
+    }
+
+    function peekDLQ(topic) {
+      api('/v1/dlq/' + encodeURIComponent(topic)).then(function(result) {
+        var container = document.getElementById('dlq-result');
+        while (container.firstChild) container.removeChild(container.firstChild);
+        container.appendChild(card('DLQ: ' + topic,
+          el('pre', { class: 'bg-gray-800 rounded p-3 text-xs text-emerald-400 overflow-auto max-h-96' }, safeText(result))
+        ));
+      });
+    }
+
+    /* Cluster */
+    function renderCluster() {
+      api('/v1/cluster/members').then(function(data) {
+        var list = Array.isArray(data) ? data : (data.members || []);
+        clearApp();
+        appEl.appendChild(el('h2', { class: 'text-xl font-bold mb-4' }, 'Cluster Members'));
+        appEl.appendChild(card('Members', buildTable(
+          ['Node ID', 'Address', 'Role', 'Status'],
+          list.map(function(m) { return [m.node_id != null ? m.node_id : (m.id || '--'), m.address || m.addr || '--', m.role || '--', m.status || '--']; })
+        )));
+      });
+    }
+  </script>
+</body>
+</html>

@@ -18,6 +18,7 @@ import (
 	"github.com/chimeramq/chimera/internal/message"
 	"github.com/chimeramq/chimera/internal/processing"
 	"github.com/chimeramq/chimera/internal/schema"
+	"github.com/chimeramq/chimera/internal/ui"
 )
 
 const (
@@ -94,6 +95,11 @@ func (s *AdminServer) registerRoutes() {
 	s.mux.HandleFunc("GET /v1/dlq/{topic}", s.auth(s.handleDLQPeek))
 	s.mux.HandleFunc("DELETE /v1/dlq/{topic}", s.auth(s.handleDLQClear))
 	s.mux.HandleFunc("POST /v1/dlq/{topic}/replay", s.auth(s.handleDLQReplay))
+
+	// Embedded Web UI dashboard
+	if s.broker.Config().Observability.Dashboard.Enabled {
+		s.mux.Handle("/ui/", http.StripPrefix("/ui", ui.Handler()))
+	}
 }
 
 // securityMiddleware adds security headers and CORS support.

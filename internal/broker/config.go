@@ -284,7 +284,13 @@ type ProcessingConfig struct {
 
 // ObservabilityConfig controls tracing and monitoring.
 type ObservabilityConfig struct {
-	Tracing TracingConfig `yaml:"tracing"`
+	Tracing   TracingConfig   `yaml:"tracing"`
+	Dashboard DashboardConfig `yaml:"dashboard"`
+}
+
+// DashboardConfig controls the embedded Web UI.
+type DashboardConfig struct {
+	Enabled bool `yaml:"enabled"`
 }
 
 // TracingConfig controls OpenTelemetry tracing.

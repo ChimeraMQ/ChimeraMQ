@@ -233,6 +233,8 @@ protocols:
 #     service: "chimera"                # Service name for spans
 #     insecure: true                    # Use insecure gRPC
 #     sample_rate: 1.0                  # 0.0-1.0 trace sampling
+#   dashboard:
+#     enabled: true                     # Serve embedded Web UI at /ui/
 
 # --- Dead Letter Queue (Phase 8) — opt-in ---
 # dlq:
