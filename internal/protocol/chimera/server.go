@@ -181,7 +181,7 @@ func (s *Server) handleConnection(conn net.Conn) {
 	// Send CONNACK
 	connackPayload := encodeConnAck(client.clientID, 0)
 	connackFrame, _ := EncodeFrame(&Frame{Version: FrameVersion, OpCode: OpConnAck, Payload: connackPayload})
-	if err := _ = client.writeFrame(connackFrame); err != nil {
+	if err := client.writeFrame(connackFrame); err != nil {
 		return
 	}
 
