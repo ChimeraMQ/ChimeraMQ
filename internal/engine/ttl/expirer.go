@@ -137,7 +137,7 @@ func (e *Expirer) scan() {
 
 			hw := part.HighWatermark()
 			ls := part.LogStartOffset()
-			if hw < ls || hw == 0 {
+			if hw < ls {
 				return true
 			}
 
