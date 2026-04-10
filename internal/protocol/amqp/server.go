@@ -137,8 +137,12 @@ func (s *Server) negotiateSASL(reader *bufio.Reader, writer *bufio.Writer, maxSi
 
 	// Parse the SASL INIT: fields are [mechanism, initial-response]
 	tr := newTypeReader(value)
-	items, err := tr.readListItems(2, len(value))
+	any, err := tr.readAny()
 	if err != nil {
+		return false
+	}
+	items, ok := any.([]interface{})
+	if !ok {
 		return false
 	}
 
@@ -281,9 +285,13 @@ func (ac *amqpConn) handleBegin(value []byte, channel uint16) error {
 
 func (ac *amqpConn) handleAttach(value []byte, channel uint16) error {
 	tr := newTypeReader(value)
-	items, err := tr.readListItems(6, len(value))
+	any, err := tr.readAny()
 	if err != nil {
 		return err
+	}
+	items, ok := any.([]interface{})
+	if !ok {
+		return fmt.Errorf("expected list in ATTACH")
 	}
 
 	var name string
@@ -336,9 +344,13 @@ func (ac *amqpConn) handleAttach(value []byte, channel uint16) error {
 func (ac *amqpConn) handleTransfer(value []byte, channel uint16) error {
 	// Parse TRANSFER: [handle, delivery-id, delivery-tag, message-format, settled, more, ...]
 	tr := newTypeReader(value)
-	items, err := tr.readListItems(7, len(value))
+	any, err := tr.readAny()
 	if err != nil {
 		return err
+	}
+	items, ok := any.([]interface{})
+	if !ok {
+		return fmt.Errorf("expected list in TRANSFER")
 	}
 
 	_ = items // Fields parsed as needed
@@ -383,9 +395,13 @@ func (ac *amqpConn) handleTransfer(value []byte, channel uint16) error {
 func (ac *amqpConn) handleFlow(value []byte, channel uint16) error {
 	// FLOW: [handle, delivery-count, link-credit, available]
 	tr := newTypeReader(value)
-	items, err := tr.readListItems(4, len(value))
+	any, err := tr.readAny()
 	if err != nil {
 		return err
+	}
+	items, ok := any.([]interface{})
+	if !ok {
+		return fmt.Errorf("expected list in FLOW")
 	}
 
 	var handle uint32
@@ -418,9 +434,13 @@ func (ac *amqpConn) handleFlow(value []byte, channel uint16) error {
 func (ac *amqpConn) handleDisposition(value []byte, channel uint16) error {
 	// DISPOSITION: [role, first, last, settled, state, ...]
 	tr := newTypeReader(value)
-	items, err := tr.readListItems(5, len(value))
+	any, err := tr.readAny()
 	if err != nil {
 		return err
+	}
+	items, ok := any.([]interface{})
+	if !ok {
+		return fmt.Errorf("expected list in DISPOSITION")
 	}
 
 	var first, last uint64
@@ -454,9 +474,13 @@ func (ac *amqpConn) handleDisposition(value []byte, channel uint16) error {
 
 func (ac *amqpConn) handleDetach(value []byte, channel uint16) error {
 	tr := newTypeReader(value)
-	items, err := tr.readListItems(2, len(value))
+	any, err := tr.readAny()
 	if err != nil {
 		return err
+	}
+	items, ok := any.([]interface{})
+	if !ok {
+		return fmt.Errorf("expected list in DETACH")
 	}
 
 	var handle uint32
