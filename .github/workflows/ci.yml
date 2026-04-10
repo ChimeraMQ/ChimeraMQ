@@ -43,6 +43,11 @@ jobs:
       - name: Test
         run: go test -count=1 -timeout 300s ./...
 
+      - name: Test with coverage
+        run: |
+          go test -count=1 -timeout 300s -coverprofile=coverage.out ./...
+          go tool cover -func=coverage.out
+
       - name: Race detector
         run: go test -race -count=1 -timeout 300s ./...
 
