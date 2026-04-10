@@ -72,7 +72,7 @@ func (t *UDPTransport) Send(addr string, msg *Message) error {
 	binary.BigEndian.PutUint32(buf[:4], uint32(len(data)))
 	copy(buf[4:], data)
 
-	t.conn.SetWriteDeadline(time.Now().Add(2 * time.Second))
+	_ = t.conn.SetWriteDeadline(time.Now().Add(2 * time.Second))
 	_, err = t.conn.WriteToUDP(buf, udpAddr)
 	return err
 }
@@ -80,7 +80,7 @@ func (t *UDPTransport) Send(addr string, msg *Message) error {
 // Receive receives a message.
 func (t *UDPTransport) Receive() (*Message, *net.UDPAddr, error) {
 	buf := make([]byte, 64*1024)
-	t.conn.SetReadDeadline(time.Now().Add(1 * time.Second))
+	_ = t.conn.SetReadDeadline(time.Now().Add(1 * time.Second))
 	n, addr, err := t.conn.ReadFromUDP(buf)
 	if err != nil {
 		return nil, nil, err

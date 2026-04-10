@@ -31,13 +31,13 @@ func bcryptHash(password string) (string, error) {
 
 func TestParseResourceTypeAllVariants(t *testing.T) {
 	tests := map[string]ResourceType{
-		"topic":         ResourceTopic,
+		"topic":          ResourceTopic,
 		"consumer_group": ResourceConsumerGroup,
 		"consumergroup":  ResourceConsumerGroup,
-		"group":         ResourceConsumerGroup,
-		"cluster":       ResourceCluster,
-		"schema":        ResourceSchema,
-		"wasm":          ResourceWASM,
+		"group":          ResourceConsumerGroup,
+		"cluster":        ResourceCluster,
+		"schema":         ResourceSchema,
+		"wasm":           ResourceWASM,
 	}
 	for input, expected := range tests {
 		got := ParseResourceType(input)

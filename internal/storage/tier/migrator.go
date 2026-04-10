@@ -235,7 +235,6 @@ func (m *Migrator) migrateWarmToCold() {
 	}
 }
 
-
 func (m *Migrator) purgeExpiredCold() {
 	if m.cold == nil || m.policy.ColdRetention == 0 {
 		return
