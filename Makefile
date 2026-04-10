@@ -4,7 +4,7 @@ COMMIT   := $(shell git rev-parse --short HEAD 2>/dev/null || echo "unknown")
 DATE     := $(shell date -u +"%Y-%m-%dT%H:%M:%SZ")
 LDFLAGS  := -s -w -X main.version=$(VERSION) -X main.commit=$(COMMIT) -X main.date=$(DATE)
 
-.PHONY: build test bench clean lint docker release integration cover chaos
+.PHONY: build test bench clean lint docker release integration cover chaos web-build
 
 build:
 	CGO_ENABLED=0 go build -ldflags "$(LDFLAGS)" -o bin/$(BINARY) ./cmd/chimera/
@@ -17,6 +17,9 @@ test-race:
 
 integration:
 	go test ./test/integration/ -v -count=1 -timeout 120s
+
+chaos:
+	go test ./test/chaos/ -v -count=1 -timeout 120s
 
 bench:
 	go test -bench=. -benchmem -benchtime 1s -run "^$" ./...
@@ -32,10 +35,13 @@ cover:
 	go tool cover -func=coverage.out | tail -1
 
 clean:
-	rm -rf bin/ coverage.out
+	rm -rf bin/ coverage.out *.out
 
 docker:
 	docker build -t ghcr.io/chimeramq/chimera:$(VERSION) -t ghcr.io/chimeramq/chimera:latest .
+
+web-build:
+	cp web/dist/index.html internal/ui/static/index.html
 
 release: clean
 	GOOS=linux GOARCH=amd64 CGO_ENABLED=0 go build -ldflags "$(LDFLAGS)" -o bin/$(BINARY)-linux-amd64 ./cmd/chimera/

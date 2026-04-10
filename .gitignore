@@ -15,6 +15,10 @@ coverage.out
 *_cov.out
 *_cov.html
 *.test
+*.out
+
+# Security reports (local)
+security-report/
 
 # IDE
 .idea/
