@@ -54,7 +54,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Project Stats
 - 38 Go packages, 98 source files, 21,000+ lines of code
-- 112 test files, 1,655 test functions, 80.7% average code coverage
+- 112 test files, 1,650+ test functions, 85.4% average code coverage
 - 37/38 packages above 70% coverage (cli structurally limited at 49.3%)
 - `go build`, `go test`, `go vet`, `golangci-lint` all clean
 - Zero TODO/FIXME markers in codebase
