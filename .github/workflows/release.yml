@@ -21,7 +21,7 @@ jobs:
       - name: Set up Go
         uses: actions/setup-go@3041bf56c941b39c17d8b5a82a1c0ea9291374a8 # v5.2.0
         with:
-          go-version: '1.23'
+          go-version: '1.25'
 
       - name: Build binaries
         run: |
