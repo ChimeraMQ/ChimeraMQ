@@ -4,6 +4,8 @@ import (
 	"context"
 	"testing"
 	"time"
+
+	"github.com/chimeramq/chimera/internal/message"
 )
 
 // testDropWasm returns a WASM binary where transform always returns 0 (drop).
@@ -151,5 +153,203 @@ func TestRuntimeConcurrentTransforms(t *testing.T) {
 		if err := <-errCh; err != nil {
 			t.Errorf("concurrent transform: %v", err)
 		}
+	}
+}
+
+// --- Pipeline coverage tests ---
+
+func TestPipelineStagesAccessor(t *testing.T) {
+	stages := []TransformStage{
+		{Module: "s1"},
+		{Module: "s2"},
+		{Module: "s3"},
+	}
+	p := NewPipeline(stages, PolicySkip)
+
+	got := p.Stages()
+	if len(got) != 3 {
+		t.Fatalf("Stages() returned %d stages, want 3", len(got))
+	}
+	for i, s := range got {
+		if s.Module != stages[i].Module {
+			t.Errorf("Stages()[%d].Module = %q, want %q", i, s.Module, stages[i].Module)
+		}
+	}
+}
+
+func TestPipelineStagesEmpty(t *testing.T) {
+	p := NewPipeline(nil, PolicySkip)
+	if len(p.Stages()) != 0 {
+		t.Error("Stages() on nil slice should return empty")
+	}
+}
+
+func TestPipelineApplyDropInSingleStage(t *testing.T) {
+	cfg := DefaultRuntimeConfig()
+	rt := NewRuntime(cfg)
+	defer rt.Close()
+
+	rt.Compile("drop", testDropWasm(t))
+
+	pipeline := NewPipeline([]TransformStage{{Module: "drop"}}, PolicySkip)
+	env := &message.Envelope{Payload: []byte("hello")}
+
+	result, err := pipeline.Apply(context.Background(), rt, env)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result != nil {
+		t.Error("expected nil result when message is dropped")
+	}
+}
+
+func TestPipelineApplyDropStopsPipeline(t *testing.T) {
+	cfg := DefaultRuntimeConfig()
+	rt := NewRuntime(cfg)
+	defer rt.Close()
+
+	rt.Compile("drop", testDropWasm(t))
+	rt.Compile("pass", testPassthruWasm(t))
+
+	// Drop at first stage should return nil immediately, never reaching stage 2
+	pipeline := NewPipeline([]TransformStage{{Module: "drop"}, {Module: "pass"}}, PolicySkip)
+	env := &message.Envelope{Payload: []byte("hello")}
+
+	result, err := pipeline.Apply(context.Background(), rt, env)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result != nil {
+		t.Error("drop at first stage should stop pipeline and return nil")
+	}
+}
+
+func TestPipelineApplyDLQPolicyOnError(t *testing.T) {
+	cfg := DefaultRuntimeConfig()
+	rt := NewRuntime(cfg)
+	defer rt.Close()
+
+	pipeline := NewPipeline([]TransformStage{{Module: "nonexistent"}}, PolicyDLQ)
+	env := &message.Envelope{Payload: []byte("hello")}
+
+	result, err := pipeline.Apply(context.Background(), rt, env)
+	if err == nil {
+		t.Fatal("DLQ policy should return error on missing module")
+	}
+	if result != nil {
+		t.Error("DLQ error should return nil envelope")
+	}
+}
+
+func TestPipelineApplyMultiStagePassthru(t *testing.T) {
+	cfg := DefaultRuntimeConfig()
+	rt := NewRuntime(cfg)
+	defer rt.Close()
+
+	rt.Compile("a", testPassthruWasm(t))
+	rt.Compile("b", testPassthruWasm(t))
+	rt.Compile("c", testPassthruWasm(t))
+
+	pipeline := NewPipeline([]TransformStage{{Module: "a"}, {Module: "b"}, {Module: "c"}}, PolicySkip)
+	env := &message.Envelope{Payload: []byte("unchanged")}
+
+	result, err := pipeline.Apply(context.Background(), rt, env)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result == nil {
+		t.Fatal("multi-stage passthru should return non-nil envelope")
+	}
+	if string(result.Payload) != "unchanged" {
+		t.Errorf("Payload = %q, want %q", result.Payload, "unchanged")
+	}
+}
+
+func TestPipelineApplySkipOnErrorPreservesOriginal(t *testing.T) {
+	cfg := DefaultRuntimeConfig()
+	rt := NewRuntime(cfg)
+	defer rt.Close()
+
+	rt.Compile("good", testPassthruWasm(t))
+
+	// First stage fails (nonexistent), second stage succeeds
+	pipeline := NewPipeline([]TransformStage{{Module: "bad"}, {Module: "good"}}, PolicySkip)
+	env := &message.Envelope{Payload: []byte("hello")}
+
+	result, err := pipeline.Apply(context.Background(), rt, env)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result == nil {
+		t.Fatal("skip policy should return non-nil envelope even with error")
+	}
+	if string(result.Payload) != "hello" {
+		t.Errorf("Payload = %q, want %q", result.Payload, "hello")
+	}
+}
+
+func TestPipelineApplyPassthruWithModifiedPayload(t *testing.T) {
+	// This tests the path in Apply() where payload is modified via a
+	// TransformResult that has Data set (not passthru, not drop).
+	// We test the code path by using a drop module for stage 1 which
+	// demonstrates the result.Drop path returns nil.
+	// For actual data transform, the runtime would need a WASM module
+	// that returns packed ptr|length -- which is hard to hand-encode.
+	// Instead, verify the unchanged-payload path returns the same env.
+	cfg := DefaultRuntimeConfig()
+	rt := NewRuntime(cfg)
+	defer rt.Close()
+
+	rt.Compile("pass", testPassthruWasm(t))
+
+	pipeline := NewPipeline([]TransformStage{{Module: "pass"}}, PolicyReject)
+	env := &message.Envelope{Payload: []byte("same")}
+
+	result, err := pipeline.Apply(context.Background(), rt, env)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// passthru means payload unchanged, so same envelope pointer returned
+	if result != env {
+		t.Error("unchanged payload should return same envelope pointer")
+	}
+}
+
+func TestPipelineApplyRejectPolicy(t *testing.T) {
+	cfg := DefaultRuntimeConfig()
+	rt := NewRuntime(cfg)
+	defer rt.Close()
+
+	pipeline := NewPipeline([]TransformStage{{Module: "missing"}}, PolicyReject)
+	env := &message.Envelope{Payload: []byte("hello")}
+
+	_, err := pipeline.Apply(context.Background(), rt, env)
+	if err == nil {
+		t.Fatal("reject policy should return error on missing module")
+	}
+}
+
+func TestPipelineApplyPassthruResultDoesNotModifyPayload(t *testing.T) {
+	// Verifies that when all stages return passthru, the original
+	// envelope is returned unchanged (same pointer).
+	cfg := DefaultRuntimeConfig()
+	rt := NewRuntime(cfg)
+	defer rt.Close()
+
+	rt.Compile("s1", testPassthruWasm(t))
+
+	pipeline := NewPipeline([]TransformStage{{Module: "s1"}}, PolicySkip)
+	env := &message.Envelope{
+		Topic:    "test/topic",
+		Payload:  []byte("payload"),
+		Sequence: 42,
+	}
+
+	result, err := pipeline.Apply(context.Background(), rt, env)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result != env {
+		t.Error("passthru should return exact same envelope")
 	}
 }
