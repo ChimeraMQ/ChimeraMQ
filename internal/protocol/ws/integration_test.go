@@ -277,3 +277,136 @@ func TestWSStop(t *testing.T) {
 
 	srv.Stop()
 }
+
+func TestWSPublishWithRoutingKey(t *testing.T) {
+	bkr := newWSTestBroker(t)
+	bkr.Topics().CreateTopic(broker.TopicConfig{
+		Name: "rk-topic", Mode: broker.ModeUnified, Partitions: 1,
+	})
+
+	srv := NewServer(bkr)
+	server := httptest.NewServer(srv)
+	defer server.Close()
+
+	conn := wsDial(t, server)
+	defer conn.Close(websocket.StatusNormalClosure, "")
+
+	wsWrite(t, conn, `{"op":"publish","topic":"rk-topic","payload":"aGVsbG8=","routing_key":"order-1"}`)
+	resp := wsRead(t, conn)
+
+	if resp.Op != "puback" {
+		t.Errorf("op = %q", resp.Op)
+	}
+	if resp.Status != "ok" {
+		t.Errorf("status = %q", resp.Status)
+	}
+}
+
+func TestWSCreateTopicWithMode(t *testing.T) {
+	bkr := newWSTestBroker(t)
+	srv := NewServer(bkr)
+	server := httptest.NewServer(srv)
+	defer server.Close()
+
+	conn := wsDial(t, server)
+	defer conn.Close(websocket.StatusNormalClosure, "")
+
+	// Create stream topic
+	wsWrite(t, conn, `{"op":"create_topic","topic":"stream-t","partitions":2,"mode":"stream"}`)
+	resp := wsRead(t, conn)
+	if resp.Op != "create_topic_ack" {
+		t.Errorf("op = %q", resp.Op)
+	}
+
+	tc, ok := bkr.Topics().GetTopic("stream-t")
+	if !ok {
+		t.Fatal("topic should exist")
+	}
+	if tc.Mode != broker.ModeStream {
+		t.Errorf("mode = %v, want stream", tc.Mode)
+	}
+
+	// Create queue topic
+	wsWrite(t, conn, `{"op":"create_topic","topic":"queue-t","partitions":1,"mode":"queue"}`)
+	resp = wsRead(t, conn)
+	if resp.Op != "create_topic_ack" {
+		t.Errorf("op = %q", resp.Op)
+	}
+
+	// Create unified (default) topic
+	wsWrite(t, conn, `{"op":"create_topic","topic":"uni-t","partitions":4}`)
+	resp = wsRead(t, conn)
+	if resp.Op != "create_topic_ack" {
+		t.Errorf("op = %q", resp.Op)
+	}
+}
+
+func TestWSDeleteTopicNoName(t *testing.T) {
+	bkr := newWSTestBroker(t)
+	srv := NewServer(bkr)
+	server := httptest.NewServer(srv)
+	defer server.Close()
+
+	conn := wsDial(t, server)
+	defer conn.Close(websocket.StatusNormalClosure, "")
+
+	wsWrite(t, conn, `{"op":"delete_topic"}`)
+	resp := wsRead(t, conn)
+
+	if resp.Op != "error" {
+		t.Errorf("op = %q, want error", resp.Op)
+	}
+}
+
+func TestWSFetchUnsupported(t *testing.T) {
+	bkr := newWSTestBroker(t)
+	srv := NewServer(bkr)
+	server := httptest.NewServer(srv)
+	defer server.Close()
+
+	conn := wsDial(t, server)
+	defer conn.Close(websocket.StatusNormalClosure, "")
+
+	wsWrite(t, conn, `{"op":"fetch","topic":"test"}`)
+	resp := wsRead(t, conn)
+
+	if resp.Op != "error" {
+		t.Errorf("op = %q, want error", resp.Op)
+	}
+}
+
+func TestWSBinaryJSONFallback(t *testing.T) {
+	bkr := newWSTestBroker(t)
+	bkr.Topics().CreateTopic(broker.TopicConfig{
+		Name: "bin-json", Mode: broker.ModeUnified, Partitions: 1,
+	})
+
+	srv := NewServer(bkr)
+	server := httptest.NewServer(srv)
+	defer server.Close()
+
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	wsURL := "ws" + strings.TrimPrefix(server.URL, "http")
+	conn, _, err := websocket.Dial(ctx, wsURL, &websocket.DialOptions{
+		Subprotocols: []string{"chimera-binary-v1"},
+	})
+	if err != nil {
+		t.Fatalf("dial: %v", err)
+	}
+	defer conn.Close(websocket.StatusNormalClosure, "")
+
+	// Send JSON message via binary subprotocol — should fall back to JSON handler
+	conn.Write(ctx, websocket.MessageText, []byte(`{"op":"ping"}`))
+	_, data, err := conn.Read(ctx)
+	if err != nil {
+		t.Fatalf("read: %v", err)
+	}
+
+	var resp wsMessage
+	json.Unmarshal(data, &resp)
+	if resp.Op != "pong" {
+		t.Errorf("op = %q, want pong", resp.Op)
+	}
+}
