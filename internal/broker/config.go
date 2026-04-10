@@ -28,6 +28,9 @@ type Config struct {
 	ACL        ACL              `yaml:"acl"`
 	Processing     ProcessingConfig     `yaml:"processing"`
 	Observability ObservabilityConfig `yaml:"observability"`
+		DLQ        DLQConfig       `yaml:"dlq"`
+		FlowControl FlowControlConfig `yaml:"flow_control"`
+		Idempotent IdempotentConfig `yaml:"idempotent"`
 }
 
 // ClusterConfig controls clustering behavior.
@@ -293,7 +296,33 @@ type TracingConfig struct {
 	SampleRate float64 `yaml:"sample_rate"`
 }
 
-// EncryptionConfig controls at-rest encryption.
+// DLQConfig controls dead letter queue behavior.
+	type DLQConfig struct {
+		Enabled     bool   `yaml:"enabled"`
+		TopicPrefix string `yaml:"topic_prefix"`  // default: "__dlq_"
+		MaxRetries  int    `yaml:"max_retries"`    // default: 3
+	}
+
+	// FlowControlConfig controls backpressure and flow control.
+	type FlowControlConfig struct {
+		Enabled          bool    `yaml:"enabled"`
+		MaxMemoryBytes   int64   `yaml:"max_memory_bytes"`   // 0 = no limit
+		HighWatermark    float64 `yaml:"high_watermark"`     // 0.0-1.0, default 0.85
+		LowWatermark     float64 `yaml:"low_watermark"`      // 0.0-1.0, default 0.70
+		MaxConnections   int64   `yaml:"max_connections"`    // 0 = no limit
+		GlobalRateLimit  int64   `yaml:"global_rate_limit"`  // msgs/sec, 0 = unlimited
+		SlowConsumerTTL  string  `yaml:"slow_consumer_ttl"`  // default: "30s"
+		MaxSlowTicks     int     `yaml:"max_slow_ticks"`     // default: 3
+	}
+
+	// IdempotentConfig controls idempotent producer behavior.
+	type IdempotentConfig struct {
+		Enabled    bool   `yaml:"enabled"`
+		WindowSize string `yaml:"window_size"`  // default: "5m"
+		MaxEntries int    `yaml:"max_entries"`  // per producer, default: 10000
+	}
+
+	// EncryptionConfig controls at-rest encryption.
 type EncryptionConfig struct {
 	Enabled   bool   `yaml:"enabled"`
 	Algorithm string `yaml:"algorithm"`

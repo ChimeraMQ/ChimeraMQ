@@ -89,7 +89,7 @@ func TestShouldCompact(t *testing.T) {
 	}
 	defer p.Close()
 
-	lc := NewLogCompactor(CompactKeyBased, 0)
+	lc := NewLogCompactor(CompactKeyBased)
 
 	// Not enough segments
 	if lc.ShouldCompact(p) {

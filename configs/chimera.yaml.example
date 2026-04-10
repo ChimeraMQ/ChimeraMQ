@@ -233,3 +233,26 @@ protocols:
 #     service: "chimera"                # Service name for spans
 #     insecure: true                    # Use insecure gRPC
 #     sample_rate: 1.0                  # 0.0-1.0 trace sampling
+
+# --- Dead Letter Queue (Phase 8) — opt-in ---
+# dlq:
+#   enabled: false
+#   topic_prefix: "__dlq_"              # Prefix for DLQ topic names
+#   max_retries: 3                      # Max retries before sending to DLQ
+
+# --- Flow Control & Backpressure (Phase 8) — opt-in ---
+# flow_control:
+#   enabled: false
+#   max_memory_bytes: 0                 # Memory limit (0 = no limit)
+#   high_watermark: 0.85                # Reject publishes above this threshold
+#   low_watermark: 0.70                 # Resume publishes below this threshold
+#   max_connections: 0                  # Connection limit (0 = no limit)
+#   global_rate_limit: 0                # Global msgs/sec (0 = unlimited)
+#   slow_consumer_ttl: "30s"            # Time without delivery before slow check
+#   max_slow_ticks: 3                   # Consecutive slow ticks before eviction
+
+# --- Idempotent Producer (Phase 8) — opt-in ---
+# idempotent:
+#   enabled: false
+#   window_size: "5m"                   # Deduplication window duration
+#   max_entries: 10000                  # Max tracked entries per producer

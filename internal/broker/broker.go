@@ -23,6 +23,9 @@ import (
 	"github.com/chimeramq/chimera/internal/storage/wal"
 	"github.com/chimeramq/chimera/internal/storage/warm"
 	"github.com/chimeramq/chimera/internal/tracing"
+	"github.com/chimeramq/chimera/internal/engine/dlq"
+	"github.com/chimeramq/chimera/internal/flow"
+	"github.com/chimeramq/chimera/internal/idempotent"
 	"github.com/chimeramq/chimera/internal/wasm"
 
 	clusterpkg "github.com/chimeramq/chimera/internal/cluster"
@@ -51,6 +54,9 @@ type Broker struct {
 	ttlExpirer   *ttl.Expirer
 	wasmRT       *wasm.Runtime
 	processor    *processing.Processor
+	dlqH         *dlq.DLQ
+	flowCtrl     *flow.Controller
+	deduper      *idempotent.Deduper
 
 	startTime time.Time
 	ctx       context.Context
@@ -293,6 +299,41 @@ func (b *Broker) Start() error {
 		b.logger.Info("cluster mode enabled")
 	}
 
+	// Step 17: DLQ (if enabled)
+	if b.config.DLQ.Enabled {
+		b.dlqH = dlq.NewDLQ(dlq.Config{
+			Enabled:     true,
+			TopicPrefix: b.config.DLQ.TopicPrefix,
+			MaxRetries:  b.config.DLQ.MaxRetries,
+		})
+		b.logger.Info("DLQ enabled", "prefix", b.config.DLQ.TopicPrefix, "max_retries", b.config.DLQ.MaxRetries)
+	}
+
+	// Step 18: Flow Control (if enabled)
+	if b.config.FlowControl.Enabled {
+		b.flowCtrl = flow.NewController(flow.Config{
+			Enabled:         true,
+			MaxMemoryBytes:  b.config.FlowControl.MaxMemoryBytes,
+			HighWatermark:   b.config.FlowControl.HighWatermark,
+			LowWatermark:    b.config.FlowControl.LowWatermark,
+			MaxConnections:  b.config.FlowControl.MaxConnections,
+			GlobalRateLimit: b.config.FlowControl.GlobalRateLimit,
+			SlowConsumerTTL: ParseDuration(b.config.FlowControl.SlowConsumerTTL, 30*time.Second),
+			MaxSlowTicks:    b.config.FlowControl.MaxSlowTicks,
+		})
+		b.logger.Info("flow control enabled")
+	}
+
+	// Step 19: Idempotent Producer (if enabled)
+	if b.config.Idempotent.Enabled {
+		b.deduper = idempotent.NewDeduper(idempotent.Config{
+			Enabled:    true,
+			WindowSize: ParseDuration(b.config.Idempotent.WindowSize, 5*time.Minute),
+			MaxEntries: b.config.Idempotent.MaxEntries,
+		})
+		b.logger.Info("idempotent producer enabled")
+	}
+
 	b.logger.Info("ChimeraMQ broker started",
 		"node", b.config.Node.Name,
 		"port", b.config.Listener.Port,
@@ -446,7 +487,16 @@ func (b *Broker) Tracer() *tracing.Tracer { return b.otelTracer }
 // ACLEngine returns the ACL engine (nil if ACL disabled).
 func (b *Broker) ACLEngine() *auth.ACLEngine { return b.aclEngine }
 
-// IsClustered returns true if clustering is enabled.
+// DLQHandler returns the DLQ handler (nil if DLQ disabled).
+	func (b *Broker) DLQHandler() *dlq.DLQ { return b.dlqH }
+
+	// FlowController returns the flow controller (nil if flow control disabled).
+	func (b *Broker) FlowController() *flow.Controller { return b.flowCtrl }
+
+	// Deduper returns the idempotent deduper (nil if idempotent disabled).
+	func (b *Broker) Deduper() *idempotent.Deduper { return b.deduper }
+
+	// IsClustered returns true if clustering is enabled.
 func (b *Broker) IsClustered() bool { return b.cluster != nil }
 
 func acquireLockFile(dataDir string) (*os.File, error) {

@@ -18,6 +18,20 @@ func (b *Broker) Publish(env *message.Envelope) (uint64, error) {
 		return 0, fmt.Errorf("topic %q not found", env.Topic)
 	}
 
+	// Idempotent dedup check (producer ID and sequence from headers)
+	if b.deduper != nil {
+		if pid, seq, ok := extractProducerInfo(env); ok {
+			if b.deduper.IsDuplicate(pid, seq) {
+				return 0, nil // duplicate, silently skip
+			}
+		}
+	}
+
+	// Flow control: check rate limits
+	if b.flowCtrl != nil && !b.flowCtrl.AllowPublish(env.Topic) {
+		return 0, fmt.Errorf("rate limited for topic %q", env.Topic)
+	}
+
 	// Schema enforcement
 	if b.schemaEnf != nil && topicCfg.SchemaEnforcement {
 		schemaID := uint32(0)
@@ -125,4 +139,23 @@ func parseSchemaIDFromHeaders(env *message.Envelope) (uint32, bool) {
 		return 0, false
 	}
 	return uint32(id), true
+}
+
+func extractProducerInfo(env *message.Envelope) (string, uint64, bool) {
+	if env.Headers == nil {
+		return "", 0, false
+	}
+	pid, ok := env.Headers["x-chimera-producer-id"]
+	if !ok || len(pid) == 0 {
+		return "", 0, false
+	}
+	seq, ok := env.Headers["x-chimera-producer-seq"]
+	if !ok || len(seq) == 0 {
+		return string(pid), 0, false
+	}
+	n, err := strconv.ParseUint(string(seq), 10, 64)
+	if err != nil {
+		return string(pid), 0, false
+	}
+	return string(pid), n, true
 }

@@ -14,6 +14,7 @@ import (
 
 	"github.com/chimeramq/chimera/internal/auth"
 	"github.com/chimeramq/chimera/internal/broker"
+	"github.com/chimeramq/chimera/internal/engine/dlq"
 	"github.com/chimeramq/chimera/internal/message"
 	"github.com/chimeramq/chimera/internal/processing"
 	"github.com/chimeramq/chimera/internal/schema"
@@ -61,6 +62,11 @@ func (s *AdminServer) registerRoutes() {
 	s.mux.HandleFunc("POST /v1/messages/{topic}/nack", s.auth(s.handleNack))
 	s.mux.HandleFunc("GET /v1/consumers", s.auth(s.handleListConsumers))
 	s.mux.HandleFunc("GET /v1/consumers/{group}", s.auth(s.handleGetConsumer))
+	s.mux.HandleFunc("POST /v1/consumers/{group}/join", s.auth(s.handleConsumerJoin))
+	s.mux.HandleFunc("POST /v1/consumers/{group}/leave", s.auth(s.handleConsumerLeave))
+	s.mux.HandleFunc("POST /v1/consumers/{group}/heartbeat", s.auth(s.handleConsumerHeartbeat))
+	s.mux.HandleFunc("GET /v1/consumers/{group}/offsets", s.auth(s.handleConsumerOffsets))
+	s.mux.HandleFunc("POST /v1/consumers/{group}/offsets", s.auth(s.handleConsumerCommitOffsets))
 	s.mux.HandleFunc("GET /v1/health", s.handleHealth)
 	s.mux.HandleFunc("GET /v1/metrics", s.handleMetrics)
 	s.mux.HandleFunc("GET /v1/cluster/members", s.handleClusterMembers)
@@ -83,6 +89,11 @@ func (s *AdminServer) registerRoutes() {
 	s.mux.HandleFunc("DELETE /v1/processors/{name}", s.auth(s.handleDeleteTopology))
 	s.mux.HandleFunc("POST /v1/processors/{name}/start", s.auth(s.handleStartTopology))
 	s.mux.HandleFunc("POST /v1/processors/{name}/stop", s.auth(s.handleStopTopology))
+
+	// DLQ endpoints
+	s.mux.HandleFunc("GET /v1/dlq/{topic}", s.auth(s.handleDLQPeek))
+	s.mux.HandleFunc("DELETE /v1/dlq/{topic}", s.auth(s.handleDLQClear))
+	s.mux.HandleFunc("POST /v1/dlq/{topic}/replay", s.auth(s.handleDLQReplay))
 }
 
 // securityMiddleware adds security headers and CORS support.
@@ -983,4 +994,67 @@ func (s *AdminServer) handleStopTopology(w http.ResponseWriter, r *http.Request)
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]string{"status": "stopped"})
+}
+
+func (s *AdminServer) handleDLQPeek(w http.ResponseWriter, r *http.Request) {
+	topic := r.PathValue("topic")
+	limitStr := r.URL.Query().Get("limit")
+	limit := 0
+	if limitStr != "" {
+		if n, err := strconv.Atoi(limitStr); err == nil {
+			limit = n
+		}
+	}
+
+	d := s.broker.DLQHandler()
+	if d == nil {
+		http.Error(w, "DLQ not enabled", http.StatusServiceUnavailable)
+		return
+	}
+
+	entries := d.Peek(topic, limit)
+	if entries == nil {
+		entries = []*dlq.DLQEntry{}
+	}
+	writeJSON(w, http.StatusOK, map[string]interface{}{
+		"topic":  topic,
+		"count":  len(entries),
+		"entries": entries,
+	})
+}
+
+func (s *AdminServer) handleDLQClear(w http.ResponseWriter, r *http.Request) {
+	topic := r.PathValue("topic")
+	d := s.broker.DLQHandler()
+	if d == nil {
+		http.Error(w, "DLQ not enabled", http.StatusServiceUnavailable)
+		return
+	}
+
+	d.Clear(topic)
+	writeJSON(w, http.StatusOK, map[string]string{"status": "cleared"})
+}
+
+func (s *AdminServer) handleDLQReplay(w http.ResponseWriter, r *http.Request) {
+	topic := r.PathValue("topic")
+	d := s.broker.DLQHandler()
+	if d == nil {
+		http.Error(w, "DLQ not enabled", http.StatusServiceUnavailable)
+		return
+	}
+
+	replayed := 0
+	for {
+		entry := d.Pop(topic)
+		if entry == nil || entry.OriginalMsg == nil {
+			break
+		}
+		if _, err := s.broker.Publish(entry.OriginalMsg); err == nil {
+			replayed++
+		}
+	}
+	writeJSON(w, http.StatusOK, map[string]interface{}{
+		"replayed": replayed,
+		"topic":    topic,
+	})
 }
