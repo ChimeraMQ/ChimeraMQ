@@ -178,9 +178,38 @@ func (s *wsSession) handleJSON(ctx interface{}, data []byte) {
 }
 
 func (s *wsSession) handleBinary(data []byte) {
-	// Binary sub-protocol uses Chimera native frame format
-	// For now, just treat as JSON for simplicity
-	s.handleJSON(nil, data)
+	// Binary sub-protocol: try Chimera native frame format (magic "CHMR")
+	if len(data) >= 12 && data[0] == 'C' && data[1] == 'H' && data[2] == 'M' && data[3] == 'R' {
+		s.handleChimeraFrame(data)
+		return
+	}
+	// Fallback: treat as JSON
+	var msg wsMessage
+	if err := json.Unmarshal(data, &msg); err == nil {
+		s.handleJSON(nil, data)
+	}
+}
+
+func (s *wsSession) handleChimeraFrame(data []byte) {
+	if len(data) < 12 {
+		s.sendError("frame too short")
+		return
+	}
+	opcode := data[5]
+	payloadLen := int(data[8])<<24 | int(data[9])<<16 | int(data[10])<<8 | int(data[11])
+	if 12+payloadLen > len(data) {
+		s.sendError("truncated frame payload")
+		return
+	}
+	payload := data[12 : 12+payloadLen]
+
+	switch opcode {
+	case 0x03: // OpPublish - treat payload as raw data, use default topic
+		msg := &wsMessage{Op: "publish", Topic: "default", Payload: string(payload)}
+		s.handlePublishJSON(msg)
+	default:
+		s.sendError(fmt.Sprintf("unsupported opcode: 0x%02x", opcode))
+	}
 }
 
 func (s *wsSession) handlePublishJSON(msg *wsMessage) {

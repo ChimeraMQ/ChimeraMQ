@@ -3,6 +3,7 @@ package wasm
 import (
 	"context"
 	"fmt"
+	"log"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -72,8 +73,10 @@ func NewRuntime(cfg RuntimeConfig) *Runtime {
 	// Instantiate host module once
 	builder := rt.NewHostModuleBuilder("chimera")
 	builder.NewFunctionBuilder().
-		WithFunc(func(ctx context.Context, m api.Module, ptr uint32, len uint32) {
-			// chimera_log - no-op
+		WithFunc(func(ctx context.Context, m api.Module, ptr uint32, length uint32) {
+			if mem, ok := m.Memory().Read(ptr, length); ok {
+				log.Printf("wasm: %s", string(mem))
+			}
 		}).
 		Export("chimera_log")
 	builder.Instantiate(ctx)

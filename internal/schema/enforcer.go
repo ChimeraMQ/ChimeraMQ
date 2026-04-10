@@ -36,9 +36,9 @@ func (e *Enforcer) Validate(schemaID uint32, payload []byte) (*ValidationResult,
 	case SchemaAvro:
 		return validateAvroStructural(sv.Schema, payload)
 	case SchemaProtobuf:
-		return &ValidationResult{Valid: true}, nil // structural check only
+		return validateProtobufStructural(sv.Schema, payload)
 	default:
-		return &ValidationResult{Valid: true}, nil
+		return &ValidationResult{Valid: false, Errors: []string{"unknown schema type"}}, nil
 	}
 }
 
@@ -290,6 +290,136 @@ func isNullableUnion(typ interface{}) bool {
 		}
 	}
 	return false
+}
+
+// validateProtobufStructural checks that the payload can be decoded by
+// parsing the .proto schema for field tags and verifying the binary wire
+// format contains valid varint/length-delimited fields for those tags.
+func validateProtobufStructural(schemaStr string, payload []byte) (*ValidationResult, error) {
+	if len(payload) == 0 {
+		return &ValidationResult{Valid: false, Errors: []string{"empty protobuf payload"}}, nil
+	}
+
+	// Extract field numbers from the proto schema
+	fieldNums := extractProtoFieldNums(schemaStr)
+	if len(fieldNums) == 0 {
+		// No fields parsed — accept any non-empty binary
+		return &ValidationResult{Valid: true}, nil
+	}
+
+	// Parse the binary protobuf payload and check field numbers
+	seen := make(map[uint32]bool)
+	buf := payload
+	for len(buf) > 0 {
+		tag, n := decodeVarint(buf)
+		if n == 0 {
+			return &ValidationResult{Valid: false, Errors: []string{"invalid varint in protobuf"}}, nil
+		}
+		buf = buf[n:]
+
+		fieldNum := uint32(tag >> 3)
+		wireType := int(tag & 0x7)
+		seen[fieldNum] = true
+
+		// Skip the field value based on wire type
+		consumed, err := skipField(buf, wireType)
+		if err != nil {
+			return &ValidationResult{Valid: false, Errors: []string{err.Error()}}, nil
+		}
+		buf = buf[consumed:]
+	}
+
+	// Check that required fields are present
+	var errors []string
+	for _, num := range fieldNums {
+		if !seen[num] {
+			errors = append(errors, fmt.Sprintf("required field %d missing", num))
+		}
+	}
+
+	if len(errors) == 0 {
+		return &ValidationResult{Valid: true}, nil
+	}
+	return &ValidationResult{Valid: false, Errors: errors}, nil
+}
+
+// extractProtoFieldNums parses "message { ... }" blocks and extracts
+// field numbers from lines like "type name = N;".
+func extractProtoFieldNums(schema string) []uint32 {
+	var nums []uint32
+	inMessage := false
+	for _, line := range strings.Split(schema, "\n") {
+		trimmed := strings.TrimSpace(line)
+		if strings.HasPrefix(trimmed, "message ") || strings.HasPrefix(trimmed, "message{") {
+			inMessage = true
+			continue
+		}
+		if trimmed == "}" {
+			inMessage = false
+			continue
+		}
+		if !inMessage {
+			continue
+		}
+		// Look for field definition: "type name = N;"
+		if idx := strings.LastIndex(trimmed, "="); idx >= 0 {
+			rest := strings.TrimSpace(trimmed[idx+1:])
+			rest = strings.TrimRight(rest, "; ")
+			var num uint32
+			if _, err := fmt.Sscanf(rest, "%d", &num); err == nil && num > 0 {
+				nums = append(nums, num)
+			}
+		}
+	}
+	return nums
+}
+
+// decodeVarint decodes a protobuf varint from the buffer.
+func decodeVarint(buf []byte) (uint64, int) {
+	var val uint64
+	for i := 0; i < len(buf) && i < 10; i++ {
+		b := buf[i]
+		val |= uint64(b&0x7f) << (7 * i)
+		if b&0x80 == 0 {
+			return val, i + 1
+		}
+	}
+	return 0, 0
+}
+
+// skipField skips a protobuf field value based on wire type.
+func skipField(buf []byte, wireType int) (int, error) {
+	switch wireType {
+	case 0: // varint
+		for i := 0; i < len(buf) && i < 10; i++ {
+			if buf[i]&0x80 == 0 {
+				return i + 1, nil
+			}
+		}
+		return 0, fmt.Errorf("unterminated varint")
+	case 1: // 64-bit
+		if len(buf) < 8 {
+			return 0, fmt.Errorf("truncated 64-bit field")
+		}
+		return 8, nil
+	case 2: // length-delimited
+		length, n := decodeVarint(buf)
+		if n == 0 {
+			return 0, fmt.Errorf("invalid length-delimited size")
+		}
+		total := n + int(length)
+		if total > len(buf) {
+			return 0, fmt.Errorf("length-delimited field exceeds payload")
+		}
+		return total, nil
+	case 5: // 32-bit
+		if len(buf) < 4 {
+			return 0, fmt.Errorf("truncated 32-bit field")
+		}
+		return 4, nil
+	default:
+		return 0, fmt.Errorf("unknown wire type %d", wireType)
+	}
 }
 
 // ParseSchemaID extracts a schema ID from message headers.

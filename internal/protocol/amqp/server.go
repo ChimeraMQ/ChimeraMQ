@@ -220,6 +220,8 @@ type amqpLink struct {
 	handle  uint32
 	role    byte // 0=sender, 1=receiver
 	addr    string
+	credit  uint32 // available delivery credits
+	delivered uint32 // deliveries sent
 }
 
 func (ac *amqpConn) handleFrame(frame *Frame) error {
@@ -238,8 +240,7 @@ func (ac *amqpConn) handleFrame(frame *Frame) error {
 	case descTransfer:
 		return ac.handleTransfer(value, frame.Channel)
 	case descFlow:
-		// Flow control — acknowledge but no action for now
-		return nil
+		return ac.handleFlow(value, frame.Channel)
 	case descDisposition:
 		return ac.handleDisposition(value, frame.Channel)
 	case descDetach:
@@ -379,9 +380,75 @@ func (ac *amqpConn) handleTransfer(value []byte, channel uint16) error {
 	return err
 }
 
+func (ac *amqpConn) handleFlow(value []byte, channel uint16) error {
+	// FLOW: [handle, delivery-count, link-credit, available]
+	tr := newTypeReader(value)
+	items, err := tr.readListItems(4, len(value))
+	if err != nil {
+		return err
+	}
+
+	var handle uint32
+	if len(items) > 0 {
+		if v, ok := items[0].(uint32); ok {
+			handle = v
+		}
+	}
+
+	var credit uint32
+	if len(items) > 2 {
+		if v, ok := items[2].(uint32); ok {
+			credit = v
+		}
+	}
+
+	ac.mu.Lock()
+	ch := ac.channels[channel]
+	ac.mu.Unlock()
+
+	if ch != nil {
+		if link, ok := ch.links[handle]; ok {
+			link.credit = credit
+		}
+	}
+
+	return nil
+}
+
 func (ac *amqpConn) handleDisposition(value []byte, channel uint16) error {
 	// DISPOSITION: [role, first, last, settled, state, ...]
-	// Acknowledge — no action needed for now
+	tr := newTypeReader(value)
+	items, err := tr.readListItems(5, len(value))
+	if err != nil {
+		return err
+	}
+
+	var first, last uint64
+	if len(items) > 1 {
+		if v, ok := items[1].(uint64); ok {
+			first = v
+		}
+	}
+	if len(items) > 2 {
+		if v, ok := items[2].(uint64); ok {
+			last = v
+		} else {
+			last = first
+		}
+	}
+
+	if last > 0 {
+		ac.mu.Lock()
+		ch := ac.channels[channel]
+		ac.mu.Unlock()
+		if ch != nil {
+			for _, link := range ch.links {
+				if link.role == 0 && last >= uint64(link.delivered) {
+					link.delivered = uint32(last)
+				}
+			}
+		}
+	}
 	return nil
 }
 
