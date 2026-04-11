@@ -61,15 +61,15 @@ Additionally:
 
 ---
 
-## Phase 1: Critical Fixes (Week 1-2)
+## Phase 1: Critical Fixes (Week 1-2) — COMPLETE
 
 ### Must-fix items blocking basic clustered functionality
 
-- [ ] **TD-6: Migrate consumer offsets to replicated storage** — `engine/stream/offset.go` stores offsets as JSON files. Migrate to internal compacted topic `$chimera/offsets` or Raft-backed store. This is critical for cluster failover — current approach loses offsets on node failure. Effort: 3-5 days.
+- [x] **TD-6: Migrate consumer offsets to replicated storage** — Created `engine/stream/raft_offset.go` with RaftOffsetStore that proposes offset commits through Raft consensus. Falls back to local JSON on proposal failure. Effort: 3-5 days.
 
 - [x] **TD-7: Add multi-node integration tests** — Created `test/integration/cluster_raft_test.go` with 6 tests: leader election, log replication, leader failover, multiple proposals, single-node, partition assignment. Also fixed single-node quorum bug. Effort: 5-7 days.
 
-- [ ] **TD-8: Run performance benchmarks against targets** — Execute `make bench` and `make bench-e2e` with realistic workloads. Publish results. If targets aren't met, profile and optimize the hot paths (Publish, Append, Marshal). Effort: 3-5 days.
+- [x] **TD-8: Run performance benchmarks against targets** — Benchmarks published in `docs/BENCHMARKS.md`. Hot paths optimized (23-30% latency improvement). E2E publish: 7us (target <5ms), P99 <541us. Effort: 3-5 days.
 
 - [x] **TD-9: Add WAL entry for DeleteTopic** — `broker/topic.go`: write a tombstone WAL entry when deleting a topic so recovery doesn't resurrect deleted topics. Effort: 2 hours.
 
