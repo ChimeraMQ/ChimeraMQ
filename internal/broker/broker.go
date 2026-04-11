@@ -188,6 +188,9 @@ func (b *Broker) Start() error {
 
 	// Step 8: Queue Engine
 	b.queueEngine = queue.NewEngine()
+	if b.config.Priority.Enabled {
+		b.queueEngine.SetPriorityEnabled(true)
+	}
 	// Step 9: Stream Engine
 	offsetStore := stream.NewOffsetStore(b.config.Node.DataDir)
 	b.streamEngine = stream.NewEngine(b.storage, offsetStore)

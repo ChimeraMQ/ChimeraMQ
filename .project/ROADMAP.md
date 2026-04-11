@@ -169,7 +169,7 @@ Additionally:
 
 - [ ] **Protocol compliance tests** — Test MQTT compliance (QoS 0/1/2, retained, will). Test AMQP link flow control. Test WebSocket subscribe/fetch. Effort: 5-7 days.
 
-- [ ] **Crash recovery tests** — Kill during WAL write, during segment append, during compaction, during tier migration. Verify no data loss. Effort: 3-5 days.
+- [x] **Crash recovery tests** — Kill during WAL write, during segment append, during compaction, during tier migration. Verify no data loss. Effort: 3-5 days.
 
 - [ ] **Load test framework** — Create `test/load/` with configurable producers/consumers. Target: validate 1M+ msg/sec single-node. Effort: 5-7 days.
 
