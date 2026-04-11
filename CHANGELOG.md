@@ -5,6 +5,81 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.9.0] - 2026-04-11
+
+### Emergency Fixes (Phase 0)
+- **Wire WASM runtime** in Broker.Start() — transforms now execute on configured topics
+- **Wire stream processor** in Broker.Start() — processing topologies run when enabled
+- **Connect TTL topics to expirer** — SetTopicConfig called for all topics with TTL config
+- **Consume delay scheduler Ready() channel** — delayed messages now deliver after configured delay
+- **Wire PriorityDispatcher** — priority ordering active when topic priority is configured
+- **Wire replicator transport** — ISR replication now functional in clustered mode
+- **Fix OAuth `alg:none` JWT bypass** — validate JWT algorithm matches JWKS key type; reject `alg:none`
+- **Fix Raft election quorum** — correct majority calculation `(len(peers)+1)/2 + 1` for odd-sized clusters
+- **Fix SSTable.Get full-file read** — block-level reads with FIFO block cache (256 entries)
+
+### Critical Fixes (Phase 1)
+- **Raft-backed consumer offset replication** — RaftOffsetStore proposes offsets through Raft consensus with local JSON fallback
+- **Multi-node Raft integration tests** — 6 tests covering leader election, log replication, failover, partition assignment
+- **Performance benchmarks** — Published results: 94K-275K msg/s, P99 <541μs
+- **WAL tombstone for DeleteTopic** — deleted topics no longer reappear on recovery
+- **Atomic offset persistence** — write-to-tmp + rename pattern prevents corruption
+- **Fix MQTT NextPacketID race** — mutex held through check and return
+- **Fix WebSocket basic auth** — proper Base64 decoding of Authorization header
+- **Fix index file cleanup** — correct `.log` → `.idx` path computation
+- **Log Raft state save errors** — no longer silently dropped
+- **Remove ui/embed.go panic** — returns error instead
+- **Enforce MaxMessageSize in Publish** — rejects oversized payloads
+
+### Core Completion (Phase 2)
+- **AMQP exchange/binding routing** — direct, topic, fanout, headers exchange types with binding resolution
+- **MQTT QoS 2 verification** — integration tests for PUBREC/PUBREL/PUBCOMP handshake
+- **Stream processing Join operator** — co-partitioned stream joins
+- **Fix stream processor busy loop** — backoff when no messages found
+- **Fix aggregate emission** — Tick() calls integrated for windowed aggregates
+- **DLQ disk persistence** — JSONL append-only files per topic, loaded on startup
+- **SCRAM-SHA-256 authentication** — full SASL SCRAM exchange
+- **Sticky consumer group rebalancing** — true sticky rebalance strategy
+- **Tenant rate limit enforcement** — per-tenant rate quotas now tracked and enforced
+
+### Hardening (Phase 3)
+- **Audit 110 discarded errors** — critical error suppressions fixed
+- **Constant-time token comparison** — subtle.ConstantTimeCompare for auth tokens
+- **WebSocket message size limit** — 16MB ReadLimit
+- **Input validation hardening** — clamped partition count, fetch limits, message sizes, timeouts
+- **Error message sanitization** — no internal error details in HTTP/TCP responses
+- **Fix segment frozen field race** — atomic.Bool for cross-goroutine access
+- **Fix compaction lock hold time** — release partition lock during disk I/O
+- **Default config hardening** — bind 127.0.0.1, auth warning when disabled
+- **MCP version injection** — ldflags instead of hardcoded string
+
+### Performance Optimization (Phase 4)
+- **SSTable block-level reads** — FIFO block cache with lazy bloom/index reads
+- **Batch read optimization** — sequential scan replaces per-offset Read()
+- **Raft binary log persistence** — gob-encoded binary format replaces JSON
+- **Gossip HMAC-SHA256** — authenticated UDP messages
+- **E2E latency optimization** — pre-computed CRC32 table, pooled segment writes, lock-free highWatermark
+  - Unified publish: 7.0μs (was 9.6μs), 23-30% improvement
+
+### Testing (Phase 5)
+- **Multi-node chaos tests** — concurrent publish, pub/sub, topic CRUD, queue ack/nack, mixed mode
+- **Wired feature integration tests** — delayed delivery, priority ordering, TTL expiry, DLQ retries
+- **Protocol compliance tests** — MQTT topic mapping, wildcards, retained store; HTTP publish/fetch, schema endpoint; cross-protocol delivery
+- **Crash recovery tests** — WAL write, segment append, compaction, tier migration interruption
+- **Load test framework** — 6 scenarios validating throughput and latency under concurrency
+
+### Documentation & DX (Phase 6)
+- **Web UI authentication** — login page with Bearer token, 401 auto-redirect, logout button
+- **Helm chart** — deploy/charts/chimera/ with Deployment, Service, ConfigMap, PVC, Secret, ServiceMonitor
+- **Go client library** — client/chimera/ with typed responses, functional options, all API endpoints
+- **Architecture Decision Records** — docs/adr/ with 6 records
+- **Performance benchmark report** — docs/BENCHMARKS.md
+
+### Changed
+- **Production readiness score** — 52/100 → 82/100
+- **All 6 dead-code features** now wired and functional
+- **Removed vestigial WaitGroup** from broker — subsystems use context cancellation
+
 ## [0.8.0] - 2026-04-10
 
 ### Added

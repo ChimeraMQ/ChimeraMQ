@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"sync"
 	"sync/atomic"
 	"syscall"
 	"time"
@@ -65,7 +64,6 @@ type Broker struct {
 	startTime time.Time
 	ctx       context.Context
 	cancel    context.CancelFunc
-	wg        sync.WaitGroup
 	lockFile  *os.File
 	stopped   atomic.Bool
 }
@@ -410,7 +408,6 @@ func (b *Broker) Stop() error {
 	b.logger.Info("initiating graceful shutdown")
 
 	b.cancel()
-	b.wg.Wait()
 
 	// Stop engines (kills background goroutines)
 	b.queueEngine.Close()
