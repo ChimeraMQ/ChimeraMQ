@@ -102,25 +102,45 @@ func (p *Partition) Read(offset uint64) ([]byte, error) {
 }
 
 // ReadRange reads messages from start to end offset (inclusive).
+// Uses sequential scan within each segment for better I/O performance
+// compared to offset-by-offset index lookups.
 func (p *Partition) ReadRange(startOffset, endOffset uint64, maxMessages int) ([][]byte, error) {
 	p.mu.RLock()
 	defer p.mu.RUnlock()
 
 	var results [][]byte
-	for offset := startOffset; offset <= endOffset && len(results) < maxMessages; offset++ {
+	offset := startOffset
+	lastSeg := (*Segment)(nil)
+
+	for offset <= endOffset && len(results) < maxMessages {
 		seg := p.findSegment(offset)
 		if seg == nil {
 			break
 		}
+
+		// If we got the same segment after an error, don't retry — advance
+		if seg == lastSeg {
+			break
+		}
+		lastSeg = seg
+
+		// Find starting position via index for the first offset in this segment
 		pos, err := seg.FindPosition(offset)
 		if err != nil {
 			break
 		}
-		data, err := seg.ReadAt(pos)
-		if err != nil {
-			break
+
+		// Sequential scan within this segment
+		for offset <= endOffset && len(results) < maxMessages && offset < seg.NextOffset() {
+			data, nextPos, readErr := seg.ReadAtSequential(pos)
+			if readErr != nil {
+				break
+			}
+			results = append(results, data)
+			offset++
+			pos = nextPos
 		}
-		results = append(results, data)
+		// Loop back to findSegment for the next segment (if offset crossed a boundary)
 	}
 	return results, nil
 }

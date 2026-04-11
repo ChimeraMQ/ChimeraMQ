@@ -27,7 +27,14 @@ func NewRaftLog(dir string) *RaftLog {
 }
 
 // Load restores the log from disk.
+// Tries binary format first, falls back to legacy JSON for migration.
 func (l *RaftLog) Load() error {
+	// Try binary format first
+	if err := l.loadLogBinary(); err == nil {
+		return nil
+	}
+
+	// Fall back to legacy JSON format for migration
 	l.mu.Lock()
 	defer l.mu.Unlock()
 
@@ -55,34 +62,9 @@ func (l *RaftLog) Load() error {
 	return nil
 }
 
-// Save persists the log to disk.
+// Save persists the log to disk using binary format.
 func (l *RaftLog) Save() error {
-	l.mu.RLock()
-	defer l.mu.RUnlock()
-
-	if err := os.MkdirAll(l.dir, 0755); err != nil {
-		return err
-	}
-
-	stored := struct {
-		Entries    []LogEntry `json:"entries"`
-		FirstIndex Index      `json:"first_index"`
-	}{
-		Entries:    l.entries,
-		FirstIndex: l.firstIndex,
-	}
-
-	data, err := json.Marshal(stored)
-	if err != nil {
-		return err
-	}
-
-	path := filepath.Join(l.dir, "log.json")
-	tmp := path + ".tmp"
-	if err := os.WriteFile(tmp, data, 0644); err != nil {
-		return err
-	}
-	return os.Rename(tmp, path)
+	return l.saveLogBinary()
 }
 
 // Append adds entries to the log.

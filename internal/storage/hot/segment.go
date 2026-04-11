@@ -131,6 +131,31 @@ func (s *Segment) ReadAt(position int64) ([]byte, error) {
 	return data, nil
 }
 
+// ReadAtSequential reads a message at the given byte position and returns
+// the data along with the position of the next record. This avoids repeated
+// index lookups when scanning sequentially through a segment.
+func (s *Segment) ReadAtSequential(position int64) (data []byte, nextPosition int64, err error) {
+	if position < SegmentHeaderLen || position >= s.size {
+		return nil, 0, fmt.Errorf("position %d out of range [32, %d)", position, s.size)
+	}
+	var lenBuf [4]byte
+	if _, err := s.file.ReadAt(lenBuf[:], position); err != nil {
+		return nil, 0, err
+	}
+	dataLen := binary.BigEndian.Uint32(lenBuf[:])
+
+	endPos := position + 4 + int64(dataLen)
+	if endPos > s.size {
+		return nil, 0, fmt.Errorf("corrupt record: data length %d extends beyond segment at position %d", dataLen, position)
+	}
+
+	data = make([]byte, dataLen)
+	if _, err := s.file.ReadAt(data, position+4); err != nil {
+		return nil, 0, err
+	}
+	return data, endPos, nil
+}
+
 // FindPosition locates the byte position for a given offset using sparse index.
 func (s *Segment) FindPosition(targetOffset uint64) (int64, error) {
 	if targetOffset < s.baseOff {
