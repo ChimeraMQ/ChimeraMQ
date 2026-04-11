@@ -12,6 +12,7 @@ import (
 
 	"github.com/chimeramq/chimera/internal/auth"
 	"github.com/chimeramq/chimera/internal/engine/dlq"
+	"github.com/chimeramq/chimera/internal/engine/exchange"
 	"github.com/chimeramq/chimera/internal/engine/queue"
 	"github.com/chimeramq/chimera/internal/engine/stream"
 	"github.com/chimeramq/chimera/internal/engine/ttl"
@@ -59,6 +60,7 @@ type Broker struct {
 	flowCtrl     *flow.Controller
 	deduper      *idempotent.Deduper
 	tenantMgr    *tenant.Manager
+	exchanges    *exchange.Registry
 
 	startTime time.Time
 	ctx       context.Context
@@ -86,6 +88,7 @@ func (b *Broker) Start() error {
 
 	// Step 2: Logger
 	b.logger = NewLogger(b.config.Logging)
+	b.exchanges = exchange.NewRegistry()
 
 	// Step 2b: Auth Provider (if enabled)
 	if b.config.Auth.Enabled {
@@ -551,6 +554,9 @@ func (b *Broker) Deduper() *idempotent.Deduper { return b.deduper }
 
 // TenantManager returns the tenant manager (nil if multi-tenancy disabled).
 func (b *Broker) TenantManager() *tenant.Manager { return b.tenantMgr }
+
+// Exchanges returns the exchange registry.
+func (b *Broker) Exchanges() *exchange.Registry { return b.exchanges }
 
 // IsClustered returns true if clustering is enabled.
 func (b *Broker) IsClustered() bool { return b.cluster != nil }

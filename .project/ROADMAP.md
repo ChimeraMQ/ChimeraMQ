@@ -95,7 +95,7 @@ Additionally:
 
 ### Complete missing core features from specification
 
-- [ ] **AMQP Exchange/Binding routing** — Implement direct, topic, fanout, and headers exchange types with binding resolution. Reference: SPEC §3.3. Affected files: `internal/protocol/amqp/`. Effort: 5-7 days.
+- [x] **AMQP Exchange/Binding routing** — Implement direct, topic, fanout, and headers exchange types with binding resolution. Reference: SPEC §3.3. Affected files: `internal/protocol/amqp/`. Effort: 5-7 days.
 
 - [x] **MQTT QoS 2 verification** — Add integration tests for MQTT QoS 2 exactly-once delivery (4-step PUBREC/PUBREL/PUBCOMP handshake). Reference: SPEC §3.4. Affected files: `internal/protocol/mqtt/`. Effort: 2-3 days.
 

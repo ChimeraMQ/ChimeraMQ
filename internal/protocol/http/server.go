@@ -96,6 +96,15 @@ func (s *AdminServer) registerRoutes() {
 	s.mux.HandleFunc("DELETE /v1/dlq/{topic}", s.auth(s.handleDLQClear))
 	s.mux.HandleFunc("POST /v1/dlq/{topic}/replay", s.auth(s.handleDLQReplay))
 
+	// Exchange endpoints
+	s.mux.HandleFunc("POST /v1/exchanges", s.auth(s.handleCreateExchange))
+	s.mux.HandleFunc("GET /v1/exchanges", s.auth(s.handleListExchanges))
+	s.mux.HandleFunc("GET /v1/exchanges/{name}", s.auth(s.handleGetExchange))
+	s.mux.HandleFunc("DELETE /v1/exchanges/{name}", s.auth(s.handleDeleteExchange))
+	s.mux.HandleFunc("POST /v1/exchanges/{name}/bindings", s.auth(s.handleBindExchange))
+	s.mux.HandleFunc("DELETE /v1/exchanges/{name}/bindings", s.auth(s.handleUnbindExchange))
+	s.mux.HandleFunc("POST /v1/exchanges/{name}/publish", s.auth(s.handlePublishToExchange))
+
 	// Embedded Web UI dashboard
 	if s.broker.Config().Observability.Dashboard.Enabled {
 		if h, err := ui.Handler(); err == nil {
