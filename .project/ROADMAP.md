@@ -127,7 +127,7 @@ Additionally:
 
 - [x] **Add WebSocket message size limit** — `protocol/ws/server.go`: set `ReadLimit` on WebSocket connection. Effort: 30 minutes.
 
-- [ ] **Input validation hardening** — Clamp all user-controlled values: partition count, fetch limits, message sizes, timeout durations, keepalive intervals. Effort: 2-3 days.
+- [x] **Input validation hardening** — Clamp all user-controlled values: partition count, fetch limits, message sizes, timeout durations, keepalive intervals. Effort: 2-3 days.
 
 - [x] **Error message sanitization** — Replace `err.Error()` with generic messages in HTTP/TCP responses. Effort: 1-2 days.
 
@@ -135,7 +135,7 @@ Additionally:
 
 - [x] **Fix compaction lock hold time** — `storage/hot/compaction.go`: release partition lock during disk I/O, reacquire only for segment swap. Effort: 2-3 hours.
 
-- [ ] **Default configuration hardening** — Change default bind from `0.0.0.0` to `127.0.0.1`. Enable auth by default with a generated token. Add startup warning when auth is disabled. Effort: 1 day.
+- [x] **Default configuration hardening** — Change default bind from `0.0.0.0` to `127.0.0.1`. Enable auth by default with a generated token. Add startup warning when auth is disabled. Effort: 1 day.
 
 - [x] **MCP version injection** — `mcp/server.go`: inject version via ldflags instead of hardcoding "0.7.0". Effort: 30 minutes.
 
@@ -153,7 +153,7 @@ Additionally:
 
 - [ ] **Raft log binary persistence** — Replace JSON with binary format for Raft log entries. Current JSON approach is O(n) per save with base64 bloat. Effort: 3-5 days.
 
-- [ ] **Gossip message authentication** — Add HMAC to UDP gossip messages. Effort: 1-2 days.
+- [x] **Gossip message authentication** — Add HMAC to UDP gossip messages. Effort: 1-2 days.
 
 - [ ] **End-to-end latency optimization** — Profile P99 publish-to-consume latency. Target: <5ms publish, <2ms consume (per spec §17). Effort: 3-5 days.
 
