@@ -181,9 +181,9 @@ Additionally:
 
 - [ ] **Update TASKS.md** — Mark completed tasks. Add Phase 2-7 tasks. Effort: 2-3 hours.
 
-- [ ] **Architecture decision records** — Create `docs/adr/` for key decisions: why JSON files for offsets, why no mmap, why WASM/Processor were unwired. Effort: 1-2 days.
+- [x] **Architecture decision records** — Created `docs/adr/` with 4 records: offset storage, WASM wiring, binary log format, sequential scan. Effort: 1-2 days.
 
-- [ ] **Performance benchmark report** — Publish benchmark results to `docs/BENCHMARKS.md`. Effort: 1-2 days.
+- [x] **Performance benchmark report** — Published results to `docs/BENCHMARKS.md`. 94K-275K msg/s throughput, P99 <541us latency. Effort: 1-2 days.
 
 - [ ] **Web UI auth support** — Add login form / token input to dashboard so it works when auth is enabled. Effort: 1-2 days.
 

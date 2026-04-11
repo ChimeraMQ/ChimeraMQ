@@ -1,0 +1,17 @@
+apiVersion: v2
+name: chimera
+description: ChimeraMQ - Unified message queue and event streaming platform
+type: application
+version: 0.1.0
+appVersion: "0.8.0"
+home: https://github.com/chimeramq/chimera
+sources:
+  - https://github.com/chimeramq/chimera
+maintainers:
+  - name: ChimeraMQ
+keywords:
+  - message-queue
+  - event-streaming
+  - mqtt
+  - amqp
+  - pub-sub

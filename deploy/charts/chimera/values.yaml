@@ -1,0 +1,127 @@
+# Default values for ChimeraMQ
+
+replicaCount: 1
+
+image:
+  repository: ghcr.io/chimeramq/chimera
+  pullPolicy: IfNotPresent
+  tag: "0.8.0"
+
+imagePullSecrets: []
+nameOverride: ""
+fullnameOverride: ""
+
+service:
+  type: ClusterIP
+  protocolPort: 5672
+  adminPort: 9090
+  annotations: {}
+  labels: {}
+
+ingress:
+  enabled: false
+  className: ""
+  annotations: {}
+  hosts: []
+  tls: []
+
+persistence:
+  enabled: true
+  storageClassName: ""
+  accessMode: ReadWriteOnce
+  size: 10Gi
+  annotations: {}
+
+resources:
+  requests:
+    memory: "256Mi"
+    cpu: "500m"
+  limits:
+    memory: "1Gi"
+    cpu: "2000m"
+
+nodeSelector: {}
+tolerations: []
+affinity: {}
+topologySpreadConstraints: []
+podAnnotations: {}
+podLabels: {}
+podSecurityContext:
+  fsGroup: 1000
+securityContext:
+  runAsNonRoot: true
+  runAsUser: 1000
+  readOnlyRootFilesystem: false
+
+# ChimeraMQ configuration (rendered as ConfigMap)
+config:
+  node:
+    data_dir: /var/lib/chimera
+  listener:
+    bind: "0.0.0.0"
+    port: 5672
+    admin_port: 9090
+    max_connections: 50000
+  storage:
+    hot:
+      segment_size: 268435456
+      sync_mode: interval
+      sync_interval: 200ms
+  defaults:
+    topic:
+      partitions: 8
+      mode: unified
+  logging:
+    level: info
+    format: json
+  auth:
+    type: static
+    tokens:
+      admin: ""  # Set via auth.token.secretName or auth.token.value
+  observability:
+    tracing:
+      enabled: false
+    dashboard:
+      enabled: true
+  dlq:
+    enabled: true
+    topic_prefix: "__dlq_"
+    max_retries: 3
+  flow_control:
+    enabled: true
+    high_watermark_mb: 512
+    low_watermark_mb: 256
+
+# Auth token configuration
+auth:
+  token:
+    # Reference an existing secret: {name: my-secret, key: token}
+    existingSecret: ""
+    # Or set a value directly (not recommended for production)
+    value: "change-me-in-production"
+
+# Health probes
+livenessProbe:
+  httpGet:
+    path: /v1/health
+    port: admin
+  initialDelaySeconds: 10
+  periodSeconds: 30
+  timeoutSeconds: 5
+  failureThreshold: 3
+
+readinessProbe:
+  httpGet:
+    path: /v1/health
+    port: admin
+  initialDelaySeconds: 5
+  periodSeconds: 10
+  timeoutSeconds: 5
+  failureThreshold: 3
+
+# ServiceMonitor for Prometheus (requires prometheus-operator)
+serviceMonitor:
+  enabled: false
+  interval: 30s
+  path: /v1/metrics
+  labels: {}

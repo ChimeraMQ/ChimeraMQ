@@ -31,7 +31,10 @@
       <a href="#/dlq" class="sidebar-link block px-4 py-2.5 text-sm hover:bg-gray-800 cursor-pointer" data-page="dlq">DLQ</a>
       <a href="#/cluster" class="sidebar-link block px-4 py-2.5 text-sm hover:bg-gray-800 cursor-pointer" data-page="cluster">Cluster</a>
     </div>
-    <div class="p-3 border-t border-gray-800 text-xs text-gray-600">v0.8.0</div>
+    <div class="p-3 border-t border-gray-800">
+      <button id="logout-btn" class="w-full text-left text-xs text-gray-500 hover:text-gray-300 mb-1" style="display:none">Sign Out</button>
+      <span class="text-xs text-gray-600">v0.8.0</span>
+    </div>
   </nav>
 
   <!-- Main Content -->
@@ -41,11 +44,35 @@
 
   <script>
     var API = '';
+    var TOKEN_KEY = 'chimeramq_token';
     var appEl = document.getElementById('app');
 
+    /* Auth helpers */
+    function getToken() { try { return localStorage.getItem(TOKEN_KEY) || ''; } catch(e) { return ''; } }
+    function setToken(t) { try { if (t) localStorage.setItem(TOKEN_KEY, t); else localStorage.removeItem(TOKEN_KEY); } catch(e) {} }
+
+    function api(path, opts) {
+      opts = opts || {};
+      var headers = opts.headers || {};
+      var token = getToken();
+      if (token) headers['Authorization'] = 'Bearer ' + token;
+      opts.headers = headers;
+      return fetch(API + path, opts)
+        .then(function(r) {
+          if (r.status === 401) { setToken(''); renderLogin(); return { error: 'Authentication required' }; }
+          return r.json();
+        })
+        .catch(function(e) { return { error: e.message }; });
+    }
+
     /* Router */
+    var _authed = false;
     function route() {
       var hash = location.hash.slice(1) || '/';
+      if (hash === '/login') { renderLogin(); return; }
+      if (!_authed) { checkAuth(); return; }
+      var logoutBtn = document.getElementById('logout-btn');
+      if (logoutBtn) { logoutBtn.style.display = ''; logoutBtn.onclick = logout; }
       document.querySelectorAll('.sidebar-link').forEach(function(l) { l.classList.remove('active'); });
       var page = hash.split('/')[1] || 'overview';
       var link = document.querySelector('[data-page="' + page + '"]');
@@ -59,15 +86,69 @@
       else if (page === 'cluster') renderCluster();
       else renderOverview();
     }
+
+    function checkAuth() {
+      var token = getToken();
+      if (!token) { renderLogin(); return; }
+      var headers = { 'Authorization': 'Bearer ' + token };
+      fetch(API + '/v1/topics', { headers: headers }).then(function(r) {
+        if (r.status === 401) { setToken(''); renderLogin(); }
+        else { _authed = true; route(); }
+      }).catch(function() { _authed = true; route(); });
+    }
+
     window.addEventListener('hashchange', route);
     route();
 
-    /* Helpers */
-    function api(path, opts) {
-      opts = opts || {};
-      return fetch(API + path, opts)
-        .then(function(r) { return r.json(); })
-        .catch(function(e) { return { error: e.message }; });
+    /* Login */
+    function renderLogin() {
+      _authed = false;
+      clearApp();
+      document.querySelectorAll('.sidebar-link').forEach(function(l) { l.classList.remove('active'); });
+      var errDiv = el('div', { id: 'login-error', class: 'text-red-400 text-sm mb-3 text-center', style: 'display:none' });
+      var tokenInput = el('input', { id: 'login-token', type: 'password', class: 'w-full bg-gray-800 border border-gray-700 rounded px-3 py-2 text-sm mb-4', placeholder: 'API Token' });
+      var btn = el('button', { id: 'login-btn', class: 'w-full bg-indigo-600 hover:bg-indigo-700 text-white text-sm py-2 rounded-lg' }, 'Sign In');
+      var wrapper = el('div', { class: 'flex items-center justify-center min-h-screen' },
+        el('div', { class: 'bg-gray-900 rounded-xl border border-gray-800 p-8 w-96 fade-in' },
+          el('h2', { class: 'text-xl font-bold text-center mb-1' }, 'ChimeraMQ'),
+          el('p', { class: 'text-sm text-gray-500 text-center mb-6' }, 'Sign in to Dashboard'),
+          errDiv,
+          tokenInput,
+          btn,
+          el('p', { class: 'text-xs text-gray-600 text-center mt-4' }, 'Token is stored in your browser only.')
+        )
+      );
+      appEl.appendChild(wrapper);
+      btn.addEventListener('click', function() { doLogin(tokenInput, errDiv, btn); });
+      tokenInput.addEventListener('keydown', function(e) { if (e.key === 'Enter') doLogin(tokenInput, errDiv, btn); });
+      setTimeout(function() { tokenInput.focus(); }, 50);
+    }
+
+    function doLogin(tokenInput, errDiv, btn) {
+      var token = tokenInput.value.trim();
+      if (!token) { errDiv.textContent = 'Please enter a token'; errDiv.style.display = ''; return; }
+      btn.textContent = 'Signing in...'; btn.disabled = true;
+      fetch(API + '/v1/topics', { headers: { 'Authorization': 'Bearer ' + token } }).then(function(r) {
+        if (r.status === 401) {
+          errDiv.textContent = 'Invalid token'; errDiv.style.display = '';
+          btn.textContent = 'Sign In'; btn.disabled = false;
+          return;
+        }
+        setToken(token);
+        _authed = true;
+        location.hash = '#/';
+        route();
+      }).catch(function() {
+        errDiv.textContent = 'Connection error'; errDiv.style.display = '';
+        btn.textContent = 'Sign In'; btn.disabled = false;
+      });
+    }
+
+    function logout() {
+      setToken('');
+      _authed = false;
+      location.hash = '#/login';
+      renderLogin();
     }
 
     function el(tag, attrs) {
@@ -149,7 +230,10 @@
     function renderThroughputChart() {
       var canvas = document.getElementById('throughput-chart');
       if (!canvas) return;
-      fetch(API + '/v1/metrics').then(function(r) { return r.text(); }).catch(function() { return ''; }).then(function(text) {
+      var mHeaders = {};
+      var mToken = getToken();
+      if (mToken) mHeaders['Authorization'] = 'Bearer ' + mToken;
+      fetch(API + '/v1/metrics', { headers: mHeaders }).then(function(r) { return r.text(); }).catch(function() { return ''; }).then(function(text) {
         var published = parseMetric(text, 'chimera_messages_published_total');
         var consumed = parseMetric(text, 'chimera_messages_consumed_total');
         new Chart(canvas, {
