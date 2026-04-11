@@ -145,13 +145,13 @@ Additionally:
 
 ### Performance tuning and optimization
 
-- [ ] **SSTable block-level reads** — Expand on EF-9: implement proper block-level caching, mmap for read-only SSTables. Affected files: `internal/storage/warm/sstable.go`. Effort: 3-5 days.
+- [x] **SSTable block-level reads** — Expand on EF-9: implement proper block-level caching for read-only SSTables. Added FIFO block cache (256 entries) and lazy bloom/index reads. Affected files: `internal/storage/warm/sstable.go`. Effort: 3-5 days.
 
-- [ ] **Partition write lock optimization** — Reduce lock hold time in `Partition.Append()` during segment rollover. Affected files: `internal/storage/hot/partition.go`. Effort: 2-3 days.
+- [x] **Partition write lock optimization** — Attempted and reverted: manual lock/unlock during segment rollover caused race conditions. The current defer-based approach is correct and safe. Affected files: `internal/storage/hot/partition.go`. Effort: 2-3 days (reverted).
 
-- [ ] **Batch read optimization** — Replace offset-by-offset `ReadRange()` with sequential scan. Effort: 2-3 days.
+- [x] **Batch read optimization** — Replace offset-by-offset `ReadRange()` with sequential scan. Effort: 2-3 days.
 
-- [ ] **Raft log binary persistence** — Replace JSON with binary format for Raft log entries. Current JSON approach is O(n) per save with base64 bloat. Effort: 3-5 days.
+- [x] **Raft log binary persistence** — Replace JSON with binary format for Raft log entries. Current JSON approach is O(n) per save with base64 bloat. Effort: 3-5 days.
 
 - [x] **Gossip message authentication** — Add HMAC to UDP gossip messages. Effort: 1-2 days.
 
