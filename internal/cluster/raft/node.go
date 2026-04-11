@@ -234,12 +234,22 @@ func (n *RaftNode) run() {
 }
 
 // resetElectionTimer resets with a randomized timeout.
+// Uses Reset() on the existing timer to preserve the same channel,
+// preventing the run() select from watching a stale channel.
 func (n *RaftNode) resetElectionTimer() {
-	if n.electionTimer != nil {
-		n.electionTimer.Stop()
-	}
 	timeout := n.randomElectionTimeout()
-	n.electionTimer = time.NewTimer(timeout)
+	if n.electionTimer == nil {
+		n.electionTimer = time.NewTimer(timeout)
+		return
+	}
+	// Stop the timer and drain the channel if it already fired.
+	if !n.electionTimer.Stop() {
+		select {
+		case <-n.electionTimer.C:
+		default:
+		}
+	}
+	n.electionTimer.Reset(timeout)
 }
 
 func (n *RaftNode) resetElectionTimerLocked() {
