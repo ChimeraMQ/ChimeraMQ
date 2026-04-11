@@ -166,6 +166,9 @@ func (n *RaftNode) Propose(data []byte) (Index, error) {
 }
 
 // State returns the current node state.
+func (n *RaftNode) ID() NodeID { return n.id }
+
+// State returns the current node state.
 func (n *RaftNode) State() NodeState {
 	n.mu.Lock()
 	defer n.mu.Unlock()
@@ -284,6 +287,13 @@ func (n *RaftNode) startElection() {
 
 	n.resetElectionTimerLocked()
 
+	// Single-node cluster: self-vote is sufficient for quorum.
+	quorum := (len(n.peers)+1)/2 + 1
+	if votesReceived >= quorum {
+		n.becomeLeader()
+		return
+	}
+
 	for _, peer := range n.peers {
 		peer := peer
 		go func() {
@@ -306,8 +316,6 @@ func (n *RaftNode) startElection() {
 
 			if resp.VoteGranted {
 				votesReceived++
-				// Quorum: majority of total nodes (peers + self)
-				quorum := (len(n.peers)+1)/2 + 1
 				if votesReceived >= quorum {
 					n.becomeLeader()
 				}
