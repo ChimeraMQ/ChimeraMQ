@@ -16,13 +16,13 @@ import (
 )
 
 const (
-	scramSHA256KeyLen   = 32
-	scramDefaultIters   = 4096
-	scramMinIters       = 4096
-	scramSaltLen        = 24
-	scramNonceLen       = 24
-	scramClientKey      = "Client Key"
-	scramServerKey      = "Server Key"
+	scramSHA256KeyLen = 32
+	scramDefaultIters = 4096
+	scramMinIters     = 4096
+	scramSaltLen      = 24
+	scramNonceLen     = 24
+	scramClientKey    = "Client Key"
+	scramServerKey    = "Server Key"
 )
 
 var (
@@ -158,7 +158,7 @@ func (p *SCRAMProvider) StartExchange(clientFirst string) (*SCRAMSession, string
 		return nil, "", ErrSCRAMInvalidMessage
 	}
 
- attrs, err := parseSCRAMAttributes(clientFirstBare)
+	attrs, err := parseSCRAMAttributes(clientFirstBare)
 	if err != nil {
 		return nil, "", err
 	}

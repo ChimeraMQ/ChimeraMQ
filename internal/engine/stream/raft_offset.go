@@ -28,9 +28,9 @@ func NewRaftOffsetStore(dataDir string, raftNode *raft.RaftNode) *RaftOffsetStor
 
 // offsetCommand is the Raft command payload for offset commits.
 type offsetCommand struct {
-	Group       string          `json:"group"`
-	PartitionID uint32          `json:"partition_id"`
-	Offset      uint64          `json:"offset"`
+	Group       string `json:"group"`
+	PartitionID uint32 `json:"partition_id"`
+	Offset      uint64 `json:"offset"`
 }
 
 // Save persists an offset. If Raft is enabled, it proposes the offset

@@ -57,7 +57,6 @@ func (e *Engine) SetPriorityEnabled(enabled bool) {
 	e.priorityEnabled = enabled
 }
 
-
 func (e *Engine) newDispatcher() DispatcherInterface {
 	if e.priorityEnabled {
 		return NewPriorityDispatcher()

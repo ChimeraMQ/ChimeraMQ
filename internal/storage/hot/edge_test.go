@@ -3069,7 +3069,7 @@ func TestPartitionAppendToNilActiveAfterClose(t *testing.T) {
 	}
 	p.segments = nil
 	p.active = &Segment{file: nil}
-		p.active.frozen.Store(true)
+	p.active.frozen.Store(true)
 	p.mu.Unlock()
 
 	// Append with nil file should error

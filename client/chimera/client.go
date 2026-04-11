@@ -37,18 +37,18 @@ type PublishResult struct {
 
 // Message represents a fetched message.
 type Message struct {
-	Offset    uint64          `json:"offset"`
-	Partition int             `json:"partition"`
-	Data      json.RawMessage `json:"data"`
-	Timestamp int64           `json:"timestamp"`
+	Offset    uint64            `json:"offset"`
+	Partition int               `json:"partition"`
+	Data      json.RawMessage   `json:"data"`
+	Timestamp int64             `json:"timestamp"`
 	Headers   map[string]string `json:"headers,omitempty"`
 }
 
 // FetchResult contains messages returned by a fetch operation.
 type FetchResult struct {
-	Count     int       `json:"count"`
-	Messages  []Message `json:"messages"`
-	NextOffset uint64   `json:"next_offset"`
+	Count      int       `json:"count"`
+	Messages   []Message `json:"messages"`
+	NextOffset uint64    `json:"next_offset"`
 }
 
 // ConsumerGroupInfo represents a consumer group.
@@ -60,17 +60,17 @@ type ConsumerGroupInfo struct {
 
 // JoinResult contains the member ID and assigned partitions from joining a group.
 type JoinResult struct {
-	MemberID    string `json:"member_id"`
-	Partitions  []int  `json:"partitions"`
-	Generation  int    `json:"generation"`
+	MemberID   string `json:"member_id"`
+	Partitions []int  `json:"partitions"`
+	Generation int    `json:"generation"`
 }
 
 // SchemaInfo represents a schema in the registry.
 type SchemaInfo struct {
-	Subject  string `json:"subject"`
-	Version  int    `json:"version"`
-	Type     string `json:"type"`
-	Schema   string `json:"schema"`
+	Subject string `json:"subject"`
+	Version int    `json:"version"`
+	Type    string `json:"type"`
+	Schema  string `json:"schema"`
 }
 
 // DLQEntry represents a dead-letter queue entry.
@@ -102,9 +102,9 @@ func (e *Error) Error() string {
 
 // Client is a ChimeraMQ HTTP API client.
 type Client struct {
-	Addr    string
-	token   string
-	http    *http.Client
+	Addr  string
+	token string
+	http  *http.Client
 }
 
 // Option configures a Client.

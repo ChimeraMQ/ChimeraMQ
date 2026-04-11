@@ -11,59 +11,6 @@ import (
 
 // helper that creates a Manager with a raft node set to Leader state
 // so that Propose succeeds (Propose checks n.state == Leader).
-func newManagerWithLeaderRaft(t *testing.T) (*Manager, *raft.RaftNode) {
-	t.Helper()
-	dir := t.TempDir()
-
-	raftCfg := raft.Config{
-		NodeID:            "node-1",
-		Peers:             []raft.NodeID{"node-2"},
-		ElectionTimeout:   500 * time.Millisecond,
-		HeartbeatInterval: 100 * time.Millisecond,
-		SnapshotInterval:  1 * time.Hour,
-		DataDir:           dir,
-	}
-	node, err := raft.NewRaftNode(raftCfg)
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	cfg := ClusterConfig{NodeID: "node-1", DataDir: dir}
-	m, _ := NewManager(cfg)
-	m.raftNode = node
-
-	// Force node into leader state by calling the Start method,
-	// then use HandleAppendEntries-style promotion or just set state.
-	// Since RaftNode.Start() runs an election timer goroutine we need
-	// a different approach: start it, promote via becomeLeader internals.
-	// Easiest: start the node so its log is loaded, then force leader.
-	if err := node.Start(); err != nil {
-		t.Fatal(err)
-	}
-	// Promote to leader via a self-election: handle a RequestVote response
-	// that grants the vote. We use Start + immediate election trick.
-	// Instead, just stop and manipulate state directly.
-	node.Stop()
-
-	// Re-create node to get a clean one
-	node2, err := raft.NewRaftNode(raftCfg)
-	if err != nil {
-		t.Fatal(err)
-	}
-	m.raftNode = node2
-
-	// We need the node started for the log to be usable, but Propose
-	// requires Leader state. Start it and force election win.
-	// The cleanest approach: start with no peers needing transport responses
-	// is hard. Instead we directly call Start and use the test helper pattern
-	// from the existing tests: just call Propose after making the node a leader.
-	// But node.Start() kicks off goroutines and timers, so let's start it.
-	if err := node2.Start(); err != nil {
-		t.Fatal(err)
-	}
-
-	return m, node2
-}
 
 // TestProposeCreateTopicWithLeader tests the happy path of ProposeCreateTopic
 // by applying the command directly through the FSM after constructing it the

@@ -234,7 +234,7 @@ func TestTopicMatchComplexPatterns(t *testing.T) {
 		{"*.server.#", "app.client.info", false},
 		{"#.#", "a.b.c", true}, // degenerate case
 		{"sensor.*.temp.#", "sensor.indoor.temp.room1", true},
-		{"sensor.*.temp.#", "sensor.temp", false},  // * requires one word
+		{"sensor.*.temp.#", "sensor.temp", false}, // * requires one word
 	}
 
 	for _, tt := range tests {

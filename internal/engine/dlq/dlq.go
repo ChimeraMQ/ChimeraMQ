@@ -215,8 +215,8 @@ func (d *DLQ) persistEntry(entry *DLQEntry) {
 		return
 	}
 	defer f.Close()
-	f.Write(data)
-	f.Write([]byte("\n"))
+	_, _ = f.Write(data)
+	_, _ = f.Write([]byte("\n"))
 }
 
 // loadAll loads persisted DLQ entries from disk.

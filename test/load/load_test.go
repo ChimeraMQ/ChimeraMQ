@@ -14,14 +14,14 @@ import (
 
 // LoadConfig configures a load test.
 type LoadConfig struct {
-	Producers     int           // Number of concurrent producer goroutines
-	MessagesPer   int           // Messages per producer
-	PayloadSize   int           // Bytes per message payload
-	Partitions    uint32        // Topic partitions
+	Producers     int    // Number of concurrent producer goroutines
+	MessagesPer   int    // Messages per producer
+	PayloadSize   int    // Bytes per message payload
+	Partitions    uint32 // Topic partitions
 	Mode          broker.TopicMode
-	BatchSize     int           // Messages per batch before reporting
-	ConsumerCount int           // Queue consumers (queue mode only)
-	Prefetch      int           // Consumer prefetch (queue mode only)
+	BatchSize     int // Messages per batch before reporting
+	ConsumerCount int // Queue consumers (queue mode only)
+	Prefetch      int // Consumer prefetch (queue mode only)
 }
 
 // LoadResult holds load test metrics.

@@ -41,9 +41,9 @@ func (s *AdminServer) handleListExchanges(w http.ResponseWriter, r *http.Request
 	names := s.broker.Exchanges().List()
 
 	type exchangeInfo struct {
-		Name      string              `json:"name"`
-		Type      string              `json:"type"`
-		Bindings  int                 `json:"bindings"`
+		Name     string `json:"name"`
+		Type     string `json:"type"`
+		Bindings int    `json:"bindings"`
 	}
 
 	result := make([]exchangeInfo, 0, len(names))

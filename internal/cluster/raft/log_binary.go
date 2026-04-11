@@ -14,7 +14,7 @@ const (
 	logMagic       = uint32(0x52414C54) // "RALT" (Raft Log)
 	logVersion     = uint16(1)
 	logHeaderSize  = 4 + 2 + 8 + 4 // magic + version + firstIndex + count = 18
-	entryFixedSize = 8 + 8 + 4 + 4  // index + term + type + dataLen = 24
+	entryFixedSize = 8 + 8 + 4 + 4 // index + term + type + dataLen = 24
 )
 
 // encodeLogBinary serializes the raft log to binary format.

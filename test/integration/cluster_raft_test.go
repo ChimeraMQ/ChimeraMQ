@@ -2,10 +2,8 @@ package integration
 
 import (
 	"encoding/json"
-	"fmt"
 	"net"
 	"os"
-	"path/filepath"
 	"testing"
 	"time"
 
@@ -32,7 +30,7 @@ func createRaftNode(t *testing.T, id raft.NodeID, peers []raft.NodeID, electionT
 		Peers:             peers,
 		ElectionTimeout:   electionTimeout,
 		HeartbeatInterval: 50 * time.Millisecond,
-		SnapshotInterval:   1 * time.Hour, // disable for tests
+		SnapshotInterval:  1 * time.Hour, // disable for tests
 		MaxLogEntries:     10000,
 		DataDir:           tmpDir,
 	}
@@ -409,7 +407,7 @@ func TestClusterSingleNode(t *testing.T) {
 		Peers:             []raft.NodeID{}, // no peers
 		ElectionTimeout:   200 * time.Millisecond,
 		HeartbeatInterval: 50 * time.Millisecond,
-		SnapshotInterval:   1 * time.Hour,
+		SnapshotInterval:  1 * time.Hour,
 		DataDir:           tmpDir,
 	}
 
@@ -519,15 +517,4 @@ func mustMarshal(t *testing.T, v interface{}) []byte {
 		t.Fatal(err)
 	}
 	return data
-}
-
-// createRaftDataDir creates a temp directory for Raft data.
-func createRaftDataDir(t *testing.T, id string) string {
-	t.Helper()
-	dir := filepath.Join(os.TempDir(), fmt.Sprintf("chimera-raft-test-%s-%d", id, time.Now().UnixNano()))
-	if err := os.MkdirAll(dir, 0750); err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(func() { os.RemoveAll(dir) })
-	return dir
 }

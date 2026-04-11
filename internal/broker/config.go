@@ -338,10 +338,10 @@ type TenantConfigRoot struct {
 
 // TenantConfigDef is the YAML config for a single tenant.
 type TenantConfigDef struct {
-	ID          string                 `yaml:"id"`
-	TopicPrefix string                 `yaml:"topic_prefix"`
-	Quotas      TenantQuotaConfig      `yaml:"quotas"`
-	Metadata    map[string]string      `yaml:"metadata"`
+	ID          string            `yaml:"id"`
+	TopicPrefix string            `yaml:"topic_prefix"`
+	Quotas      TenantQuotaConfig `yaml:"quotas"`
+	Metadata    map[string]string `yaml:"metadata"`
 }
 
 // TenantQuotaConfig holds per-tenant resource limits.

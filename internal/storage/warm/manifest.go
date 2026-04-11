@@ -1,8 +1,8 @@
 package warm
 
 import (
-	"fmt"
 	"encoding/json"
+	"fmt"
 	"os"
 	"path/filepath"
 	"sync"

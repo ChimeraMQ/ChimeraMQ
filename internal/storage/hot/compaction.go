@@ -137,7 +137,9 @@ func (lc *LogCompactor) Compact(p *Partition) error {
 			return err
 		}
 	}
-	if err := compactedFile.Sync(); err != nil { slog.Error("compaction sync", "err", err) }
+	if err := compactedFile.Sync(); err != nil {
+		slog.Error("compaction sync", "err", err)
+	}
 	compactedFile.Close()
 
 	// Phase 3: swap segments under write lock
