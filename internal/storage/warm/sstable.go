@@ -10,6 +10,10 @@ import (
 )
 
 const (
+	defaultBlockCacheSize = 256 // max cached blocks per SSTable
+)
+
+const (
 	sstMagic      uint32 = 0x53535442 // "SSTB"
 	sstVersion    uint32 = 1
 	sstFooterSize        = 48
@@ -37,13 +41,59 @@ type SSTMetadata struct {
 
 // SSTable is an immutable sorted on-disk file.
 type SSTable struct {
-	mu     sync.RWMutex
-	file   *os.File
-	path   string
-	index  *BlockIndex
-	bloom  *BloomFilter
-	meta   SSTMetadata
-	closed bool
+	mu         sync.RWMutex
+	file       *os.File
+	path       string
+	index      *BlockIndex
+	bloom      *BloomFilter
+	meta       SSTMetadata
+	closed     bool
+	blockCache blockCache
+}
+
+// blockCache is a simple LRU-eviction cache for SSTable data blocks.
+type blockCache struct {
+	mu     sync.Mutex
+	blocks map[uint32][]byte // offset -> block data
+	order  []uint32          // FIFO eviction order
+	max    int
+}
+
+func newBlockCache(max int) blockCache {
+	return blockCache{
+		blocks: make(map[uint32][]byte, max),
+		order:  make([]uint32, 0, max),
+		max:    max,
+	}
+}
+
+func (c *blockCache) get(offset uint32) ([]byte, bool) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	data, ok := c.blocks[offset]
+	return data, ok
+}
+
+func (c *blockCache) put(offset uint32, data []byte) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if _, exists := c.blocks[offset]; exists {
+		return
+	}
+	if len(c.order) >= c.max {
+		evict := c.order[0]
+		c.order = c.order[1:]
+		delete(c.blocks, evict)
+	}
+	c.blocks[offset] = data
+	c.order = append(c.order, offset)
+}
+
+func (c *blockCache) clear() {
+	c.mu.Lock()
+	c.blocks = make(map[uint32][]byte, c.max)
+	c.order = c.order[:0]
+	c.mu.Unlock()
 }
 
 // FlushMemTable writes a frozen MemTable to a new SSTable file.
@@ -182,13 +232,8 @@ func OpenSSTable(path string) (*SSTable, error) {
 	maxOff := binary.BigEndian.Uint64(footer[28:36])
 	comp := CompressionType(footer[36])
 
-	// Read bloom filter
+	// Read bloom and index sections only (not the full data section)
 	dataSize := stat.Size() - int64(sstFooterSize)
-	data := make([]byte, dataSize)
-	if _, err := f.ReadAt(data, 0); err != nil {
-		f.Close()
-		return nil, err
-	}
 
 	bloom := &BloomFilter{}
 	if bloomOffset > 0 && bloomOffset < uint32(dataSize) {
@@ -196,17 +241,37 @@ func OpenSSTable(path string) (*SSTable, error) {
 		if bloomEnd > uint32(dataSize) {
 			bloomEnd = uint32(dataSize)
 		}
-		_ = bloom.UnmarshalBinary(data[bloomOffset:bloomEnd])
+		bloomSize := int64(bloomEnd - bloomOffset)
+		bloomData := make([]byte, bloomSize)
+		if _, err := f.ReadAt(bloomData, int64(bloomOffset)); err != nil {
+			f.Close()
+			return nil, err
+		}
+		_ = bloom.UnmarshalBinary(bloomData)
 	}
 
 	// Read block index
-	index, _ := UnmarshalBlockIndex(data[indexOffset:])
+	var index *BlockIndex
+	if indexOffset > 0 && indexOffset < uint32(dataSize) {
+		// Read up to dataSize to get the full index
+		indexSize := int64(dataSize) - int64(indexOffset)
+		indexData := make([]byte, indexSize)
+		if _, err := f.ReadAt(indexData, int64(indexOffset)); err != nil {
+			f.Close()
+			return nil, err
+		}
+		index, _ = UnmarshalBlockIndex(indexData)
+	}
+	if index == nil {
+		index = NewBlockIndex()
+	}
 
 	return &SSTable{
-		file:  f,
-		path:  path,
-		index: index,
-		bloom: bloom,
+		file:       f,
+		path:       path,
+		index:      index,
+		bloom:      bloom,
+		blockCache: newBlockCache(defaultBlockCacheSize),
 		meta: SSTMetadata{
 			MinOffset:   minOff,
 			MaxOffset:   maxOff,
@@ -238,11 +303,19 @@ func (sst *SSTable) Get(key []byte) ([]byte, bool, bool) {
 		return nil, false, false
 	}
 
-	// Read only the relevant block
-	blockData := make([]byte, block.Length)
-	if _, err := sst.file.ReadAt(blockData, int64(block.Offset)); err != nil {
-		return nil, false, false
+	// Try block cache first
+	var blockData []byte
+	if cached, hit := sst.blockCache.get(block.Offset); hit {
+		blockData = cached
+	} else {
+		// Read only the relevant block from disk
+		blockData = make([]byte, block.Length)
+		if _, err := sst.file.ReadAt(blockData, int64(block.Offset)); err != nil {
+			return nil, false, false
+		}
+		sst.blockCache.put(block.Offset, blockData)
 	}
+
 	// Scan block for key
 	return scanBlockForKey(blockData, key)
 }
@@ -262,6 +335,7 @@ func (sst *SSTable) Close() error {
 	sst.mu.Lock()
 	defer sst.mu.Unlock()
 	sst.closed = true
+	sst.blockCache.clear()
 	return sst.file.Close()
 }
 

@@ -230,3 +230,74 @@ func TestSSTableFilesCreated(t *testing.T) {
 		t.Error("no .dat files created")
 	}
 }
+
+func TestBlockCache(t *testing.T) {
+	c := newBlockCache(3)
+
+	c.put(10, []byte("a"))
+	c.put(20, []byte("b"))
+	c.put(30, []byte("c"))
+
+	if data, ok := c.get(10); !ok || string(data) != "a" {
+		t.Error("expected cache hit for offset 10")
+	}
+	if data, ok := c.get(20); !ok || string(data) != "b" {
+		t.Error("expected cache hit for offset 20")
+	}
+
+	// Adding a 4th entry should evict the first (FIFO)
+	c.put(40, []byte("d"))
+	if _, ok := c.get(10); ok {
+		t.Error("expected offset 10 to be evicted")
+	}
+	if data, ok := c.get(40); !ok || string(data) != "d" {
+		t.Error("expected cache hit for offset 40")
+	}
+
+	// Duplicate put should not change order
+	c.put(20, []byte("b-new"))
+	if data, ok := c.get(20); !ok || string(data) != "b" {
+		t.Error("duplicate put should not overwrite existing entry")
+	}
+}
+
+func TestSSTableBlockCacheHits(t *testing.T) {
+	dir := t.TempDir()
+	mt := NewMemTable(4096)
+
+	// Insert enough entries to create multiple blocks
+	for i := uint64(0); i < 500; i++ {
+		key := make([]byte, 8)
+		binary.BigEndian.PutUint64(key, i)
+		mt.Put(key, []byte(fmt.Sprintf("value-%d", i)))
+	}
+	mt.Freeze()
+
+	sst, err := FlushMemTable(mt, dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer sst.Close()
+
+	// First read — cold cache
+	key := make([]byte, 8)
+	binary.BigEndian.PutUint64(key, 42)
+	val, found, _ := sst.Get(key)
+	if !found || string(val) != "value-42" {
+		t.Fatalf("cold read: value=%q, found=%v", val, found)
+	}
+
+	// Second read — should hit cache
+	val, found, _ = sst.Get(key)
+	if !found || string(val) != "value-42" {
+		t.Fatalf("warm read: value=%q, found=%v", val, found)
+	}
+
+	// Verify cache has entries
+	sst.blockCache.mu.Lock()
+	cached := len(sst.blockCache.blocks)
+	sst.blockCache.mu.Unlock()
+	if cached == 0 {
+		t.Error("expected block cache to have entries after reads")
+	}
+}
