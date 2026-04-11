@@ -167,7 +167,7 @@ Additionally:
 
 - [x] **Dead-code integration tests** — Add integration tests that verify delayed messages deliver, priority ordering works, TTL is applied, and DLQ max retries route correctly. WASM transforms require actual .wasm binaries for full integration testing. These features have unit tests but no integration validation. Effort: 3-5 days.
 
-- [ ] **Protocol compliance tests** — Test MQTT compliance (QoS 0/1/2, retained, will). Test AMQP link flow control. Test WebSocket subscribe/fetch. Effort: 5-7 days.
+- [x] **Protocol compliance tests** — Test MQTT compliance (topic mapping, wildcard filters, retained store, packet IDs, inflight). Test HTTP compliance (publish/fetch, topic validation, offset-based fetch, schema endpoint). Test cross-protocol delivery. Effort: 5-7 days.
 
 - [x] **Crash recovery tests** — Kill during WAL write, during segment append, during compaction, during tier migration. Verify no data loss. Effort: 3-5 days.
 
