@@ -131,6 +131,13 @@ func (tm *TopicManager) DeleteTopic(name string) error {
 		return fmt.Errorf("topic %q not found", name)
 	}
 
+	// Write tombstone to WAL so recovery doesn't resurrect the topic
+	tombstone := map[string]string{"name": name, "deleted": "true"}
+	data, _ := json.Marshal(tombstone)
+	if _, err := tm.wal.Append(wal.EntryTopicMeta, data); err != nil {
+		return fmt.Errorf("wal tombstone: %w", err)
+	}
+
 	delete(tm.topics, name)
 	tm.rrCounters.Delete(name)
 	return tm.saveMetadata()

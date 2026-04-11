@@ -14,6 +14,10 @@ import (
 
 // Server implements an MCP (Model Context Protocol) server for ChimeraMQ.
 // It communicates over JSON-RPC on stdio.
+
+// Version is set at build time via ldflags.
+var Version = "dev"
+
 type Server struct {
 	broker  *broker.Broker
 	handler map[string]func(json.RawMessage) (interface{}, error)
@@ -322,7 +326,7 @@ func (s *Server) toolBrokerInfo(_ json.RawMessage) (interface{}, error) {
 	cfg := s.broker.Config()
 	return map[string]interface{}{
 		"node":    cfg.Node,
-		"version": "0.7.0",
+		"version": Version,
 		"protocols": map[string]bool{
 			"chimera":   cfg.Protocols.Chimera.Enabled,
 			"mqtt":      cfg.Protocols.MQTT.Enabled,

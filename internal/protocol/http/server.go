@@ -98,7 +98,9 @@ func (s *AdminServer) registerRoutes() {
 
 	// Embedded Web UI dashboard
 	if s.broker.Config().Observability.Dashboard.Enabled {
-		s.mux.Handle("/ui/", http.StripPrefix("/ui", ui.Handler()))
+		if h, err := ui.Handler(); err == nil {
+			s.mux.Handle("/ui/", http.StripPrefix("/ui", h))
+		}
 	}
 }
 

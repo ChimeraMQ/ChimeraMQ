@@ -314,3 +314,98 @@ func TestOAuthUnknownKeyID(t *testing.T) {
 	}
 	fmt.Println("unknown key error:", err)
 }
+
+func TestOAuthAlgNoneBypass(t *testing.T) {
+	privKey, _ := rsa.GenerateKey(rand.Reader, 2048)
+	kid := "test-rs256"
+
+	p := testOAuthProvider(kid, &privKey.PublicKey)
+	defer p.Close()
+
+	// Forge a JWT with alg:none — must be rejected
+	headerMap := map[string]interface{}{"alg": "none", "typ": "JWT", "kid": kid}
+	hb, _ := json.Marshal(headerMap)
+	header := base64.RawURLEncoding.EncodeToString(hb)
+	payload := makeJWTPayload(
+		"https://test.example.com", "attacker", "test-audience",
+		9999999999, []string{"admin"}, nil,
+	)
+	// Empty signature
+	token := header + "." + payload + "."
+
+	_, err := p.Authenticate(context.Background(), Credentials{Token: token})
+	if err == nil {
+		t.Error("expected error for alg:none token — this is a critical security bypass")
+	}
+}
+
+func TestOAuthAlgMismatch(t *testing.T) {
+	privKey, _ := rsa.GenerateKey(rand.Reader, 2048)
+	kid := "test-rs256"
+
+	p := testOAuthProvider(kid, &privKey.PublicKey)
+	defer p.Close()
+
+	// JWT header claims ES256 but key is RSA — must be rejected
+	headerMap := map[string]interface{}{"alg": "ES256", "typ": "JWT", "kid": kid}
+	hb, _ := json.Marshal(headerMap)
+	header := base64.RawURLEncoding.EncodeToString(hb)
+	payload := makeJWTPayload(
+		"https://test.example.com", "user1", "test-audience",
+		9999999999, nil, nil,
+	)
+	token := signJWT(header, payload, privKey)
+
+	_, err := p.Authenticate(context.Background(), Credentials{Token: token})
+	if err == nil {
+		t.Error("expected error for alg/key type mismatch")
+	}
+}
+
+func TestOAuthEmptyAlg(t *testing.T) {
+	privKey, _ := rsa.GenerateKey(rand.Reader, 2048)
+	kid := "test-rs256"
+
+	p := testOAuthProvider(kid, &privKey.PublicKey)
+	defer p.Close()
+
+	// JWT header with no alg field
+	headerMap := map[string]interface{}{"typ": "JWT", "kid": kid}
+	hb, _ := json.Marshal(headerMap)
+	header := base64.RawURLEncoding.EncodeToString(hb)
+	payload := makeJWTPayload(
+		"https://test.example.com", "user1", "test-audience",
+		9999999999, nil, nil,
+	)
+	token := signJWT(header, payload, privKey)
+
+	_, err := p.Authenticate(context.Background(), Credentials{Token: token})
+	if err == nil {
+		t.Error("expected error for missing alg")
+	}
+}
+
+func TestValidateAlg(t *testing.T) {
+	tests := []struct {
+		alg string
+		ok  bool
+	}{
+		{"RS256", true},
+		{"RS384", true},
+		{"RS512", true},
+		{"ES256", true},
+		{"ES384", true},
+		{"ES512", true},
+		{"EdDSA", true},
+		{"none", false},
+		{"", false},
+		{"HS256", false},
+		{"PS256", false},
+	}
+	for _, tt := range tests {
+		err := validateAlg(tt.alg)
+		if (err == nil) != tt.ok {
+			t.Errorf("validateAlg(%q) = %v, want ok=%v", tt.alg, err, tt.ok)
+		}
+	}
+}

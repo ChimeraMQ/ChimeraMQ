@@ -1,6 +1,7 @@
 package ws
 
 import (
+	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"net"
@@ -68,9 +69,14 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			if strings.HasPrefix(authHeader, "Bearer ") {
 				creds.Token = strings.TrimPrefix(authHeader, "Bearer ")
 			} else if strings.HasPrefix(authHeader, "Basic ") {
-				// Basic auth handled inline for WebSocket
-				creds.Username = authHeader
-				creds.Password = authHeader
+				// Decode Basic auth: base64(username:password)
+				decoded, err := decodeBasicAuth(authHeader)
+				if err != nil {
+					http.Error(w, "invalid basic auth", http.StatusUnauthorized)
+					return
+				}
+				creds.Username = decoded.username
+				creds.Password = decoded.password
 			}
 			if _, err := provider.Authenticate(r.Context(), creds); err != nil {
 				http.Error(w, "unauthorized", http.StatusUnauthorized)
@@ -87,6 +93,9 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		return
 	}
+
+	// Limit message size to prevent oversized frame attacks (16 MB default)
+	conn.SetReadLimit(16 << 20)
 
 	subproto := conn.Subprotocol()
 	sess := &wsSession{
@@ -310,4 +319,22 @@ func (s *wsSession) sendError(msg string) {
 
 func (s *wsSession) close() {
 	s.conn.Close(websocket.StatusNormalClosure, "server shutting down")
+}
+
+type basicAuthCreds struct {
+	username string
+	password string
+}
+
+func decodeBasicAuth(header string) (basicAuthCreds, error) {
+	encoded := strings.TrimPrefix(header, "Basic ")
+	decoded, err := base64.StdEncoding.DecodeString(encoded)
+	if err != nil {
+		return basicAuthCreds{}, err
+	}
+	parts := strings.SplitN(string(decoded), ":", 2)
+	if len(parts) != 2 {
+		return basicAuthCreds{}, fmt.Errorf("invalid basic auth format")
+	}
+	return basicAuthCreds{username: parts[0], password: parts[1]}, nil
 }

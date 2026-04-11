@@ -13,6 +13,11 @@ import (
 
 // Publish handles message ingestion for all topic modes.
 func (b *Broker) Publish(env *message.Envelope) (uint64, error) {
+	// MaxMessageSize enforcement
+	if b.config.Limits.MaxMessageSize > 0 && int64(len(env.Payload)) > b.config.Limits.MaxMessageSize {
+		return 0, fmt.Errorf("message size %d exceeds maximum %d", len(env.Payload), b.config.Limits.MaxMessageSize)
+	}
+
 	topicCfg, ok := b.topics.GetTopic(env.Topic)
 	if !ok {
 		return 0, fmt.Errorf("topic %q not found", env.Topic)
@@ -30,6 +35,15 @@ func (b *Broker) Publish(env *message.Envelope) (uint64, error) {
 	// Flow control: check rate limits
 	if b.flowCtrl != nil && !b.flowCtrl.AllowPublish(env.Topic) {
 		return 0, fmt.Errorf("rate limited for topic %q", env.Topic)
+	}
+
+	// Tenant quota check
+	if b.tenantMgr != nil {
+		if t := b.tenantMgr.GetTenant(env.Topic); t != nil {
+			if !b.tenantMgr.CheckQuota(t.ID, "publish") {
+				return 0, fmt.Errorf("tenant %q publish rate exceeded", t.ID)
+			}
+		}
 	}
 
 	// Schema enforcement

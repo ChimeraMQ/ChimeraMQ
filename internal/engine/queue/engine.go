@@ -40,8 +40,9 @@ type QueueState struct {
 
 // Engine manages all queue-mode topics.
 type Engine struct {
-	mu     sync.RWMutex
-	queues map[string]*QueueState
+	mu              sync.RWMutex
+	queues          map[string]*QueueState
+	priorityEnabled bool
 }
 
 // NewEngine creates a new queue engine.
@@ -49,6 +50,19 @@ func NewEngine() *Engine {
 	return &Engine{
 		queues: make(map[string]*QueueState),
 	}
+}
+
+// SetPriorityEnabled enables priority-based dispatching.
+func (e *Engine) SetPriorityEnabled(enabled bool) {
+	e.priorityEnabled = enabled
+}
+
+
+func (e *Engine) newDispatcher() DispatcherInterface {
+	if e.priorityEnabled {
+		return NewPriorityDispatcher()
+	}
+	return &Dispatcher{visTimeout: 30 * time.Second}
 }
 
 // Close stops all background goroutines for every queue.
@@ -75,7 +89,7 @@ func (e *Engine) AddConsumer(topic string, consumer *QueueConsumer) {
 		qs = &QueueState{
 			topicName:  topic,
 			consumers:  make(map[string]*QueueConsumer),
-			dispatcher: &Dispatcher{visTimeout: 30 * time.Second},
+			dispatcher: e.newDispatcher(),
 			ackTracker: NewAckTracker(30 * time.Second),
 		}
 		e.queues[topic] = qs
@@ -152,7 +166,7 @@ func (e *Engine) ScheduleDelayed(topic string, env *message.Envelope) {
 		qs = &QueueState{
 			topicName:  topic,
 			consumers:  make(map[string]*QueueConsumer),
-			dispatcher: &Dispatcher{visTimeout: 30 * time.Second},
+			dispatcher: e.newDispatcher(),
 			ackTracker: NewAckTracker(30 * time.Second),
 		}
 		e.queues[topic] = qs
@@ -160,6 +174,7 @@ func (e *Engine) ScheduleDelayed(topic string, env *message.Envelope) {
 
 	if qs.delayHeap == nil {
 		qs.delayHeap = NewDelayScheduler()
+		go e.drainDelayQueue(topic, qs)
 	}
 	qs.delayHeap.Schedule(env)
 }

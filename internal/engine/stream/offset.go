@@ -58,7 +58,12 @@ func (s *OffsetStore) persist(group string) error {
 	if err != nil {
 		return fmt.Errorf("marshal offsets: %w", err)
 	}
-	return os.WriteFile(path, data, 0640)
+	// Atomic write: write to temp file then rename
+	tmpPath := path + ".tmp"
+	if err := os.WriteFile(tmpPath, data, 0640); err != nil {
+		return err
+	}
+	return os.Rename(tmpPath, path)
 }
 
 func (s *OffsetStore) loadAll() {

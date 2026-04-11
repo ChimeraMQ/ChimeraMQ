@@ -6,15 +6,27 @@ import (
 	"testing"
 )
 
+func mustHandler(t *testing.T) http.Handler {
+	t.Helper()
+	h, err := Handler()
+	if err != nil {
+		t.Fatalf("Handler() error: %v", err)
+	}
+	if h == nil {
+		t.Fatal("Handler() returned nil")
+	}
+	return h
+}
+
 func TestHandlerNotNil(t *testing.T) {
-	h := Handler()
+	h := mustHandler(t)
 	if h == nil {
 		t.Fatal("Handler() returned nil")
 	}
 }
 
 func TestHandlerIndexHTML(t *testing.T) {
-	h := Handler()
+	h := mustHandler(t)
 	srv := httptest.NewServer(h)
 	defer srv.Close()
 
@@ -30,7 +42,7 @@ func TestHandlerIndexHTML(t *testing.T) {
 }
 
 func TestHandlerSPAFallback(t *testing.T) {
-	h := Handler()
+	h := mustHandler(t)
 	srv := httptest.NewServer(h)
 	defer srv.Close()
 
@@ -46,7 +58,7 @@ func TestHandlerSPAFallback(t *testing.T) {
 }
 
 func TestHandlerSPAFallbackDeepPath(t *testing.T) {
-	h := Handler()
+	h := mustHandler(t)
 	srv := httptest.NewServer(h)
 	defer srv.Close()
 
@@ -62,7 +74,7 @@ func TestHandlerSPAFallbackDeepPath(t *testing.T) {
 }
 
 func TestHandlerStaticAsset(t *testing.T) {
-	h := Handler()
+	h := mustHandler(t)
 	srv := httptest.NewServer(h)
 	defer srv.Close()
 
@@ -80,7 +92,7 @@ func TestHandlerStaticAsset(t *testing.T) {
 }
 
 func TestHandlerIndexHTMLDirect(t *testing.T) {
-	h := Handler()
+	h := mustHandler(t)
 	srv := httptest.NewServer(h)
 	defer srv.Close()
 
@@ -98,7 +110,7 @@ func TestHandlerIndexHTMLDirect(t *testing.T) {
 }
 
 func TestHandlerEmptyPath(t *testing.T) {
-	h := Handler()
+	h := mustHandler(t)
 	srv := httptest.NewServer(h)
 	defer srv.Close()
 
@@ -115,7 +127,7 @@ func TestHandlerEmptyPath(t *testing.T) {
 }
 
 func TestHandlerExistingFile(t *testing.T) {
-	h := Handler()
+	h := mustHandler(t)
 	srv := httptest.NewServer(h)
 	defer srv.Close()
 

@@ -1381,7 +1381,7 @@ func TestPartitionAppendSaveIndexErrorOnRollover(t *testing.T) {
 	// Freeze the active segment manually to simulate it being frozen already
 	// Then make SaveIndex fail by closing the segment file
 	p.mu.Lock()
-	p.active.frozen = true
+	p.active.frozen.Store(true)
 	p.active.file.Close()
 	p.mu.Unlock()
 
@@ -2370,7 +2370,7 @@ func TestPartitionAppendCreateNewSegmentFails(t *testing.T) {
 	// Close the file handle first to avoid Windows handle leak
 	p.mu.Lock()
 	p.active.file.Close()
-	p.active.frozen = true
+	p.active.frozen.Store(true)
 	p.mu.Unlock()
 
 	// Remove the partition dir to make createNewSegment fail
@@ -2596,7 +2596,7 @@ func TestPartitionAppendCreateNewSegAfterSuccessfulFreeze(t *testing.T) {
 
 	// Manually freeze the segment (so Append's Freeze call is a no-op)
 	p.mu.Lock()
-	p.active.frozen = true
+	p.active.frozen.Store(true)
 	// Make the segment appear full
 	p.maxSegSize = 1
 	p.mu.Unlock()
@@ -2919,7 +2919,7 @@ func TestPartitionAppendSecondAppendErrorAfterRollover(t *testing.T) {
 	// Freeze active and make new segment's Append fail by closing the new one immediately
 	// We need rollover to succeed (Freeze + SaveIndex + createNewSegment) but second Append to fail
 	p.mu.Lock()
-	p.active.frozen = true // skip Freeze
+	p.active.frozen.Store(true) // skip Freeze
 	// Make the segment appear full so rollover triggers
 	p.maxSegSize = 1
 	p.mu.Unlock()
@@ -3026,7 +3026,7 @@ func TestPartitionCreateNewSegmentWithClosedActive(t *testing.T) {
 	// Close the active segment file
 	p.mu.Lock()
 	p.active.file.Close()
-	p.active.frozen = true
+	p.active.frozen.Store(true)
 	p.mu.Unlock()
 
 	// createNewSegment should fail because we set frozen=true
@@ -3068,7 +3068,8 @@ func TestPartitionAppendToNilActiveAfterClose(t *testing.T) {
 		seg.Close()
 	}
 	p.segments = nil
-	p.active = &Segment{file: nil, frozen: true}
+	p.active = &Segment{file: nil}
+		p.active.frozen.Store(true)
 	p.mu.Unlock()
 
 	// Append with nil file should error

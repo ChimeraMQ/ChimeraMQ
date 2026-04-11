@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"sync"
+	"sync/atomic"
 	"time"
 )
 
@@ -25,7 +26,7 @@ type Segment struct {
 	nextOff uint64
 	index   *SparseIndex
 	created time.Time
-	frozen  bool
+	frozen  atomic.Bool
 }
 
 // OpenSegment opens or creates a segment file.
@@ -76,7 +77,7 @@ func OpenSegment(path string, baseOffset uint64, maxSize int64) (*Segment, error
 // Append writes a serialized message to the segment.
 // Caller must hold external synchronization (Partition.mu).
 func (s *Segment) Append(data []byte) (offset uint64, position int64, err error) {
-	if s.frozen {
+	if s.frozen.Load() {
 		return 0, 0, ErrSegmentReadOnly
 	}
 
@@ -171,7 +172,7 @@ func (s *Segment) FindPosition(targetOffset uint64) (int64, error) {
 
 // Freeze marks the segment as read-only.
 func (s *Segment) Freeze() error {
-	s.frozen = true
+	s.frozen.Store(true)
 	return s.file.Sync()
 }
 
@@ -206,7 +207,7 @@ func (s *Segment) Path() string { return s.path }
 func (s *Segment) Created() time.Time { return s.created }
 
 // Frozen returns whether this segment is frozen (read-only).
-func (s *Segment) Frozen() bool { return s.frozen }
+func (s *Segment) Frozen() bool { return s.frozen.Load() }
 
 // Remove closes and deletes the segment file and its index.
 func (s *Segment) Remove() error {

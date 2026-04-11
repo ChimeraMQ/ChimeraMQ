@@ -25,6 +25,7 @@ import (
 	"github.com/chimeramq/chimera/internal/storage/tier"
 	"github.com/chimeramq/chimera/internal/storage/wal"
 	"github.com/chimeramq/chimera/internal/storage/warm"
+	"github.com/chimeramq/chimera/internal/tenant"
 	"github.com/chimeramq/chimera/internal/tracing"
 	"github.com/chimeramq/chimera/internal/wasm"
 
@@ -57,6 +58,7 @@ type Broker struct {
 	dlqH         *dlq.DLQ
 	flowCtrl     *flow.Controller
 	deduper      *idempotent.Deduper
+	tenantMgr    *tenant.Manager
 
 	startTime time.Time
 	ctx       context.Context
@@ -182,7 +184,6 @@ func (b *Broker) Start() error {
 
 	// Step 8: Queue Engine
 	b.queueEngine = queue.NewEngine()
-
 	// Step 9: Stream Engine
 	offsetStore := stream.NewOffsetStore(b.config.Node.DataDir)
 	b.streamEngine = stream.NewEngine(b.storage, offsetStore)
@@ -322,6 +323,57 @@ func (b *Broker) Start() error {
 			MaxSlowTicks:    b.config.FlowControl.MaxSlowTicks,
 		})
 		b.logger.Info("flow control enabled")
+	}
+
+	// Step 18b: WASM Runtime (if enabled)
+	if b.config.WASM.Enabled {
+		modulesDir := b.config.WASM.ModulesDir
+		if modulesDir == "" {
+			modulesDir = filepath.Join(b.config.Node.DataDir, "wasm")
+		}
+		if err := os.MkdirAll(modulesDir, 0750); err != nil {
+			return fmt.Errorf("create wasm dir: %w", err)
+		}
+		execTimeout := ParseDuration(b.config.WASM.ExecutionTimeout, 100*time.Millisecond)
+		wasmCfg := wasm.RuntimeConfig{
+			MaxMemoryPages:   b.config.WASM.MaxMemoryPages,
+			ExecutionTimeout: execTimeout,
+			ModulePoolSize:   b.config.WASM.ModulePoolSize,
+			ModulesDir:       modulesDir,
+		}
+		if wasmCfg.MaxMemoryPages == 0 {
+			wasmCfg.MaxMemoryPages = 256
+		}
+		if wasmCfg.ModulePoolSize == 0 {
+			wasmCfg.ModulePoolSize = 4
+		}
+		b.wasmRT = wasm.NewRuntime(wasmCfg)
+		b.logger.Info("WASM runtime enabled", "modules_dir", modulesDir)
+	}
+
+	// Step 18c: Stream Processor (if enabled)
+	if b.config.Processing.Enabled {
+		stateDir := b.config.Processing.StateDir
+		if stateDir == "" {
+			stateDir = filepath.Join(b.config.Node.DataDir, "state")
+		}
+		if err := os.MkdirAll(stateDir, 0750); err != nil {
+			return fmt.Errorf("create state dir: %w", err)
+		}
+		b.processor = processing.NewProcessor(stateDir)
+		b.processor.SetBroker(&brokerAPIAdapter{broker: b})
+		b.logger.Info("stream processor enabled", "state_dir", stateDir)
+	}
+
+	// Step 18d: TTL Expirer topic registration
+	if b.ttlExpirer != nil {
+		for _, tc := range b.topics.ListTopics() {
+			if tc.DefaultTTL > 0 {
+				b.ttlExpirer.SetTopicConfig(tc.Name, &ttl.TopicTTLConfig{
+					DefaultTTL: tc.DefaultTTL,
+				})
+			}
+		}
 	}
 
 	// Step 19: Idempotent Producer (if enabled)
@@ -495,6 +547,9 @@ func (b *Broker) FlowController() *flow.Controller { return b.flowCtrl }
 
 // Deduper returns the idempotent deduper (nil if idempotent disabled).
 func (b *Broker) Deduper() *idempotent.Deduper { return b.deduper }
+
+// TenantManager returns the tenant manager (nil if multi-tenancy disabled).
+func (b *Broker) TenantManager() *tenant.Manager { return b.tenantMgr }
 
 // IsClustered returns true if clustering is enabled.
 func (b *Broker) IsClustered() bool { return b.cluster != nil }

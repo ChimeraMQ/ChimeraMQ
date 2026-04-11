@@ -31,6 +31,7 @@ type Config struct {
 	DLQ           DLQConfig           `yaml:"dlq"`
 	FlowControl   FlowControlConfig   `yaml:"flow_control"`
 	Idempotent    IdempotentConfig    `yaml:"idempotent"`
+	Tenant        TenantConfigRoot    `yaml:"tenant"`
 }
 
 // ClusterConfig controls clustering behavior.
@@ -326,6 +327,31 @@ type IdempotentConfig struct {
 	Enabled    bool   `yaml:"enabled"`
 	WindowSize string `yaml:"window_size"` // default: "5m"
 	MaxEntries int    `yaml:"max_entries"` // per producer, default: 10000
+}
+
+// TenantConfigRoot controls multi-tenancy.
+type TenantConfigRoot struct {
+	Enabled   bool              `yaml:"enabled"`
+	Separator string            `yaml:"separator"`
+	Tenants   []TenantConfigDef `yaml:"tenants"`
+}
+
+// TenantConfigDef is the YAML config for a single tenant.
+type TenantConfigDef struct {
+	ID          string                 `yaml:"id"`
+	TopicPrefix string                 `yaml:"topic_prefix"`
+	Quotas      TenantQuotaConfig      `yaml:"quotas"`
+	Metadata    map[string]string      `yaml:"metadata"`
+}
+
+// TenantQuotaConfig holds per-tenant resource limits.
+type TenantQuotaConfig struct {
+	MaxTopics       int   `yaml:"max_topics"`
+	MaxPartitions   int   `yaml:"max_partitions"`
+	MaxPublishRate  int64 `yaml:"max_publish_rate"`  // msgs/sec, 0=unlimited
+	MaxFetchRate    int64 `yaml:"max_fetch_rate"`    // fetches/sec, 0=unlimited
+	MaxConnections  int64 `yaml:"max_connections"`   // 0=unlimited
+	MaxStorageBytes int64 `yaml:"max_storage_bytes"` // 0=unlimited
 }
 
 // EncryptionConfig controls at-rest encryption.

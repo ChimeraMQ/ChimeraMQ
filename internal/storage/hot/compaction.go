@@ -45,7 +45,7 @@ func (lc *LogCompactor) ShouldCompact(p *Partition) bool {
 	defer p.mu.RUnlock()
 	frozen := 0
 	for _, seg := range p.segments {
-		if seg.frozen {
+		if seg.frozen.Load() {
 			frozen++
 		}
 	}
@@ -65,7 +65,7 @@ func (lc *LogCompactor) Compact(p *Partition) error {
 	// Identify frozen segments (exclude active)
 	var frozen []*Segment
 	for _, seg := range p.segments {
-		if seg.frozen {
+		if seg.frozen.Load() {
 			frozen = append(frozen, seg)
 		}
 	}
@@ -144,7 +144,7 @@ func (lc *LogCompactor) Compact(p *Partition) error {
 	// Replace old segments with compacted one
 	var newSegments []*Segment
 	for _, seg := range p.segments {
-		if seg.frozen {
+		if seg.frozen.Load() {
 			seg.Close()
 			os.Remove(seg.file.Name())
 			// Remove associated index file
@@ -160,7 +160,7 @@ func (lc *LogCompactor) Compact(p *Partition) error {
 	if err != nil {
 		return fmt.Errorf("open compacted segment: %w", err)
 	}
-	compactedSeg.frozen = true
+	compactedSeg.frozen.Store(true)
 
 	// Rebuild segment list: compacted + remaining (active)
 	rebuilt := []*Segment{compactedSeg}
@@ -187,7 +187,7 @@ func (lc *LogCompactor) Stats(p *Partition) CompactionStats {
 	defer p.mu.RUnlock()
 	frozen := 0
 	for _, seg := range p.segments {
-		if seg.frozen {
+		if seg.frozen.Load() {
 			frozen++
 		}
 	}

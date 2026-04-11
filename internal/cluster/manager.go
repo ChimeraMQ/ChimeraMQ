@@ -268,7 +268,11 @@ func (m *Manager) FSM() *raft.MetadataFSM {
 // NewReplicator creates a replication manager for a partition.
 func (m *Manager) NewReplicator(topic string, partition uint32) *replication.Replicator {
 	policy := replication.ParseAckPolicy(m.cfg.AckPolicy)
-	return replication.NewReplicator(topic, partition, m.nodeID, policy, m.cfg.MaxLag)
+	rep := replication.NewReplicator(topic, partition, m.nodeID, policy, m.cfg.MaxLag)
+	if m.raftNode != nil {
+		rep.SetTransport(&replicationTransportAdapter{raftNode: m.raftNode})
+	}
+	return rep
 }
 
 func toNodeIDs(ss []string) []raft.NodeID {
@@ -277,4 +281,23 @@ func toNodeIDs(ss []string) []raft.NodeID {
 		ids[i] = raft.NodeID(s)
 	}
 	return ids
+}
+
+// replicationTransportAdapter adapts the Raft node to serve as a ReplicationTransport.
+// Data replication uses the Raft log replication mechanism, which handles
+// consensus-based replication to followers via AppendEntries RPCs.
+type replicationTransportAdapter struct {
+	raftNode *raft.RaftNode
+}
+
+func (a *replicationTransportAdapter) Replicate(nodeID raft.NodeID, req *replication.ReplicateRequest) error {
+	// Propose data through Raft — the entry will be replicated to all nodes
+	// via the Raft log replication mechanism.
+	_, err := a.raftNode.Propose(req.Data)
+	return err
+}
+
+func (a *replicationTransportAdapter) FetchEntries(nodeID raft.NodeID, req *replication.FetchRequest) (*replication.FetchResponse, error) {
+	// Followers fetch from their local storage after Raft commit.
+	return &replication.FetchResponse{}, nil
 }

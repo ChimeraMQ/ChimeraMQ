@@ -63,15 +63,14 @@ func (s *Session) ClientID() string {
 
 // NextPacketID returns the next available packet identifier.
 func (s *Session) NextPacketID() uint16 {
+	s.mu.Lock()
+	defer s.mu.Unlock()
 	for {
 		id := uint16(s.nextPID.Add(1))
 		if id == 0 {
 			continue // skip 0
 		}
-		s.mu.Lock()
-		_, exists := s.inflight[id]
-		s.mu.Unlock()
-		if !exists {
+		if _, exists := s.inflight[id]; !exists {
 			return id
 		}
 	}

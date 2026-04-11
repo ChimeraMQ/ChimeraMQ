@@ -5,6 +5,7 @@ import (
 	"strings"
 	"sync"
 	"sync/atomic"
+	"time"
 )
 
 // Manager handles multi-tenancy isolation and quotas.
@@ -21,6 +22,12 @@ type Tenant struct {
 	Quotas      QuotaConfig         // per-tenant limits
 	Topics      map[string]struct{} // registered topics
 	Metadata    map[string]string
+
+	// Rate tracking
+	publishCount atomic.Int64 // current window count
+	fetchCount   atomic.Int64
+	connCount    atomic.Int64
+	windowStart  atomic.Int64 // unix seconds
 }
 
 // QuotaConfig holds per-tenant resource limits.
@@ -183,27 +190,82 @@ func (m *Manager) ListTopics(tenantID string) []string {
 }
 
 // CheckQuota checks if a tenant can perform the given operation.
+// It tracks actual request rates per second and enforces configured limits.
 func (m *Manager) CheckQuota(tenantID string, op string) bool {
+	if !m.enabled.Load() {
+		return true
+	}
 	m.mu.RLock()
-	defer m.mu.RUnlock()
 	t, ok := m.tenants[tenantID]
+	m.mu.RUnlock()
 	if !ok {
 		return false
 	}
+
 	switch op {
 	case "publish":
-		return t.Quotas.MaxPublishRate == 0 // 0 = unlimited
+		if t.Quotas.MaxPublishRate <= 0 {
+			return true // unlimited
+		}
+		t.resetWindowIfNeeded()
+		return t.publishCount.Add(1) <= t.Quotas.MaxPublishRate
 	case "fetch":
-		return t.Quotas.MaxFetchRate == 0
+		if t.Quotas.MaxFetchRate <= 0 {
+			return true
+		}
+		t.resetWindowIfNeeded()
+		return t.fetchCount.Add(1) <= t.Quotas.MaxFetchRate
 	case "connect":
-		return t.Quotas.MaxConnections == 0
+		if t.Quotas.MaxConnections <= 0 {
+			return true
+		}
+		return t.connCount.Load() <= t.Quotas.MaxConnections
 	case "topic":
 		if t.Quotas.MaxTopics <= 0 {
 			return true
 		}
+		m.mu.RLock()
+		defer m.mu.RUnlock()
 		return len(t.Topics) < t.Quotas.MaxTopics
 	default:
 		return true
+	}
+}
+
+// IncrConnection increments the connection counter for a tenant.
+func (m *Manager) IncrConnection(tenantID string) {
+	if !m.enabled.Load() {
+		return
+	}
+	m.mu.RLock()
+	t, ok := m.tenants[tenantID]
+	m.mu.RUnlock()
+	if ok {
+		t.connCount.Add(1)
+	}
+}
+
+// DecrConnection decrements the connection counter for a tenant.
+func (m *Manager) DecrConnection(tenantID string) {
+	if !m.enabled.Load() {
+		return
+	}
+	m.mu.RLock()
+	t, ok := m.tenants[tenantID]
+	m.mu.RUnlock()
+	if ok {
+		t.connCount.Add(-1)
+	}
+}
+
+// resetWindowIfNeeded resets rate counters if the current second has elapsed.
+func (t *Tenant) resetWindowIfNeeded() {
+	now := time.Now().Unix()
+	start := t.windowStart.Load()
+	if now > start {
+		t.windowStart.Store(now)
+		t.publishCount.Store(0)
+		t.fetchCount.Store(0)
 	}
 }
 

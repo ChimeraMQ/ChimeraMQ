@@ -1,7 +1,11 @@
 package dlq
 
 import (
+	"bufio"
+	"encoding/json"
 	"fmt"
+	"os"
+	"path/filepath"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -16,6 +20,7 @@ type DLQ struct {
 	maxRetries  int
 	queues      map[string]*deadQueue // topic → dead letter queue
 	enabled     atomic.Bool
+	dataDir     string
 }
 
 type deadQueue struct {
@@ -25,13 +30,13 @@ type deadQueue struct {
 
 // DLQEntry represents a message in the dead letter queue.
 type DLQEntry struct {
-	ID          uint64
-	OriginalMsg *message.Envelope
-	Topic       string
-	Partition   uint32
-	Reason      string
-	Retries     int
-	FailedAt    time.Time
+	ID          uint64            `json:"id"`
+	OriginalMsg *message.Envelope `json:"original_msg"`
+	Topic       string            `json:"topic"`
+	Partition   uint32            `json:"partition"`
+	Reason      string            `json:"reason"`
+	Retries     int               `json:"retries"`
+	FailedAt    time.Time         `json:"failed_at"`
 }
 
 // Config holds DLQ configuration.
@@ -39,6 +44,7 @@ type Config struct {
 	Enabled     bool
 	TopicPrefix string // default: "__dlq_"
 	MaxRetries  int    // default: 3
+	DataDir     string // directory for persistent storage
 }
 
 // NewDLQ creates a new dead letter queue handler.
@@ -55,9 +61,14 @@ func NewDLQ(cfg Config) *DLQ {
 		topicPrefix: prefix,
 		maxRetries:  maxRetries,
 		queues:      make(map[string]*deadQueue),
+		dataDir:     cfg.DataDir,
 	}
 	if cfg.Enabled {
 		d.enabled.Store(true)
+	}
+	if d.dataDir != "" {
+		_ = os.MkdirAll(d.dataDir, 0750)
+		d.loadAll()
 	}
 	return d
 }
@@ -97,6 +108,7 @@ func (d *DLQ) Push(msg *message.Envelope, topic string, partition uint32, reason
 		FailedAt:    time.Now(),
 	}
 	q.messages = append(q.messages, entry)
+	d.persistEntry(entry)
 }
 
 // ShouldDLQ checks if a message should be sent to the DLQ based on retry count.
@@ -177,10 +189,78 @@ func (d *DLQ) Clear(topic string) {
 	d.mu.Lock()
 	defer d.mu.Unlock()
 	delete(d.queues, topic)
+	if d.dataDir != "" {
+		_ = os.Remove(d.topicPath(topic))
+	}
 }
 
 // String implements fmt.Stringer.
 func (e *DLQEntry) String() string {
 	return fmt.Sprintf("DLQEntry{ID:%d, Topic:%s, Partition:%d, Reason:%q, Retries:%d, FailedAt:%s}",
 		e.ID, e.Topic, e.Partition, e.Reason, e.Retries, e.FailedAt.Format(time.RFC3339))
+}
+
+// persistEntry appends a DLQ entry to the topic's file.
+func (d *DLQ) persistEntry(entry *DLQEntry) {
+	if d.dataDir == "" {
+		return
+	}
+	data, err := json.Marshal(entry)
+	if err != nil {
+		return
+	}
+	path := d.topicPath(entry.Topic)
+	f, err := os.OpenFile(path, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0640)
+	if err != nil {
+		return
+	}
+	defer f.Close()
+	f.Write(data)
+	f.Write([]byte("\n"))
+}
+
+// loadAll loads persisted DLQ entries from disk.
+func (d *DLQ) loadAll() {
+	entries, err := os.ReadDir(d.dataDir)
+	if err != nil {
+		return
+	}
+	for _, e := range entries {
+		if e.IsDir() || filepath.Ext(e.Name()) != ".jsonl" {
+			continue
+		}
+		topic := e.Name()[:len(e.Name())-6] // strip .jsonl
+		d.loadTopic(topic)
+	}
+}
+
+// loadTopic loads entries for a single topic from disk.
+func (d *DLQ) loadTopic(topic string) {
+	path := d.topicPath(topic)
+	f, err := os.Open(path)
+	if err != nil {
+		return
+	}
+	defer f.Close()
+
+	q := &deadQueue{}
+	scanner := bufio.NewScanner(f)
+	for scanner.Scan() {
+		var entry DLQEntry
+		if err := json.Unmarshal(scanner.Bytes(), &entry); err != nil {
+			continue
+		}
+		if entry.ID > q.offset {
+			q.offset = entry.ID
+		}
+		q.messages = append(q.messages, &entry)
+	}
+	if len(q.messages) > 0 {
+		d.queues[topic] = q
+	}
+}
+
+// topicPath returns the file path for a topic's DLQ file.
+func (d *DLQ) topicPath(topic string) string {
+	return filepath.Join(d.dataDir, topic+".jsonl")
 }

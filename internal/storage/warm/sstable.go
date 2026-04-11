@@ -238,17 +238,11 @@ func (sst *SSTable) Get(key []byte) ([]byte, bool, bool) {
 		return nil, false, false
 	}
 
-	// Read block data
-	dataSize, _ := sst.file.Seek(0, 2)
-	allData := make([]byte, dataSize)
-	_, _ = sst.file.ReadAt(allData, 0)
-
-	blockEnd := block.Offset + block.Length
-	if blockEnd > uint32(len(allData)) {
-		blockEnd = uint32(len(allData))
+	// Read only the relevant block
+	blockData := make([]byte, block.Length)
+	if _, err := sst.file.ReadAt(blockData, int64(block.Offset)); err != nil {
+		return nil, false, false
 	}
-	blockData := allData[block.Offset:blockEnd]
-
 	// Scan block for key
 	return scanBlockForKey(blockData, key)
 }

@@ -47,7 +47,7 @@ func EnforceRetention(p *Partition, policy RetentionPolicy) int {
 func countFrozen(segments []*Segment) int {
 	count := 0
 	for _, seg := range segments {
-		if seg.frozen {
+		if seg.frozen.Load() {
 			count++
 		}
 	}
@@ -56,7 +56,7 @@ func countFrozen(segments []*Segment) int {
 
 func findOldestFrozen(segments []*Segment) *Segment {
 	for _, seg := range segments {
-		if seg.frozen {
+		if seg.frozen.Load() {
 			return seg
 		}
 	}
@@ -88,7 +88,9 @@ func removeSegment(p *Partition, seg *Segment) {
 	if seg.file != nil {
 		seg.file.Close()
 		os.Remove(seg.path)
-		os.Remove(seg.path + ".idx")
+		// Index path must match Segment.SaveIndex which strips ".log" and appends "idx"
+		idxPath := seg.path[:len(seg.path)-4] + "idx"
+		os.Remove(idxPath)
 	}
 	seg.mu.Unlock()
 }

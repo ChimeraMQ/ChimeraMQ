@@ -44,6 +44,10 @@ func TestEngineScheduleDelayedAndPromote(t *testing.T) {
 	e := NewEngine()
 	defer e.Close()
 
+	// Add a consumer before scheduling
+	consumer := &QueueConsumer{ID: "c1", Prefetch: 10, InFlight: make(map[uint64]time.Time)}
+	e.AddConsumer("delay-topic", consumer)
+
 	// Schedule a message due in the very near future
 	env := &message.Envelope{
 		Topic:     "delay-topic",
@@ -52,10 +56,10 @@ func TestEngineScheduleDelayedAndPromote(t *testing.T) {
 	}
 	e.ScheduleDelayed("delay-topic", env)
 
-	// Wait for promotion
-	time.Sleep(250 * time.Millisecond)
+	// Wait for promotion and dispatch
+	time.Sleep(300 * time.Millisecond)
 
-	// Check that the queue has a delayHeap with the promoted message
+	// Check that the queue has a delayHeap
 	e.mu.RLock()
 	qs, ok := e.queues["delay-topic"]
 	e.mu.RUnlock()
@@ -66,14 +70,12 @@ func TestEngineScheduleDelayedAndPromote(t *testing.T) {
 		t.Fatal("delayHeap should be created")
 	}
 
-	// Read from Ready channel
-	select {
-	case promoted := <-qs.delayHeap.Ready():
-		if promoted.Topic != "delay-topic" {
-			t.Errorf("promoted topic = %q, want delay-topic", promoted.Topic)
-		}
-	default:
-		t.Error("expected a promoted message on Ready channel")
+	// Verify the consumer received the dispatched message
+	consumer.mu.Lock()
+	inFlight := len(consumer.InFlight)
+	consumer.mu.Unlock()
+	if inFlight == 0 {
+		t.Error("expected consumer to have dispatched in-flight message")
 	}
 }
 

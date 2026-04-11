@@ -93,6 +93,12 @@ func (p *OAuthProvider) Authenticate(ctx context.Context, creds Credentials) (*I
 		return nil, fmt.Errorf("jwt header: %w", err)
 	}
 
+	// Validate the alg header — reject alg:none and unknown algorithms
+	alg, _ := header["alg"].(string)
+	if err := validateAlg(alg); err != nil {
+		return nil, fmt.Errorf("jwt alg: %w", err)
+	}
+
 	kid, _ := header["kid"].(string)
 
 	// Get the public key
@@ -102,6 +108,11 @@ func (p *OAuthProvider) Authenticate(ctx context.Context, creds Credentials) (*I
 
 	if !ok {
 		return nil, fmt.Errorf("unknown key id: %s", kid)
+	}
+
+	// Verify that the declared alg matches the key type
+	if err := algMatchesKey(alg, pubKey); err != nil {
+		return nil, fmt.Errorf("jwt alg/key mismatch: %w", err)
 	}
 
 	// Verify signature
@@ -326,6 +337,43 @@ func parseJWK(key jwkKey) (interface{}, error) {
 	default:
 		return nil, fmt.Errorf("unsupported key type: %s", key.Kty)
 	}
+}
+
+// allowedAlgorithms is the set of JWT algorithms we accept.
+var allowedAlgorithms = map[string]bool{
+	"RS256": true, "RS384": true, "RS512": true,
+	"ES256": true, "ES384": true, "ES512": true,
+	"EdDSA": true,
+}
+
+func validateAlg(alg string) error {
+	if alg == "" || alg == "none" {
+		return fmt.Errorf("algorithm %q is not allowed", alg)
+	}
+	if !allowedAlgorithms[alg] {
+		return fmt.Errorf("algorithm %q is not supported", alg)
+	}
+	return nil
+}
+
+func algMatchesKey(alg string, pubKey interface{}) error {
+	switch pubKey.(type) {
+	case *rsa.PublicKey:
+		if !strings.HasPrefix(alg, "RS") {
+			return fmt.Errorf("RSA key requires RS* algorithm, got %q", alg)
+		}
+	case *ecdsa.PublicKey:
+		if !strings.HasPrefix(alg, "ES") {
+			return fmt.Errorf("EC key requires ES* algorithm, got %q", alg)
+		}
+	case ed25519.PublicKey:
+		if alg != "EdDSA" {
+			return fmt.Errorf("Ed25519 key requires EdDSA algorithm, got %q", alg)
+		}
+	default:
+		return fmt.Errorf("unsupported key type")
+	}
+	return nil
 }
 
 func verifyJWT(parts []string, pubKey interface{}) error {

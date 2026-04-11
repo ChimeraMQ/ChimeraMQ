@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"log"
 	"sync"
+	"time"
 
 	"github.com/chimeramq/chimera/internal/message"
 )
@@ -82,8 +83,9 @@ type Topology struct {
 	State   TopologyState
 	offsets map[uint32]uint64 // per-partition consume offset
 
-	mu     sync.Mutex
-	cancel context.CancelFunc
+	mu         sync.Mutex
+	cancel     context.CancelFunc
+	aggregates []*AggregateOp // active aggregate operators for this topology
 }
 
 // Processor manages stream processing topologies.
@@ -270,6 +272,10 @@ func (p *Processor) runTopology(ctx context.Context, t *Topology) {
 	spec := t.Spec
 	batchSize := 10
 
+	// Aggregate tick: emit windowed results every second
+	tickTicker := time.NewTicker(1 * time.Second)
+	defer tickTicker.Stop()
+
 	for {
 		select {
 		case <-ctx.Done():
@@ -329,12 +335,24 @@ func (p *Processor) runTopology(ctx context.Context, t *Topology) {
 			t.mu.Unlock()
 		}
 
+		// Tick aggregate operators to emit windowed results
+		select {
+		case <-tickTicker.C:
+			now := time.Now().UnixNano()
+			t.mu.Lock()
+			for _, agg := range t.aggregates {
+				agg.Tick(now)
+			}
+			t.mu.Unlock()
+		default:
+		}
+
 		if processed == 0 {
-			// No messages found — brief pause before retrying
+			// No messages found — backoff to avoid busy loop
 			select {
 			case <-ctx.Done():
 				return
-			default:
+			case <-time.After(100 * time.Millisecond):
 			}
 		}
 	}

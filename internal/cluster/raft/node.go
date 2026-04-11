@@ -3,6 +3,7 @@ package raft
 import (
 	"encoding/json"
 	"fmt"
+	"log/slog"
 	"math/rand"
 	"os"
 	"path/filepath"
@@ -295,7 +296,9 @@ func (n *RaftNode) startElection() {
 
 			if resp.VoteGranted {
 				votesReceived++
-				if votesReceived > len(n.peers)/2+1 {
+				// Quorum: majority of total nodes (peers + self)
+				quorum := (len(n.peers)+1)/2 + 1
+				if votesReceived >= quorum {
 					n.becomeLeader()
 				}
 			}
@@ -634,8 +637,14 @@ func (n *RaftNode) saveState() {
 		CurrentTerm: n.currentTerm,
 		VotedFor:    n.votedFor,
 	}
-	data, _ := json.Marshal(state)
-	_ = os.WriteFile(path, data, 0644)
+	data, err := json.Marshal(state)
+	if err != nil {
+		slog.Error("raft state marshal", "err", err)
+		return
+	}
+	if err := os.WriteFile(path, data, 0644); err != nil {
+		slog.Error("raft state persist", "err", err)
+	}
 }
 
 // SetTransport sets the transport layer.

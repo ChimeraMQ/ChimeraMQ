@@ -2,6 +2,7 @@ package auth
 
 import (
 	"context"
+	"crypto/subtle"
 	"fmt"
 	"strings"
 	"sync"
@@ -45,16 +46,17 @@ func (p *StaticProvider) authenticateToken(token string) (*Identity, error) {
 	p.mu.RLock()
 	defer p.mu.RUnlock()
 
-	label, ok := p.tokens[token]
-	if !ok {
-		return nil, ErrInvalidCredentials
+	for storedToken, label := range p.tokens {
+		if subtle.ConstantTimeCompare([]byte(token), []byte(storedToken)) == 1 {
+			return &Identity{
+				UserID: label,
+				Source: "static",
+				Roles:  p.roles[label],
+			}, nil
+		}
 	}
 
-	return &Identity{
-		UserID: label,
-		Source: "static",
-		Roles:  p.roles[label],
-	}, nil
+	return nil, ErrInvalidCredentials
 }
 
 func (p *StaticProvider) authenticateUser(username, password string) (*Identity, error) {
@@ -161,14 +163,15 @@ func (fp *FileProvider) Authenticate(ctx context.Context, creds Credentials) (*I
 	defer fp.mu.RUnlock()
 
 	if creds.Token != "" {
-		label, ok := fp.tokens[creds.Token]
-		if !ok {
-			return nil, ErrInvalidCredentials
+		for storedToken, label := range fp.tokens {
+			if subtle.ConstantTimeCompare([]byte(creds.Token), []byte(storedToken)) == 1 {
+				return &Identity{
+					UserID: label,
+					Source: "file",
+				}, nil
+			}
 		}
-		return &Identity{
-			UserID: label,
-			Source: "file",
-		}, nil
+		return nil, ErrInvalidCredentials
 	}
 
 	if creds.Username != "" {
