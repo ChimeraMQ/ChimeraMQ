@@ -147,6 +147,12 @@ func (cg *ConsumerGroup) loadCommittedOffsets() {
 }
 
 func (cg *ConsumerGroup) rebalance() {
+	// Save previous assignments for sticky strategy
+	prevAssignments := make(map[uint32]string, len(cg.assignments))
+	for k, v := range cg.assignments {
+		prevAssignments[k] = v
+	}
+
 	for k := range cg.assignments {
 		delete(cg.assignments, k)
 	}
@@ -172,6 +178,8 @@ func (cg *ConsumerGroup) rebalance() {
 	switch cg.strategy {
 	case StrategyRange:
 		cg.rebalanceRange(partitions, memberIDs)
+	case StrategySticky:
+		cg.rebalanceSticky(partitions, memberIDs, prevAssignments)
 	default:
 		cg.rebalanceRoundRobin(partitions, memberIDs)
 	}
@@ -203,6 +211,85 @@ func (cg *ConsumerGroup) rebalanceRoundRobin(partitions []uint32, members []stri
 		cg.assignments[partID] = memberID
 		cg.members[memberID].Partitions = append(cg.members[memberID].Partitions, partID)
 	}
+}
+
+// rebalanceSticky tries to keep existing partition assignments stable while
+// maintaining balance. It first preserves assignments for returning members,
+// then rebalances by stealing from overloaded members to underloaded ones.
+func (cg *ConsumerGroup) rebalanceSticky(partitions []uint32, members []string, prev map[uint32]string) {
+	memberSet := make(map[string]bool, len(members))
+	for _, m := range members {
+		memberSet[m] = true
+	}
+
+	// Phase 1: Keep existing assignments for members still present
+	for _, partID := range partitions {
+		if prevMember, ok := prev[partID]; ok && memberSet[prevMember] {
+			cg.assignments[partID] = prevMember
+			cg.members[prevMember].Partitions = append(cg.members[prevMember].Partitions, partID)
+		}
+	}
+
+	// Phase 2: Collect unassigned partitions (from departed members)
+	var unassigned []uint32
+	for _, partID := range partitions {
+		if _, assigned := cg.assignments[partID]; !assigned {
+			unassigned = append(unassigned, partID)
+		}
+	}
+
+	// Phase 3: Distribute unassigned to members with fewest partitions
+	for _, partID := range unassigned {
+		chosen := cg.memberWithFewest(members)
+		cg.assignments[partID] = chosen
+		cg.members[chosen].Partitions = append(cg.members[chosen].Partitions, partID)
+	}
+
+	// Phase 4: Rebalance — steal from overloaded to underloaded
+	target := len(partitions) / len(members)
+
+	for {
+		// Find most overloaded and most underloaded
+		var overMember, underMember string
+		overCount, underCount := 0, len(partitions)+1
+
+		for _, memberID := range members {
+			cnt := len(cg.members[memberID].Partitions)
+			maxAllowed := target
+			// First 'remainder' members can have target+1
+			if cnt > maxAllowed+1 && cnt > overCount {
+				overCount = cnt
+				overMember = memberID
+			}
+			if cnt < target && cnt < underCount {
+				underCount = cnt
+				underMember = memberID
+			}
+		}
+
+		if overMember == "" || underMember == "" {
+			break
+		}
+
+		// Steal one partition from overMember to underMember
+		stolenPart := cg.members[overMember].Partitions[len(cg.members[overMember].Partitions)-1]
+		cg.members[overMember].Partitions = cg.members[overMember].Partitions[:len(cg.members[overMember].Partitions)-1]
+		cg.members[underMember].Partitions = append(cg.members[underMember].Partitions, stolenPart)
+		cg.assignments[stolenPart] = underMember
+	}
+}
+
+func (cg *ConsumerGroup) memberWithFewest(members []string) string {
+	minCount := int(^uint(0) >> 1)
+	var chosen string
+	for _, memberID := range members {
+		cnt := len(cg.members[memberID].Partitions)
+		if cnt < minCount {
+			minCount = cnt
+			chosen = memberID
+		}
+	}
+	return chosen
 }
 
 func (cg *ConsumerGroup) heartbeatLoop() {

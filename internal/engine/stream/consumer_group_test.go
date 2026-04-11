@@ -153,7 +153,7 @@ func TestConsumerGroupLoadCommittedOffsetsOnCreate(t *testing.T) {
 	store.Save("preload", 0, 100)
 	store.Save("preload", 2, 200)
 
-	// Create a group — should load pre-existing offsets
+	// Create a group -- should load pre-existing offsets
 	cg := NewConsumerGroup("preload", "topic", 4, StrategyRange, store)
 	defer cg.Stop()
 
@@ -170,16 +170,75 @@ func TestConsumerGroupLoadCommittedOffsetsOnCreate(t *testing.T) {
 }
 
 func TestConsumerGroupStickyStrategy(t *testing.T) {
-	// Sticky falls through to the default (round-robin) path
-	cg := NewConsumerGroup("sticky", "topic", 3, StrategySticky, newTestOffsetStore(t))
+	cg := NewConsumerGroup("sticky", "topic", 6, StrategySticky, newTestOffsetStore(t))
+	defer cg.Stop()
+
+	// Join m1 and m2 -- all 6 partitions assigned
+	cg.Join("m1")
+	cg.Join("m2")
+
+	// Record initial assignments
+	first := cg.Assignments()
+	if len(first) != 6 {
+		t.Fatalf("expected 6 assignments, got %d", len(first))
+	}
+
+	// Join m3 -- triggers rebalance, but m1 and m2 keep most partitions
+	cg.Join("m3")
+	second := cg.Assignments()
+	if len(second) != 6 {
+		t.Fatalf("expected 6 assignments after m3 join, got %d", len(second))
+	}
+
+	// Verify sticky: at least some of m1's original partitions are still assigned to m1
+	m1Kept := 0
+	for partID, memberID := range second {
+		if memberID == "m1" && first[partID] == "m1" {
+			m1Kept++
+		}
+	}
+	if m1Kept == 0 {
+		t.Error("sticky rebalance should preserve some of m1's original partitions")
+	}
+
+	// Verify balanced: each member should have ~2 partitions
+	counts := make(map[string]int)
+	for _, memberID := range second {
+		counts[memberID]++
+	}
+	for _, memberID := range []string{"m1", "m2", "m3"} {
+		c := counts[memberID]
+		if c < 1 || c > 3 {
+			t.Errorf("member %s has %d partitions, expected 1-3", memberID, c)
+		}
+	}
+}
+
+func TestConsumerGroupStickyPreservesOnLeave(t *testing.T) {
+	cg := NewConsumerGroup("sticky-leave", "topic", 6, StrategySticky, newTestOffsetStore(t))
 	defer cg.Stop()
 
 	cg.Join("m1")
 	cg.Join("m2")
+	cg.Join("m3")
 
-	assignments := cg.Assignments()
-	if len(assignments) != 3 {
-		t.Fatalf("expected 3 assignments, got %d", len(assignments))
+	before := cg.Assignments()
+
+	// m3 leaves -- m1 and m2 should keep their partitions
+	cg.Leave("m3")
+	after := cg.Assignments()
+
+	if len(after) != 6 {
+		t.Fatalf("expected 6 assignments after leave, got %d", len(after))
+	}
+
+	// m1's partitions that were assigned before should still be assigned to m1
+	for partID, memberID := range before {
+		if memberID == "m1" {
+			if after[partID] != "m1" {
+				t.Errorf("m1 lost partition %d after m3 left (was m1, now %s)", partID, after[partID])
+			}
+		}
 	}
 }
 
@@ -196,7 +255,7 @@ func TestConsumerGroupNoMembersRebalance(t *testing.T) {
 	cg := NewConsumerGroup("empty", "topic", 4, StrategyRange, newTestOffsetStore(t))
 	defer cg.Stop()
 
-	// No members joined — assignments should be empty
+	// No members joined -- assignments should be empty
 	assignments := cg.Assignments()
 	if len(assignments) != 0 {
 		t.Errorf("expected 0 assignments with no members, got %d", len(assignments))
@@ -223,7 +282,7 @@ func TestConsumerGroupCommitAndGetOffset(t *testing.T) {
 }
 
 func TestConsumerGroupRangeUnevenPartitions(t *testing.T) {
-	// 5 partitions, 2 members — range: m1 gets 3, m2 gets 2
+	// 5 partitions, 2 members -- range: m1 gets 3, m2 gets 2
 	cg := NewConsumerGroup("uneven", "topic", 5, StrategyRange, newTestOffsetStore(t))
 	defer cg.Stop()
 
@@ -272,7 +331,7 @@ func TestConsumerGroupRebalanceEmpty(t *testing.T) {
 	cg := NewConsumerGroup("empty-rr", "topic", 4, StrategyRoundRobin, newTestOffsetStore(t))
 	defer cg.Stop()
 
-	// No members — assignments should be empty
+	// No members -- assignments should be empty
 	assignments := cg.Assignments()
 	if len(assignments) != 0 {
 		t.Errorf("expected 0 assignments with no members, got %d", len(assignments))

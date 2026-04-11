@@ -802,7 +802,7 @@ func (s *AdminServer) handleDeleteSubject(w http.ResponseWriter, r *http.Request
 
 	subject := r.PathValue("subject")
 	if err := reg.DeleteSubject(subject); err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
+		http.Error(w, "internal error", http.StatusInternalServerError)
 		return
 	}
 	w.WriteHeader(http.StatusNoContent)
@@ -826,7 +826,7 @@ func (s *AdminServer) handleSetCompatibility(w http.ResponseWriter, r *http.Requ
 
 	mode := schema.ParseCompatibilityMode(req.Mode)
 	if err := reg.SetCompatibility(subject, mode); err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
+		http.Error(w, "internal error", http.StatusInternalServerError)
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]string{"status": "updated"})
