@@ -167,15 +167,21 @@ func handleRPCConn(conn net.Conn, handler RPCHandler) {
 		switch msg.Type {
 		case "append_entries":
 			var req AppendEntriesRequest
-			_ = json.Unmarshal(msg.Data, &req)
+			if err := json.Unmarshal(msg.Data, &req); err != nil {
+				continue
+			}
 			resp = handler.HandleAppendEntries(&req)
 		case "request_vote":
 			var req RequestVoteRequest
-			_ = json.Unmarshal(msg.Data, &req)
+			if err := json.Unmarshal(msg.Data, &req); err != nil {
+				continue
+			}
 			resp = handler.HandleRequestVote(&req)
 		case "install_snapshot":
 			var req InstallSnapshotRequest
-			_ = json.Unmarshal(msg.Data, &req)
+			if err := json.Unmarshal(msg.Data, &req); err != nil {
+				continue
+			}
 			resp = handler.HandleInstallSnapshot(&req)
 		default:
 			continue

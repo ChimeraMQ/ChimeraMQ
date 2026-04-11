@@ -4,11 +4,16 @@ import (
 	"context"
 	"crypto/subtle"
 	"fmt"
+	"os"
 	"strings"
 	"sync"
 
 	"golang.org/x/crypto/bcrypt"
 )
+
+// allowPlaintext controls whether plaintext password comparison is allowed.
+// Enabled only when CHIMERA_ALLOW_PLAINTEXT=1 is set in the environment.
+var allowPlaintext = os.Getenv("CHIMERA_ALLOW_PLAINTEXT") == "1"
 
 // StaticProvider authenticates against in-memory users and token maps.
 type StaticProvider struct {

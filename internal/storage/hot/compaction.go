@@ -59,21 +59,21 @@ func (lc *LogCompactor) Compact(p *Partition) error {
 	lc.mu.Lock()
 	defer lc.mu.Unlock()
 
-	p.mu.Lock()
-	defer p.mu.Unlock()
-
-	// Identify frozen segments (exclude active)
+	// Phase 1: snapshot frozen segments under lock
+	p.mu.RLock()
 	var frozen []*Segment
 	for _, seg := range p.segments {
 		if seg.frozen.Load() {
 			frozen = append(frozen, seg)
 		}
 	}
+	p.mu.RUnlock()
+
 	if len(frozen) < 2 {
 		return nil // nothing to compact
 	}
 
-	// Read all messages and keep latest per key
+	// Phase 2: read and compact (no lock needed — frozen segments are immutable)
 	latest := make(map[string][]byte) // routingKey → raw data
 	var keyless [][]byte              // messages without routing key
 	totalRead := 0
@@ -122,7 +122,6 @@ func (lc *LogCompactor) Compact(p *Partition) error {
 		return nil
 	}
 
-	// Write keyless first
 	for _, data := range keyless {
 		if err := writeRecord(data); err != nil {
 			compactedFile.Close()
@@ -130,7 +129,6 @@ func (lc *LogCompactor) Compact(p *Partition) error {
 			return err
 		}
 	}
-	// Write latest per key
 	for _, data := range latest {
 		if err := writeRecord(data); err != nil {
 			compactedFile.Close()
@@ -141,13 +139,16 @@ func (lc *LogCompactor) Compact(p *Partition) error {
 	_ = compactedFile.Sync()
 	compactedFile.Close()
 
-	// Replace old segments with compacted one
+	// Phase 3: swap segments under write lock
+	p.mu.Lock()
+	defer p.mu.Unlock()
+
+	// Re-verify frozen segments still exist (no concurrent changes)
 	var newSegments []*Segment
 	for _, seg := range p.segments {
 		if seg.frozen.Load() {
 			seg.Close()
 			os.Remove(seg.file.Name())
-			// Remove associated index file
 			indexPath := seg.file.Name()[:len(seg.file.Name())-4] + ".idx"
 			os.Remove(indexPath)
 		} else {
@@ -155,19 +156,16 @@ func (lc *LogCompactor) Compact(p *Partition) error {
 		}
 	}
 
-	// Open compacted segment and insert before active
 	compactedSeg, err := OpenSegment(compactedPath, frozen[0].BaseOffset(), p.maxSegSize)
 	if err != nil {
 		return fmt.Errorf("open compacted segment: %w", err)
 	}
 	compactedSeg.frozen.Store(true)
 
-	// Rebuild segment list: compacted + remaining (active)
 	rebuilt := []*Segment{compactedSeg}
 	rebuilt = append(rebuilt, newSegments...)
 	p.segments = rebuilt
 
-	// Update log start offset
 	if len(p.segments) > 0 {
 		p.logStart = p.segments[0].BaseOffset()
 	}

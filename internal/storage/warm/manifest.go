@@ -1,6 +1,7 @@
 package warm
 
 import (
+	"fmt"
 	"encoding/json"
 	"os"
 	"path/filepath"
@@ -39,7 +40,7 @@ func NewManifest(dir string) (*Manifest, error) {
 }
 
 // Add adds an SSTable to the manifest.
-func (m *Manifest) Add(level int, sst *SSTable) {
+func (m *Manifest) Add(level int, sst *SSTable) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	meta := sst.Metadata()
@@ -50,11 +51,11 @@ func (m *Manifest) Add(level int, sst *SSTable) {
 		MaxOff:     meta.MaxOffset,
 		EntryCount: meta.EntryCount,
 	})
-	m.save()
+	return m.save()
 }
 
 // Remove removes an SSTable from the manifest.
-func (m *Manifest) Remove(sstPath string) {
+func (m *Manifest) Remove(sstPath string) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	filtered := make([]ManifestEntry, 0, len(m.entries))
@@ -64,7 +65,7 @@ func (m *Manifest) Remove(sstPath string) {
 		}
 	}
 	m.entries = filtered
-	m.save()
+	return m.save()
 }
 
 // EntriesAt returns all manifest entries at the given level.
@@ -102,9 +103,17 @@ func (m *Manifest) SSTCount(level int) int {
 	return count
 }
 
-func (m *Manifest) save() {
-	data, _ := json.Marshal(m.entries)
+func (m *Manifest) save() error {
+	data, err := json.Marshal(m.entries)
+	if err != nil {
+		return fmt.Errorf("manifest marshal: %w", err)
+	}
 	tmp := m.path + ".tmp"
-	_ = os.WriteFile(tmp, data, 0644)
-	_ = os.Rename(tmp, m.path)
+	if err := os.WriteFile(tmp, data, 0644); err != nil {
+		return fmt.Errorf("manifest write: %w", err)
+	}
+	if err := os.Rename(tmp, m.path); err != nil {
+		return fmt.Errorf("manifest rename: %w", err)
+	}
+	return nil
 }

@@ -1,6 +1,7 @@
 package warm
 
 import (
+	"log/slog"
 	"encoding/binary"
 	"fmt"
 	"os"
@@ -270,7 +271,7 @@ func (lsm *LSMTree) flushImmutable() {
 	}
 
 	lsm.levels[0].sstables = append(lsm.levels[0].sstables, sst)
-	lsm.manifest.Add(0, sst)
+	if err := lsm.manifest.Add(0, sst); err != nil { slog.Error("manifest add L0", "err", err) }
 
 	// Trigger compaction if L0 has too many SSTables
 	if len(lsm.levels[0].sstables) >= 4 {
@@ -326,14 +327,14 @@ func (lsm *LSMTree) compactL0() {
 
 	// Remove old SSTables
 	for _, sst := range toCompact {
-		lsm.manifest.Remove(sst.Path())
+		if err := lsm.manifest.Remove(sst.Path()); err != nil { slog.Error("manifest remove", "err", err) }
 		_ = sst.Remove()
 	}
 
 	lsm.mu.Lock()
 	defer lsm.mu.Unlock()
 	lsm.levels[1].sstables = append(lsm.levels[1].sstables, newSST)
-	lsm.manifest.Add(1, newSST)
+	if err := lsm.manifest.Add(1, newSST); err != nil { slog.Error("manifest add L1", "err", err) }
 }
 
 // OldSSTables returns SSTables at L1+ older than the given threshold.
@@ -367,7 +368,7 @@ func (lsm *LSMTree) RemoveSSTable(sst *SSTable) {
 			}
 		}
 	}
-	lsm.manifest.Remove(sst.Path())
+	if err := lsm.manifest.Remove(sst.Path()); err != nil { slog.Error("manifest remove", "err", err) }
 	_ = sst.Remove()
 }
 
