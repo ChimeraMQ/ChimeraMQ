@@ -175,21 +175,21 @@ Additionally:
 
 ---
 
-## Phase 6: Documentation & DX (Week 11-12)
+## Phase 6: Documentation & DX (Week 11-12) — COMPLETE
 
 ### Documentation and developer experience
 
-- [ ] **Update TASKS.md** — Mark completed tasks. Add Phase 2-7 tasks. Effort: 2-3 hours.
+- [x] **Update TASKS.md** — All 73 Phase 1 tasks marked complete. Effort: 2-3 hours.
 
 - [x] **Architecture decision records** — Created `docs/adr/` with 4 records: offset storage, WASM wiring, binary log format, sequential scan. Effort: 1-2 days.
 
 - [x] **Performance benchmark report** — Published results to `docs/BENCHMARKS.md`. 94K-275K msg/s throughput, P99 <541us latency. Effort: 1-2 days.
 
-- [ ] **Web UI auth support** — Add login form / token input to dashboard so it works when auth is enabled. Effort: 1-2 days.
+- [x] **Web UI auth support** — Login page with Bearer token auth, 401 auto-redirect, logout button, auth header on all API calls. Effort: 1-2 days.
 
-- [ ] **Helm chart** — Create Helm chart for Kubernetes deployment. Effort: 3-5 days.
+- [x] **Helm chart** — Created `deploy/charts/chimera/` with Deployment, Service, ConfigMap, PVC, Secret, ServiceMonitor templates. Effort: 3-5 days.
 
-- [ ] **Go client library** — Formalize `examples/client.go` into a proper Go client package. Effort: 5-7 days.
+- [x] **Go client library** — Created `client/chimera/` package with typed responses, error handling, topic CRUD, publish/fetch, consumer groups, schemas, DLQ, cluster APIs. 9 tests passing. Effort: 5-7 days.
 
 ---
 

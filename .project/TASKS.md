@@ -1,15 +1,15 @@
 # ChimeraMQ — TASKS.md
 
 > **Phase 1: Core Engine (MVP) — Granular Task Breakdown**
-> Each task is atomic, testable, and Claude Code ready.
-> Estimated total: ~85 tasks across 18 milestones.
+> All Phase 1 tasks are complete. See `.project/ROADMAP.md` for Phase 2-6 status.
+> Estimated total: ~85 tasks across 18 milestones (73 Phase 1 tasks done).
 
 ---
 
 ## CONVENTIONS
 
 - **Task ID format:** `P1-{milestone}.{sequence}` (e.g., P1-01.03 = Phase 1, Milestone 1, Task 3)
-- **Status:** `[ ]` = pending, `[x]` = done, `[~]` = in progress
+- **Status:** `[x]` = pending, `[x]` = done, `[~]` = in progress
 - **Deps:** Tasks that must be completed before this task
 - **Test:** Every task includes its test expectation
 - **Files:** Exact file paths to create/modify
@@ -19,7 +19,7 @@
 ## MILESTONE 1: Project Scaffold & Configuration
 
 ### P1-01.01 — Initialize Go module and directory structure
-- **Status:** `[ ]`
+- **Status:** `[x]`
 - **Deps:** None
 - **Files:**
   ```
@@ -46,7 +46,7 @@
 - **Test:** `go build ./...` succeeds. `make build` produces `bin/chimera`. `bin/chimera version` prints version string.
 
 ### P1-01.02 — Configuration struct and YAML loader
-- **Status:** `[ ]`
+- **Status:** `[x]`
 - **Deps:** P1-01.01
 - **Files:**
   ```
@@ -58,7 +58,7 @@
 - **Test:** Test default config values. Test YAML loading overrides defaults. Test env var overrides YAML. Test CLI flag overrides env. Test validation catches: port=0, empty data_dir, invalid sync_mode. Test partial YAML (missing sections use defaults).
 
 ### P1-01.03 — Structured logger
-- **Status:** `[ ]`
+- **Status:** `[x]`
 - **Deps:** P1-01.01
 - **Files:**
   ```
@@ -69,7 +69,7 @@
 - **Test:** Test JSON output format contains expected keys (level, msg, time). Test text format. Test level filtering (debug messages hidden at info level). Test file output writes to file.
 
 ### P1-01.04 — CLI subcommand router and version command
-- **Status:** `[ ]`
+- **Status:** `[x]`
 - **Deps:** P1-01.01
 - **Files:**
   ```
@@ -84,7 +84,7 @@
 ## MILESTONE 2: Message Envelope & Codec
 
 ### P1-02.01 — Message envelope types and constants
-- **Status:** `[ ]`
+- **Status:** `[x]`
 - **Deps:** P1-01.01
 - **Files:**
   ```
@@ -94,7 +94,7 @@
 - **Test:** N/A (types only), but verify `EstimateSize()` returns correct values for various envelope configurations.
 
 ### P1-02.02 — UUIDv7 generator
-- **Status:** `[ ]`
+- **Status:** `[x]`
 - **Deps:** P1-01.01
 - **Files:**
   ```
@@ -105,7 +105,7 @@
 - **Test:** Generate 100K UUIDs — all unique. UUIDs generated in same millisecond have monotonically increasing counter. `UUIDString` format matches `xxxxxxxx-xxxx-7xxx-[89ab]xxx-xxxxxxxxxxxx`. Version bits = 0x70. Variant bits = 0x80. Benchmark: > 1M UUIDs/sec.
 
 ### P1-02.03 — Header TLV encoding/decoding
-- **Status:** `[ ]`
+- **Status:** `[x]`
 - **Deps:** P1-02.01
 - **Files:**
   ```
@@ -116,7 +116,7 @@
 - **Test:** Roundtrip empty headers. Roundtrip single header. Roundtrip multiple headers. Roundtrip headers with empty values. Roundtrip headers with binary values. Verify `headersSize` matches actual marshaled length.
 
 ### P1-02.04 — Envelope binary codec (Marshal/Unmarshal)
-- **Status:** `[ ]`
+- **Status:** `[x]`
 - **Deps:** P1-02.01, P1-02.02, P1-02.03
 - **Files:**
   ```
@@ -131,7 +131,7 @@
 ## MILESTONE 3: Write-Ahead Log
 
 ### P1-03.01 — WAL types and constants
-- **Status:** `[ ]`
+- **Status:** `[x]`
 - **Deps:** P1-01.01
 - **Files:**
   ```
@@ -141,7 +141,7 @@
 - **Test:** N/A (types only).
 
 ### P1-03.02 — WAL segment file management
-- **Status:** `[ ]`
+- **Status:** `[x]`
 - **Deps:** P1-03.01
 - **Files:**
   ```
@@ -152,7 +152,7 @@
 - **Test:** New WAL creates directory and first segment. Segment file has correct name format. After `maxSize` bytes, rotate creates new segment. `listSegments` returns sorted order. Close flushes pending data.
 
 ### P1-03.03 — WAL append with CRC32C
-- **Status:** `[ ]`
+- **Status:** `[x]`
 - **Deps:** P1-03.02
 - **Files:**
   ```
@@ -163,7 +163,7 @@
 - **Test:** Append returns monotonically increasing offsets. Entry bytes on disk match expected format. CRC is correct (verify manually). Append triggers rotate at maxSize boundary. Append with SyncImmediate calls fsync (verify via file mod time).
 
 ### P1-03.04 — WAL fsync interval ticker
-- **Status:** `[ ]`
+- **Status:** `[x]`
 - **Deps:** P1-03.03
 - **Files:**
   ```
@@ -174,7 +174,7 @@
 - **Test:** With SyncInterval=50ms, data visible on disk after 50ms even without explicit flush. Stop channel terminates goroutine.
 
 ### P1-03.05 — WAL recovery (read and replay)
-- **Status:** `[ ]`
+- **Status:** `[x]`
 - **Deps:** P1-03.03
 - **Files:**
   ```
@@ -185,7 +185,7 @@
 - **Test:** Write 100 entries, recover reads all 100. Simulate crash (truncate mid-entry): recover reads N-1 valid entries. Corrupt CRC in last entry: recover reads N-1 entries. Empty WAL: recover returns no entries. Multi-segment recovery (write enough to rotate, then recover all).
 
 ### P1-03.06 — WAL checkpoint and truncation
-- **Status:** `[ ]`
+- **Status:** `[x]`
 - **Deps:** P1-03.05
 - **Files:**
   ```
@@ -200,7 +200,7 @@
 ## MILESTONE 4: Hot Tier Storage
 
 ### P1-04.01 — Segment file header and creation
-- **Status:** `[ ]`
+- **Status:** `[x]`
 - **Deps:** P1-01.01
 - **Files:**
   ```
@@ -212,7 +212,7 @@
 - **Test:** New segment creates file with 32-byte header. Magic bytes correct. Re-open existing segment reads baseOffset correctly. Invalid magic returns error.
 
 ### P1-04.02 — Segment append (write path)
-- **Status:** `[ ]`
+- **Status:** `[x]`
 - **Deps:** P1-04.01
 - **Files:**
   ```
@@ -223,7 +223,7 @@
 - **Test:** Append returns sequential offsets (0, 1, 2...). File size grows by 4+len(data) per append. Append at maxSize boundary returns ErrSegmentFull. Data on disk matches input.
 
 ### P1-04.03 — Sparse index (in-memory + persistence)
-- **Status:** `[ ]`
+- **Status:** `[x]`
 - **Deps:** P1-04.02
 - **Files:**
   ```
@@ -234,7 +234,7 @@
 - **Test:** Index adds entry every 256th message. Search finds exact match. Search finds nearest-before for non-indexed offset. Save/Load roundtrip preserves all entries. Empty index returns position 0. Benchmark: search 100K-entry index < 1μs.
 
 ### P1-04.04 — Segment read and offset lookup
-- **Status:** `[ ]`
+- **Status:** `[x]`
 - **Deps:** P1-04.02, P1-04.03
 - **Files:**
   ```
@@ -245,7 +245,7 @@
 - **Test:** Write 1000 messages, read each by offset — data matches. FindPosition for indexed offset is exact. FindPosition for non-indexed offset requires linear scan (verify correct). FindPosition for offset < baseOff returns error. Random access pattern works correctly.
 
 ### P1-04.05 — Segment freeze and mmap
-- **Status:** `[ ]`
+- **Status:** `[x]`
 - **Deps:** P1-04.04
 - **Files:**
   ```
@@ -256,7 +256,7 @@
 - **Test:** After Freeze, segment is read-only (Append returns error). Mmap read returns same data as file read. Zero-copy verified: returned slice points into mmap region. Close releases mmap. Freeze on non-Linux (if applicable): fallback to file reads.
 
 ### P1-04.06 — Segment index rebuild on recovery
-- **Status:** `[ ]`
+- **Status:** `[x]`
 - **Deps:** P1-04.03, P1-04.04
 - **Files:**
   ```
@@ -267,7 +267,7 @@
 - **Test:** Write 1000 messages, delete .idx file, reopen segment — index rebuilt correctly. nextOff matches expected value. Read after rebuild returns correct data.
 
 ### P1-04.07 — Partition manager
-- **Status:** `[ ]`
+- **Status:** `[x]`
 - **Deps:** P1-04.01 through P1-04.06
 - **Files:**
   ```
@@ -278,7 +278,7 @@
 - **Test:** Append across segment boundary works seamlessly. Read from any segment works. HighWatermark tracks latest offset. Multi-segment partition: write 10K messages (multiple rollovers), read all back. LogStartOffset returns first segment's base. Close all segments without leak.
 
 ### P1-04.08 — Storage engine (partition registry)
-- **Status:** `[ ]`
+- **Status:** `[x]`
 - **Deps:** P1-04.07
 - **Files:**
   ```
@@ -293,7 +293,7 @@
 ## MILESTONE 5: Topic Manager
 
 ### P1-05.01 — Topic metadata persistence
-- **Status:** `[ ]`
+- **Status:** `[x]`
 - **Deps:** P1-04.08, P1-03.02
 - **Files:**
   ```
@@ -304,7 +304,7 @@
 - **Test:** Create topic manager with empty dir — no error. Save then load roundtrip preserves topics. Atomic write: crash during save doesn't corrupt existing meta.json.
 
 ### P1-05.02 — Topic CRUD operations
-- **Status:** `[ ]`
+- **Status:** `[x]`
 - **Deps:** P1-05.01
 - **Files:**
   ```
@@ -315,7 +315,7 @@
 - **Test:** Create topic succeeds and persists. Duplicate name returns error. Invalid name (empty, special chars, too long) returns error. Delete removes from list. Get returns nil for unknown topic. List returns all topics.
 
 ### P1-05.03 — Partition routing (Murmur3 + round-robin)
-- **Status:** `[ ]`
+- **Status:** `[x]`
 - **Deps:** P1-05.02
 - **Files:**
   ```
@@ -331,7 +331,7 @@
 ## MILESTONE 6: Queue Engine (Lion Head)
 
 ### P1-06.01 — Queue consumer struct and registration
-- **Status:** `[ ]`
+- **Status:** `[x]`
 - **Deps:** P1-05.02
 - **Files:**
   ```
@@ -342,7 +342,7 @@
 - **Test:** Add consumer appears in queue state. Remove consumer removes from state. Remove non-existent consumer is no-op.
 
 ### P1-06.02 — Round-robin dispatcher with prefetch
-- **Status:** `[ ]`
+- **Status:** `[x]`
 - **Deps:** P1-06.01
 - **Files:**
   ```
@@ -353,7 +353,7 @@
 - **Test:** Single consumer gets all messages. Two consumers get alternating messages. Consumer at prefetch limit is skipped. All consumers busy returns error. No consumers returns error. Remove consumer mid-dispatch rebalances correctly.
 
 ### P1-06.03 — Ack tracker with visibility timeout
-- **Status:** `[ ]`
+- **Status:** `[x]`
 - **Deps:** P1-06.01
 - **Files:**
   ```
@@ -364,7 +364,7 @@
 - **Test:** Track → Ack removes from pending. Track → Nack requeues (appears on redeliverChan). Nack after maxRetries returns shouldDLQ=true. Visibility timeout: Track without ack → after timeout, offset appears on redeliverChan. Ack unknown offset returns false. Stop closes goroutine cleanly.
 
 ### P1-06.04 — Dead-letter queue manager
-- **Status:** `[ ]`
+- **Status:** `[x]`
 - **Deps:** P1-06.03, P1-04.08, P1-02.04
 - **Files:**
   ```
@@ -375,7 +375,7 @@
 - **Test:** Route writes message to DLQ topic. DLQ message has all required headers. Original message unchanged. DLQ disabled (empty topic) = no-op. DLQ topic not found returns error.
 
 ### P1-06.05 — Delay scheduler (min-heap)
-- **Status:** `[ ]`
+- **Status:** `[x]`
 - **Deps:** P1-02.01
 - **Files:**
   ```
@@ -386,7 +386,7 @@
 - **Test:** Schedule message with 200ms delay → appears on Ready() after ~200ms. Schedule multiple → delivered in time order. Schedule with past time → immediate delivery. Stop terminates goroutine. Benchmark: schedule+promote 100K messages.
 
 ### P1-06.06 — Queue engine integration (TryDispatch)
-- **Status:** `[ ]`
+- **Status:** `[x]`
 - **Deps:** P1-06.02, P1-06.03, P1-06.04, P1-06.05
 - **Files:**
   ```
@@ -401,7 +401,7 @@
 ## MILESTONE 7: Stream Engine (Goat Head)
 
 ### P1-07.01 — Offset store (persistence)
-- **Status:** `[ ]`
+- **Status:** `[x]`
 - **Deps:** P1-01.01
 - **Files:**
   ```
@@ -412,7 +412,7 @@
 - **Test:** Save then Get returns correct offset. Persist survives restart (new OffsetStore reads saved data). Multiple groups isolated. Unknown group returns 0.
 
 ### P1-07.02 — Consumer group struct and join/leave
-- **Status:** `[ ]`
+- **Status:** `[x]`
 - **Deps:** P1-07.01
 - **Files:**
   ```
@@ -423,7 +423,7 @@
 - **Test:** Join adds member and triggers rebalance. Leave removes member. Heartbeat updates timestamp. Commit persists offset. Unknown member heartbeat returns error.
 
 ### P1-07.03 — Rebalancing algorithms (Range, RoundRobin, Sticky)
-- **Status:** `[ ]`
+- **Status:** `[x]`
 - **Deps:** P1-07.02
 - **Files:**
   ```
@@ -434,7 +434,7 @@
 - **Test:** Range: 8 partitions / 3 members → [0,1,2], [3,4,5], [6,7]. RoundRobin: 8/3 → [0,3,6], [1,4,7], [2,5]. All partitions assigned exactly once. Member join/leave → reassignment. Single member gets all partitions. Zero members → empty assignments.
 
 ### P1-07.04 — Heartbeat timeout and session expiry
-- **Status:** `[ ]`
+- **Status:** `[x]`
 - **Deps:** P1-07.02
 - **Files:**
   ```
@@ -445,7 +445,7 @@
 - **Test:** Member with no heartbeat for > sessionTimeout is removed. Regular heartbeats keep member alive. Removal triggers rebalance.
 
 ### P1-07.05 — Waiter registry (new message notification)
-- **Status:** `[ ]`
+- **Status:** `[x]`
 - **Deps:** P1-01.01
 - **Files:**
   ```
@@ -456,7 +456,7 @@
 - **Test:** Register returns channel. Notify triggers channel. Unregister removes channel. Notify with no waiters is no-op. Multiple waiters all notified. Non-blocking: Notify doesn't block if channel full.
 
 ### P1-07.06 — Stream engine with Fetch (long-poll)
-- **Status:** `[ ]`
+- **Status:** `[x]`
 - **Deps:** P1-07.01, P1-07.02, P1-07.05, P1-04.08
 - **Files:**
   ```
@@ -471,7 +471,7 @@
 ## MILESTONE 8: Unified Mode & Broker Integration
 
 ### P1-08.01 — Broker struct and lifecycle
-- **Status:** `[ ]`
+- **Status:** `[x]`
 - **Deps:** P1-01.02, P1-01.03, P1-03.02, P1-04.08, P1-05.02, P1-06.06, P1-07.06
 - **Files:**
   ```
@@ -481,7 +481,7 @@
 - **Test:** Broker starts and stops without error. Lock file prevents second instance. Start initializes all components. Stop releases all resources.
 
 ### P1-08.02 — Unified publish path
-- **Status:** `[ ]`
+- **Status:** `[x]`
 - **Deps:** P1-08.01
 - **Files:**
   ```
@@ -492,7 +492,7 @@
 - **Test:** Publish to stream topic: stored, waiters notified, no queue dispatch. Publish to queue topic: stored, queue dispatched. Publish to unified topic: stored, waiters notified AND queue dispatched. Publish to nonexistent topic: error. Delayed message: routed to delay scheduler. MessageID assigned. Timestamp assigned if zero.
 
 ### P1-08.03 — Unified mode integration test
-- **Status:** `[ ]`
+- **Status:** `[x]`
 - **Deps:** P1-08.02
 - **Files:**
   ```
@@ -506,7 +506,7 @@
 ## MILESTONE 9: Chimera Native Protocol
 
 ### P1-09.01 — Frame codec (encode/decode)
-- **Status:** `[ ]`
+- **Status:** `[x]`
 - **Deps:** P1-01.01
 - **Files:**
   ```
@@ -517,7 +517,7 @@
 - **Test:** Roundtrip encode/decode for each OpCode. Invalid magic rejected. CRC mismatch rejected. Oversized frame rejected. Empty payload frame works. Benchmark: > 5M frames/sec encode+decode.
 
 ### P1-09.02 — Protocol payload encoders/decoders
-- **Status:** `[ ]`
+- **Status:** `[x]`
 - **Deps:** P1-09.01
 - **Files:**
   ```
@@ -528,7 +528,7 @@
 - **Test:** Roundtrip each payload type. Empty optional fields handled. Multiple offsets in Ack. Binary safety (payload with zero bytes).
 
 ### P1-09.03 — TCP server and connection accept loop
-- **Status:** `[ ]`
+- **Status:** `[x]`
 - **Deps:** P1-09.01
 - **Files:**
   ```
@@ -538,7 +538,7 @@
 - **Test:** Server accepts TCP connections. StopAccepting prevents new connections. DisconnectAll closes all.
 
 ### P1-09.04 — Client connection handler (CONNECT flow)
-- **Status:** `[ ]`
+- **Status:** `[x]`
 - **Deps:** P1-09.02, P1-09.03
 - **Files:**
   ```
@@ -549,7 +549,7 @@
 - **Test:** Client connects and receives CONNACK. Auto-generated ClientID if empty. Non-CONNECT first frame → error + disconnect. Keepalive timeout disconnects idle client.
 
 ### P1-09.05 — Publish/PubAck handler
-- **Status:** `[ ]`
+- **Status:** `[x]`
 - **Deps:** P1-09.04, P1-08.02
 - **Files:**
   ```
@@ -559,7 +559,7 @@
 - **Test:** Publish via protocol → PubAck received with correct offset. Message persisted in storage. Error publish → Error frame returned.
 
 ### P1-09.06 — Subscribe handler (queue + stream modes)
-- **Status:** `[ ]`
+- **Status:** `[x]`
 - **Deps:** P1-09.04, P1-06.06, P1-07.06
 - **Files:**
   ```
@@ -569,7 +569,7 @@
 - **Test:** Subscribe queue mode: consumer registered, receives dispatched messages. Subscribe stream mode: consumer joins group, partitions assigned.
 
 ### P1-09.07 — Fetch handler (stream long-poll)
-- **Status:** `[ ]`
+- **Status:** `[x]`
 - **Deps:** P1-09.06
 - **Files:**
   ```
@@ -579,7 +579,7 @@
 - **Test:** Fetch returns available messages. Fetch with no data waits up to maxWait then returns empty. Fetch returns when new message arrives.
 
 ### P1-09.08 — Ack/Nack/CommitOffset handlers
-- **Status:** `[ ]`
+- **Status:** `[x]`
 - **Deps:** P1-09.06
 - **Files:**
   ```
@@ -589,7 +589,7 @@
 - **Test:** Ack clears in-flight. Nack redelivers. Nack after max retries → DLQ. CommitOffset persists.
 
 ### P1-09.09 — Ping/Pong and Disconnect
-- **Status:** `[ ]`
+- **Status:** `[x]`
 - **Deps:** P1-09.04
 - **Files:**
   ```
@@ -599,7 +599,7 @@
 - **Test:** Ping/Pong roundtrip. Disconnect cleans up all state.
 
 ### P1-09.10 — CreateTopic/DeleteTopic over protocol
-- **Status:** `[ ]`
+- **Status:** `[x]`
 - **Deps:** P1-09.04, P1-05.02
 - **Files:**
   ```
@@ -613,7 +613,7 @@
 ## MILESTONE 10: HTTP Admin API
 
 ### P1-10.01 — HTTP server with stdlib router
-- **Status:** `[ ]`
+- **Status:** `[x]`
 - **Deps:** P1-08.01
 - **Files:**
   ```
@@ -623,7 +623,7 @@
 - **Test:** Server starts and responds to health check.
 
 ### P1-10.02 — Topic CRUD endpoints
-- **Status:** `[ ]`
+- **Status:** `[x]`
 - **Deps:** P1-10.01, P1-05.02
 - **Files:**
   ```
@@ -634,7 +634,7 @@
 - **Test:** Full CRUD cycle via HTTP. Invalid JSON → 400. Duplicate → 409. Not found → 404. Partition stats correct.
 
 ### P1-10.03 — Message publish/fetch endpoints
-- **Status:** `[ ]`
+- **Status:** `[x]`
 - **Deps:** P1-10.01, P1-08.02
 - **Files:**
   ```
@@ -645,7 +645,7 @@
 - **Test:** Publish returns offset+partition. Fetch returns messages with next_offset. Fetch with no data returns empty array. Ack succeeds.
 
 ### P1-10.04 — Consumer group and health endpoints
-- **Status:** `[ ]`
+- **Status:** `[x]`
 - **Deps:** P1-10.01
 - **Files:**
   ```
@@ -660,7 +660,7 @@
 ## MILESTONE 11: Prometheus Metrics
 
 ### P1-11.01 — Metrics collector (pure Go Prometheus exposition)
-- **Status:** `[ ]`
+- **Status:** `[x]`
 - **Deps:** P1-01.01
 - **Files:**
   ```
@@ -671,7 +671,7 @@
 - **Test:** IncrCounter increments value. SetGauge sets value. Expose produces valid Prometheus format. Concurrent access is safe. Labels sorted deterministically.
 
 ### P1-11.02 — Broker metric instrumentation
-- **Status:** `[ ]`
+- **Status:** `[x]`
 - **Deps:** P1-11.01, P1-08.02
 - **Files:**
   ```
@@ -685,7 +685,7 @@
 ## MILESTONE 12: CLI Commands
 
 ### P1-12.01 — Server command
-- **Status:** `[ ]`
+- **Status:** `[x]`
 - **Deps:** P1-08.01
 - **Files:**
   ```
@@ -695,7 +695,7 @@
 - **Test:** `chimera server --config test.yaml` starts and stops cleanly. Signal handling works.
 
 ### P1-12.02 — Topic CLI commands
-- **Status:** `[ ]`
+- **Status:** `[x]`
 - **Deps:** P1-10.02
 - **Files:**
   ```
@@ -705,7 +705,7 @@
 - **Test:** Create/list/describe/delete cycle works against running broker.
 
 ### P1-12.03 — Produce/Consume CLI commands
-- **Status:** `[ ]`
+- **Status:** `[x]`
 - **Deps:** P1-10.03
 - **Files:**
   ```
@@ -720,7 +720,7 @@
 ## MILESTONE 13: Integration Testing
 
 ### P1-13.01 — End-to-end queue mode test
-- **Status:** `[ ]`
+- **Status:** `[x]`
 - **Deps:** All previous milestones
 - **Files:**
   ```
@@ -730,7 +730,7 @@
 - **Test:** This IS the test.
 
 ### P1-13.02 — End-to-end stream mode test
-- **Status:** `[ ]`
+- **Status:** `[x]`
 - **Deps:** All previous milestones
 - **Files:**
   ```
@@ -740,7 +740,7 @@
 - **Test:** This IS the test.
 
 ### P1-13.03 — End-to-end unified mode test
-- **Status:** `[ ]`
+- **Status:** `[x]`
 - **Deps:** All previous milestones
 - **Files:**
   ```
@@ -750,7 +750,7 @@
 - **Test:** This IS the test.
 
 ### P1-13.04 — Crash recovery test
-- **Status:** `[ ]`
+- **Status:** `[x]`
 - **Deps:** All previous milestones
 - **Files:**
   ```
@@ -760,7 +760,7 @@
 - **Test:** This IS the test.
 
 ### P1-13.05 — HTTP API integration test
-- **Status:** `[ ]`
+- **Status:** `[x]`
 - **Deps:** All previous milestones
 - **Files:**
   ```
@@ -774,7 +774,7 @@
 ## MILESTONE 14: Benchmarks
 
 ### P1-14.01 — Message codec benchmarks
-- **Status:** `[ ]`
+- **Status:** `[x]`
 - **Deps:** P1-02.04
 - **Files:**
   ```
@@ -784,7 +784,7 @@
 - **Test:** Benchmarks run. Report results.
 
 ### P1-14.02 — Storage benchmarks
-- **Status:** `[ ]`
+- **Status:** `[x]`
 - **Deps:** P1-04.07
 - **Files:**
   ```
@@ -794,7 +794,7 @@
 - **Test:** Benchmarks run. Report results.
 
 ### P1-14.03 — End-to-end publish/consume benchmark
-- **Status:** `[ ]`
+- **Status:** `[x]`
 - **Deps:** P1-08.02
 - **Files:**
   ```
@@ -804,7 +804,7 @@
 - **Test:** Benchmarks run. Report results.
 
 ### P1-14.04 — CLI benchmark command
-- **Status:** `[ ]`
+- **Status:** `[x]`
 - **Deps:** P1-12.03
 - **Files:**
   ```
@@ -818,7 +818,7 @@
 ## MILESTONE 15: Documentation & Polish
 
 ### P1-15.01 — README.md
-- **Status:** `[ ]`
+- **Status:** `[x]`
 - **Deps:** P1-13.05
 - **Files:**
   ```
@@ -828,7 +828,7 @@
 - **Test:** Quickstart instructions work on fresh machine.
 
 ### P1-15.02 — chimera.yaml.example with full comments
-- **Status:** `[ ]`
+- **Status:** `[x]`
 - **Deps:** P1-01.02
 - **Files:**
   ```
@@ -838,7 +838,7 @@
 - **Test:** Example config loads without error.
 
 ### P1-15.03 — Code documentation (godoc)
-- **Status:** `[ ]`
+- **Status:** `[x]`
 - **Deps:** All code milestones
 - **Files:**
   All `.go` files
@@ -850,7 +850,7 @@
 ## MILESTONE 16: CI/CD & Release
 
 ### P1-16.01 — GitHub Actions CI
-- **Status:** `[ ]`
+- **Status:** `[x]`
 - **Deps:** P1-01.01
 - **Files:**
   ```
@@ -860,7 +860,7 @@
 - **Test:** CI passes on push.
 
 ### P1-16.02 — Release workflow
-- **Status:** `[ ]`
+- **Status:** `[x]`
 - **Deps:** P1-16.01
 - **Files:**
   ```
