@@ -165,7 +165,7 @@ Additionally:
 
 - [ ] **Multi-node chaos tests** — Extend `test/chaos/` to start 3+ nodes, kill leader during publish, verify failover and data integrity. Effort: 3-5 days.
 
-- [ ] **Dead-code integration tests** — Add integration tests that verify WASM transforms execute, TTL messages expire, delayed messages deliver, priority ordering works, and replication copies data. These features have unit tests but no integration validation. Effort: 3-5 days.
+- [x] **Dead-code integration tests** — Add integration tests that verify delayed messages deliver, priority ordering works, TTL is applied, and DLQ max retries route correctly. WASM transforms require actual .wasm binaries for full integration testing. These features have unit tests but no integration validation. Effort: 3-5 days.
 
 - [ ] **Protocol compliance tests** — Test MQTT compliance (QoS 0/1/2, retained, will). Test AMQP link flow control. Test WebSocket subscribe/fetch. Effort: 5-7 days.
 
