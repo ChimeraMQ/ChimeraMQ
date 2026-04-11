@@ -99,7 +99,7 @@ Additionally:
 
 - [x] **MQTT QoS 2 verification** — Add integration tests for MQTT QoS 2 exactly-once delivery (4-step PUBREC/PUBREL/PUBCOMP handshake). Reference: SPEC §3.4. Affected files: `internal/protocol/mqtt/`. Effort: 2-3 days.
 
-- [ ] **Stream Processing Join operator** — Implement `JoinOp` for co-partitioned stream joins. Reference: SPEC §10.2. Affected files: `internal/processing/`. Effort: 5-7 days.
+- [x] **Stream Processing Join operator** — Implement `JoinOp` for co-partitioned stream joins. Reference: SPEC §10.2. Affected files: `internal/processing/`. Effort: 5-7 days.
 
 - [x] **Fix stream processor busy loop** — `processing/processor.go`: add sleep/backoff when no messages found in `runTopology`. Effort: 1 hour.
 
