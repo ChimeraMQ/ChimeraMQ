@@ -74,8 +74,8 @@ func (p *StaticProvider) authenticateUser(username, password string) (*Identity,
 			return nil, ErrInvalidCredentials
 		}
 	} else {
-		// Plaintext comparison (for development)
-		if hash != password {
+		// Plaintext comparison (for development only)
+		if subtle.ConstantTimeCompare([]byte(hash), []byte(password)) != 1 {
 			return nil, ErrInvalidCredentials
 		}
 	}

@@ -163,10 +163,22 @@ func CreateColdArchive(path string, sstables []*warm.SSTable) (*ColdArchive, err
 	if err != nil {
 		return nil, err
 	}
-	file.Write(header)       //nolint:errcheck
-	file.Write(dataBuf)      //nolint:errcheck
-	file.Write(segIndexData) //nolint:errcheck
-	file.Write(footer)       //nolint:errcheck
+	if _, err := file.Write(header); err != nil {
+		file.Close()
+		return nil, fmt.Errorf("write header: %w", err)
+	}
+	if _, err := file.Write(dataBuf); err != nil {
+		file.Close()
+		return nil, fmt.Errorf("write data: %w", err)
+	}
+	if _, err := file.Write(segIndexData); err != nil {
+		file.Close()
+		return nil, fmt.Errorf("write index: %w", err)
+	}
+	if _, err := file.Write(footer); err != nil {
+		file.Close()
+		return nil, fmt.Errorf("write footer: %w", err)
+	}
 	file.Close()
 
 	return OpenColdArchive(path)

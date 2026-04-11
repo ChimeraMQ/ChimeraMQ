@@ -119,7 +119,7 @@ func ReadPacket(r io.Reader) (*Packet, error) {
 	if err != nil {
 		return nil, err
 	}
-	if remaining > 256*1024*1024 { // 256MB safety cap
+	if remaining > 16*1024*1024 { // 16MB safety cap (configurable)
 		return nil, fmt.Errorf("remaining length too large: %d", remaining)
 	}
 
