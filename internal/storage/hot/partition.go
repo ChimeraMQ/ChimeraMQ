@@ -6,6 +6,7 @@ import (
 	"os"
 	"path/filepath"
 	"sync"
+	"sync/atomic"
 )
 
 // Partition manages multiple segments for a single topic-partition.
@@ -16,7 +17,7 @@ type Partition struct {
 	dir         string
 	segments    []*Segment
 	active      *Segment
-	highWater   uint64
+	highWater   atomic.Uint64
 	logStart    uint64
 	maxSegSize  int64
 }
@@ -47,7 +48,7 @@ func OpenPartition(dir, topic string, id uint32, maxSegSize int64) (*Partition, 
 	}
 	p.active = p.segments[len(p.segments)-1]
 	if p.active.NextOffset() > 0 {
-		p.highWater = p.active.NextOffset() - 1
+		p.highWater.Store(p.active.NextOffset() - 1)
 	}
 
 	return p, nil
@@ -80,7 +81,7 @@ func (p *Partition) Append(data []byte) (uint64, error) {
 		return 0, err
 	}
 
-	p.highWater = offset
+	p.highWater.Store(offset)
 	return offset, nil
 }
 
@@ -145,11 +146,9 @@ func (p *Partition) ReadRange(startOffset, endOffset uint64, maxMessages int) ([
 	return results, nil
 }
 
-// HighWatermark returns the highest committed offset.
+// HighWatermark returns the highest committed offset (lock-free).
 func (p *Partition) HighWatermark() uint64 {
-	p.mu.RLock()
-	defer p.mu.RUnlock()
-	return p.highWater
+	return p.highWater.Load()
 }
 
 // Topic returns the topic name for this partition.

@@ -274,11 +274,8 @@ func Unmarshal(data []byte) (*Envelope, error) {
 	return e, nil
 }
 
-// ReleaseBuffer zeroes and returns a buffer to the pool.
+// ReleaseBuffer returns a buffer to the pool for reuse.
 func ReleaseBuffer(buf []byte) {
-	for i := range buf {
-		buf[i] = 0
-	}
 	bp := &buf
 	bufferPool.Put(bp)
 }

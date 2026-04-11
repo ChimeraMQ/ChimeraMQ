@@ -15,6 +15,14 @@ const (
 	SegmentHeaderLen = 32
 )
 
+// recordPool reduces allocations for combined write operations.
+var recordPool = sync.Pool{
+	New: func() any {
+		buf := make([]byte, 0, 4096)
+		return &buf
+	},
+}
+
 // Segment represents a single log segment file on disk.
 type Segment struct {
 	mu      sync.RWMutex
@@ -89,14 +97,23 @@ func (s *Segment) Append(data []byte) (offset uint64, position int64, err error)
 	position = s.size
 	offset = s.nextOff
 
-	var lenBuf [4]byte
-	binary.BigEndian.PutUint32(lenBuf[:], uint32(len(data)))
-	if _, err := s.file.WriteAt(lenBuf[:], position); err != nil {
+	// Single write: length prefix + data combined to reduce syscalls
+	bp := recordPool.Get().(*[]byte)
+	buf := *bp
+	if cap(buf) < 4+len(data) {
+		buf = make([]byte, 4+len(data))
+	} else {
+		buf = buf[:4+len(data)]
+	}
+	binary.BigEndian.PutUint32(buf[:4], uint32(len(data)))
+	copy(buf[4:], data)
+	if _, err := s.file.WriteAt(buf, position); err != nil {
+		*bp = buf
+		recordPool.Put(bp)
 		return 0, 0, err
 	}
-	if _, err := s.file.WriteAt(data, position+4); err != nil {
-		return 0, 0, err
-	}
+	*bp = buf
+	recordPool.Put(bp)
 
 	s.size += int64(recordSize)
 	s.nextOff++

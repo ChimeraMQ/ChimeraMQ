@@ -19,6 +19,9 @@ const (
 	WALHeaderSize = 17 // type(1) + size(4) + timestamp(8) + crc(4)
 )
 
+// castagnoliTable is pre-computed to avoid per-message allocation.
+var castagnoliTable = crc32.MakeTable(crc32.Castagnoli)
+
 // EntryType identifies the kind of WAL entry.
 type EntryType uint8
 
@@ -101,7 +104,7 @@ func (w *WAL) Append(entryType EntryType, data []byte) (uint64, error) {
 	binary.BigEndian.PutUint32(header[1:], uint32(len(data)))
 	binary.BigEndian.PutUint64(header[5:], uint64(time.Now().UnixNano()))
 
-	crc := crc32.New(crc32.MakeTable(crc32.Castagnoli))
+	crc := crc32.New(castagnoliTable)
 	crc.Write(header[:13])
 	crc.Write(data)
 	binary.BigEndian.PutUint32(header[13:], crc.Sum32())
@@ -162,7 +165,7 @@ func (w *WAL) Recover(fromOffset uint64, fn func(EntryType, []byte) error) error
 				break // Partial entry (crash recovery)
 			}
 
-			crc := crc32.New(crc32.MakeTable(crc32.Castagnoli))
+			crc := crc32.New(castagnoliTable)
 			crc.Write(header[:13])
 			crc.Write(data)
 			if crc.Sum32() != storedCRC {

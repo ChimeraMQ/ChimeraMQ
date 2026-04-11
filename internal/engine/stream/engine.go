@@ -150,34 +150,25 @@ func (se *Engine) NotifyWaiters(topic string, partID uint32) {
 }
 
 func (se *Engine) readMessages(part *hot.Partition, from, to uint64, max int) ([]*message.Envelope, uint64, error) {
-	var msgs []*message.Envelope
-
 	end := to
 	if from+uint64(max)-1 < end {
 		end = from + uint64(max) - 1
 	}
 
-	topic := part.Topic()
-	partID := part.PartitionID()
+	// Use ReadRange for sequential scan (single lock acquisition + single
+	// index lookup instead of N lock cycles and N binary searches).
+	rawMsgs, err := part.ReadRange(from, end, max)
+	if err != nil || len(rawMsgs) == 0 {
+		return nil, from, err
+	}
 
-	for offset := from; offset <= end; offset++ {
-		data, err := part.Read(offset)
-		if err != nil {
-			// Try tier-aware fallback
-			if se.migrator != nil {
-				data, err = se.migrator.Read(topic, partID, offset)
-				if err != nil {
-					break
-				}
-			} else {
-				break
-			}
-		}
+	msgs := make([]*message.Envelope, 0, len(rawMsgs))
+	for i, data := range rawMsgs {
 		env, err := message.Unmarshal(data)
 		if err != nil {
 			continue
 		}
-		env.Sequence = offset
+		env.Sequence = from + uint64(i)
 		msgs = append(msgs, env)
 	}
 
