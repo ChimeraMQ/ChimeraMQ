@@ -493,12 +493,17 @@ func (s *AdminServer) handleFetch(w http.ResponseWriter, r *http.Request) {
 	limitStr := r.URL.Query().Get("limit")
 	timeoutStr := r.URL.Query().Get("timeout")
 
+	topicCfg, _ := s.broker.Topics().GetTopic(topic)
 	partition := uint32(0)
 	if partitionStr != "" {
 		if v, err := strconv.ParseUint(partitionStr, 10, 32); err == nil {
 			partition = uint32(v)
 		} else {
 			writeError(w, http.StatusBadRequest, "invalid partition parameter")
+			return
+		}
+		if topicCfg != nil && partition >= topicCfg.Partitions {
+			writeError(w, http.StatusBadRequest, "partition out of range")
 			return
 		}
 	}
@@ -532,6 +537,9 @@ func (s *AdminServer) handleFetch(w http.ResponseWriter, r *http.Request) {
 		if d, err := time.ParseDuration(timeoutStr); err == nil {
 			if d > maxFetchTimeout {
 				d = maxFetchTimeout
+			}
+			if d < 100*time.Millisecond {
+				d = 100 * time.Millisecond
 			}
 			timeout = d
 		}

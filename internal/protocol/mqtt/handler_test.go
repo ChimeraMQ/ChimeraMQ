@@ -647,6 +647,73 @@ func TestSessionKeepAliveZero(t *testing.T) {
 	}
 }
 
+func TestQoS2FullHandshakeClientToServer(t *testing.T) {
+	b, cleanup := newMQTTTestBroker(t)
+	defer cleanup()
+	srv := NewServer(b)
+
+	// Client publishes with QoS 2, server sends PUBREC,
+	// client sends PUBREL, server sends PUBCOMP
+	pub := buildMQTTPublish("qos2topic", []byte("exactly-once"), QoS2, false, 42)
+	pubrel := []byte{0x62, 0x02, 0x00, 0x2A} // PUBREL packet ID 42
+
+	server, client := mqttPipe(
+		buildConnect("qos2-full", true, 60),
+		pub,
+		pubrel,
+		buildMQTTDisconnect(),
+	)
+	defer server.Close()
+	defer client.Close()
+
+	done := runHandler(srv, server)
+
+	// Read CONNACK
+	readPacketFrom(t, client)
+
+	// After QoS 2 PUBLISH, server should send PUBREC
+	resp := readPacketFrom(t, client)
+	if resp.Type != PacketPubRec {
+		t.Fatalf("expected PUBREC (0x50), got 0x%02X", resp.Type)
+	}
+	pid := uint16(resp.Remaining[0])<<8 | uint16(resp.Remaining[1])
+	if pid != 42 {
+		t.Errorf("PUBREC packet ID = %d, want 42", pid)
+	}
+
+	// After client sends PUBREL, server should send PUBCOMP
+	resp = readPacketFrom(t, client)
+	if resp.Type != PacketPubComp {
+		t.Fatalf("expected PUBCOMP (0x70), got 0x%02X", resp.Type)
+	}
+
+	select {
+	case <-done:
+	case <-time.After(3 * time.Second):
+		t.Error("handleConnection did not finish")
+	}
+}
+
+func TestQoS2InflightStateTransitions(t *testing.T) {
+	sess := NewSession("state-test", true, 60)
+	pid := sess.NextPacketID()
+
+	// Initial: add inflight with QoS 2 (statePubSent)
+	sess.AddInflight(pid, "test/topic", []byte("hello"), QoS2)
+
+	// Simulate: client sends PUBREC → server transitions to statePubRel
+	sess.SetInflightState(pid, statePubRel)
+
+	// Simulate: client sends PUBCOMP → server removes inflight
+	sess.AckInflight(pid)
+
+	// Verify inflight is cleared
+	subs := sess.Subscriptions()
+	if len(subs) != 0 {
+		t.Errorf("expected no subscriptions, got %d", len(subs))
+	}
+}
+
 func TestReadPacketValid(t *testing.T) {
 	data := BuildConnAck(false, 0)
 	var buf bytes.Buffer

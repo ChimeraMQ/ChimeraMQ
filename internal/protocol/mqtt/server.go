@@ -179,7 +179,7 @@ func (s *Server) handleConnection(conn net.Conn) {
 		case PacketPubRec:
 			if len(pkt.Remaining) >= 2 {
 				pid := uint16(pkt.Remaining[0])<<8 | uint16(pkt.Remaining[1])
-				session.SetInflightState(pid, statePubRec)
+				session.SetInflightState(pid, statePubRel)
 				// Send PUBREL
 				s.writePacket(writer, PacketPubRel, 0x02, []byte{pkt.Remaining[0], pkt.Remaining[1]})
 				writer.Flush()
@@ -256,6 +256,8 @@ func (s *Server) handlePublish(writer *bufio.Writer, session *Session, pkt *Pack
 		}
 	case QoS2:
 		if pub.PacketID != 0 {
+			// Store in inflight to deduplicate until PUBREL arrives
+			session.AddInflight(pub.PacketID, chimeraTopic, pub.Payload, QoS2)
 			// Send PUBREC
 			pid := make([]byte, 2)
 			pid[0] = byte(pub.PacketID >> 8)
