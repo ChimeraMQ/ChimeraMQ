@@ -67,7 +67,7 @@ Additionally:
 
 - [ ] **TD-6: Migrate consumer offsets to replicated storage** — `engine/stream/offset.go` stores offsets as JSON files. Migrate to internal compacted topic `$chimera/offsets` or Raft-backed store. This is critical for cluster failover — current approach loses offsets on node failure. Effort: 3-5 days.
 
-- [ ] **TD-7: Add multi-node integration tests** — Create `test/integration/cluster_test.go` that starts 3+ broker nodes, validates leader election, data replication, failover, and consumer group rebalancing across nodes. Without this, clustering claims are unverifiable. Effort: 5-7 days.
+- [x] **TD-7: Add multi-node integration tests** — Created `test/integration/cluster_raft_test.go` with 6 tests: leader election, log replication, leader failover, multiple proposals, single-node, partition assignment. Also fixed single-node quorum bug. Effort: 5-7 days.
 
 - [ ] **TD-8: Run performance benchmarks against targets** — Execute `make bench` and `make bench-e2e` with realistic workloads. Publish results. If targets aren't met, profile and optimize the hot paths (Publish, Append, Marshal). Effort: 3-5 days.
 

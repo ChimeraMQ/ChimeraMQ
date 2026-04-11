@@ -15,6 +15,7 @@ const (
 	CmdAssignPartition CommandType = "assign_partition"
 	CmdJoinGroup       CommandType = "join_group"
 	CmdLeaveGroup      CommandType = "leave_group"
+	CmdCommitOffset    CommandType = "commit_offset"
 )
 
 // Command is a metadata operation applied via Raft.
@@ -87,6 +88,8 @@ func (f *MetadataFSM) Apply(entry LogEntry) error {
 		return f.applyJoinGroup(cmd.Data)
 	case CmdLeaveGroup:
 		return f.applyLeaveGroup(cmd.Data)
+	case CmdCommitOffset:
+		return nil // Offset commits applied by RaftOffsetStore directly
 	}
 	return nil
 }
