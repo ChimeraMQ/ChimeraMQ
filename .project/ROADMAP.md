@@ -83,7 +83,7 @@ Additionally:
 
 - [x] **TD-15: Don't drop Raft state save errors** — `cluster/raft/node.go` line 637-638: log and handle errors from `json.Marshal`/`os.WriteFile`. Effort: 30 minutes.
 
-- [ ] **TD-18: Fix WaitGroup usage** — `broker/broker.go`: either use `wg.Add(1)` for background goroutines or remove the WaitGroup. Currently `wg.Wait()` in `Stop()` is a no-op. Effort: 2 hours.
+- [x] **TD-18: Fix WaitGroup usage** — `broker/broker.go`: either use `wg.Add(1)` for background goroutines or remove the WaitGroup. Currently `wg.Wait()` in `Stop()` is a no-op. Effort: 2 hours.
 
 - [x] **Remove panic from UI embed** — `internal/ui/embed.go:19` calls `panic()` on embed error. Change to return error from `Start()`. Effort: 30 minutes.
 
@@ -97,7 +97,7 @@ Additionally:
 
 - [ ] **AMQP Exchange/Binding routing** — Implement direct, topic, fanout, and headers exchange types with binding resolution. Reference: SPEC §3.3. Affected files: `internal/protocol/amqp/`. Effort: 5-7 days.
 
-- [ ] **MQTT QoS 2 verification** — Add integration tests for MQTT QoS 2 exactly-once delivery (4-step PUBREC/PUBREL/PUBCOMP handshake). Reference: SPEC §3.4. Affected files: `internal/protocol/mqtt/`. Effort: 2-3 days.
+- [x] **MQTT QoS 2 verification** — Add integration tests for MQTT QoS 2 exactly-once delivery (4-step PUBREC/PUBREL/PUBCOMP handshake). Reference: SPEC §3.4. Affected files: `internal/protocol/mqtt/`. Effort: 2-3 days.
 
 - [ ] **Stream Processing Join operator** — Implement `JoinOp` for co-partitioned stream joins. Reference: SPEC §10.2. Affected files: `internal/processing/`. Effort: 5-7 days.
 
@@ -107,9 +107,9 @@ Additionally:
 
 - [x] **DLQ persistence** — `engine/dlq/dlq.go`: persist DLQ entries to disk (write-ahead or append-only file) so they survive restart. Effort: 1-2 days.
 
-- [ ] **SCRAM-SHA-256 authentication** — Implement per spec §11.1. Affected files: `internal/auth/`. Effort: 2-3 days.
+- [x] **SCRAM-SHA-256 authentication** — Implement per spec §11.1. Affected files: `internal/auth/`. Effort: 2-3 days.
 
-- [ ] **Consumer group sticky rebalancing** — Implement true sticky rebalance (currently falls through to round-robin). Reference: SPEC §6.2. Effort: 2-3 days.
+- [x] **Consumer group sticky rebalancing** — Implement true sticky rebalance (currently falls through to round-robin). Reference: SPEC §6.2. Effort: 2-3 days.
 
 - [x] **Tenant rate limit enforcement** — `tenant/tenant.go`: actually track and enforce rate limits (currently dead code). Effort: 1-2 days.
 
@@ -119,25 +119,25 @@ Additionally:
 
 ### Security, error handling, edge cases
 
-- [ ] **Audit 110 discarded errors** — Review all `_ = err` instances in source files. Many are intentional (deferred close), but some may hide real bugs. Fix any that are genuine error suppression. Effort: 2-3 days.
+- [x] **Audit 110 discarded errors** — Review all `_ = err` instances in source files. Many are intentional (deferred close), but some may hide real bugs. Fix any that are genuine error suppression. Effort: 2-3 days.
 
-- [ ] **Fix constant-time token comparison** — `auth/static.go`: use `subtle.ConstantTimeCompare` for token auth. Effort: 30 minutes.
+- [x] **Fix constant-time token comparison** — `auth/static.go`: use `subtle.ConstantTimeCompare` for token auth. Effort: 30 minutes.
 
-- [ ] **Remove plaintext password fallback** — `auth/static.go`: only allow bcrypt in production (or require explicit `CHIMERA_ALLOW_PLAINTEXT=1` env var). Effort: 1 hour.
+- [x] **Remove plaintext password fallback** — `auth/static.go`: only allow bcrypt in production (or require explicit `CHIMERA_ALLOW_PLAINTEXT=1` env var). Effort: 1 hour.
 
-- [ ] **Add WebSocket message size limit** — `protocol/ws/server.go`: set `ReadLimit` on WebSocket connection. Effort: 30 minutes.
+- [x] **Add WebSocket message size limit** — `protocol/ws/server.go`: set `ReadLimit` on WebSocket connection. Effort: 30 minutes.
 
 - [ ] **Input validation hardening** — Clamp all user-controlled values: partition count, fetch limits, message sizes, timeout durations, keepalive intervals. Effort: 2-3 days.
 
-- [ ] **Error message sanitization** — Replace `err.Error()` with generic messages in HTTP/TCP responses. Effort: 1-2 days.
+- [x] **Error message sanitization** — Replace `err.Error()` with generic messages in HTTP/TCP responses. Effort: 1-2 days.
 
-- [ ] **Fix segment `frozen` field data race** — `storage/hot/segment.go`: use atomic or lock consistently for `frozen` field. Effort: 1 hour.
+- [x] **Fix segment `frozen` field data race** — `storage/hot/segment.go`: use atomic or lock consistently for `frozen` field. Effort: 1 hour.
 
-- [ ] **Fix compaction lock hold time** — `storage/hot/compaction.go`: release partition lock during disk I/O, reacquire only for segment swap. Effort: 2-3 hours.
+- [x] **Fix compaction lock hold time** — `storage/hot/compaction.go`: release partition lock during disk I/O, reacquire only for segment swap. Effort: 2-3 hours.
 
 - [ ] **Default configuration hardening** — Change default bind from `0.0.0.0` to `127.0.0.1`. Enable auth by default with a generated token. Add startup warning when auth is disabled. Effort: 1 day.
 
-- [ ] **MCP version injection** — `mcp/server.go`: inject version via ldflags instead of hardcoding "0.7.0". Effort: 30 minutes.
+- [x] **MCP version injection** — `mcp/server.go`: inject version via ldflags instead of hardcoding "0.7.0". Effort: 30 minutes.
 
 ---
 

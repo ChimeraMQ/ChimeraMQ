@@ -8,6 +8,8 @@ import (
 	"path/filepath"
 	"sync"
 	"time"
+
+	"log/slog"
 )
 
 // SchemaType identifies the schema format.
@@ -391,6 +393,6 @@ func (r *Registry) saveGlobalID() {
 	tmpPath := path + ".tmp"
 	if os.WriteFile(tmpPath, data, 0640) == nil {
 		os.Remove(path)
-		_ = os.Rename(tmpPath, path)
+		if err := os.Rename(tmpPath, path); err != nil { slog.Error("schema global id rename", "err", err) }
 	}
 }

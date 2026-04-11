@@ -11,6 +11,10 @@ import (
 
 func (s *AdminServer) handleConsumerJoin(w http.ResponseWriter, r *http.Request) {
 	group := r.PathValue("group")
+	if group == "" || len(group) > 255 {
+		writeError(w, http.StatusBadRequest, "invalid group name")
+		return
+	}
 	var req struct {
 		MemberID   string `json:"member_id"`
 		Topic      string `json:"topic"`
@@ -23,6 +27,10 @@ func (s *AdminServer) handleConsumerJoin(w http.ResponseWriter, r *http.Request)
 	}
 	if req.MemberID == "" || req.Topic == "" {
 		writeError(w, http.StatusBadRequest, "member_id and topic are required")
+		return
+	}
+	if len(req.MemberID) > 255 {
+		writeError(w, http.StatusBadRequest, "member_id too long")
 		return
 	}
 	if req.Partitions == 0 {

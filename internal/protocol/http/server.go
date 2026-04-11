@@ -302,8 +302,17 @@ func (s *AdminServer) handleCreateTopic(w http.ResponseWriter, r *http.Request) 
 		mode = broker.ModeQueue
 	}
 
+	if !validateTopicName(req.Name) {
+		writeError(w, http.StatusBadRequest, "invalid topic name")
+		return
+	}
+
 	if req.Partitions == 0 {
 		req.Partitions = s.broker.Config().Defaults.Topic.Partitions
+	}
+	if maxP := s.broker.Config().Limits.MaxPartitionsPerTopic; maxP > 0 && req.Partitions > maxP {
+		writeError(w, http.StatusBadRequest, "partitions exceed maximum")
+		return
 	}
 
 	cfg := broker.TopicConfig{
@@ -679,6 +688,18 @@ func writeError(w http.ResponseWriter, status int, msg string) {
 	writeJSON(w, status, map[string]string{"error": msg})
 }
 
+// validateTopicName checks that a topic name is non-empty, has a reasonable length,
+// and contains no path traversal characters.
+func validateTopicName(name string) bool {
+	if name == "" || len(name) > 255 {
+		return false
+	}
+	if strings.Contains(name, "..") || strings.ContainsAny(name, "/\\") {
+		return false
+	}
+	return true
+}
+
 // singleConnListener is a net.Listener that yields a single connection.
 type singleConnListener struct {
 	conn net.Conn
@@ -713,6 +734,10 @@ func (s *AdminServer) handleRegisterSchema(w http.ResponseWriter, r *http.Reques
 	subject := r.PathValue("subject")
 	if subject == "" {
 		http.Error(w, "subject is required", http.StatusBadRequest)
+		return
+	}
+	if len(subject) > 255 {
+		http.Error(w, "subject too long", http.StatusBadRequest)
 		return
 	}
 

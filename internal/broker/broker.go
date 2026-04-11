@@ -127,8 +127,9 @@ func (b *Broker) Start() error {
 		default:
 			b.logger.Info("auth enabled (" + b.config.Auth.Type + ")")
 		}
+	} else {
+		b.logger.Warn("authentication is DISABLED - all connections accepted without credentials")
 	}
-
 	// Step 2c: ACL Engine (if enabled)
 	if b.config.ACL.Enabled {
 		defaultPolicy := auth.ParsePermission(b.config.ACL.DefaultPolicy)

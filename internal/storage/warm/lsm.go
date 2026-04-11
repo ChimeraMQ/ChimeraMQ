@@ -328,7 +328,7 @@ func (lsm *LSMTree) compactL0() {
 	// Remove old SSTables
 	for _, sst := range toCompact {
 		if err := lsm.manifest.Remove(sst.Path()); err != nil { slog.Error("manifest remove", "err", err) }
-		_ = sst.Remove()
+		if err := sst.Remove(); err != nil { slog.Error("sst remove", "path", sst.Path(), "err", err) }
 	}
 
 	lsm.mu.Lock()
@@ -369,7 +369,7 @@ func (lsm *LSMTree) RemoveSSTable(sst *SSTable) {
 		}
 	}
 	if err := lsm.manifest.Remove(sst.Path()); err != nil { slog.Error("manifest remove", "err", err) }
-	_ = sst.Remove()
+	if err := sst.Remove(); err != nil { slog.Error("sst remove", "path", sst.Path(), "err", err) }
 }
 
 func collectEntries(sst *SSTable) map[uint64]MemTableEntry {

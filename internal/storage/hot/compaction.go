@@ -3,6 +3,7 @@ package hot
 import (
 	"encoding/binary"
 	"fmt"
+	"log/slog"
 	"os"
 	"path/filepath"
 	"sync"
@@ -136,7 +137,7 @@ func (lc *LogCompactor) Compact(p *Partition) error {
 			return err
 		}
 	}
-	_ = compactedFile.Sync()
+	if err := compactedFile.Sync(); err != nil { slog.Error("compaction sync", "err", err) }
 	compactedFile.Close()
 
 	// Phase 3: swap segments under write lock

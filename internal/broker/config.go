@@ -678,7 +678,7 @@ func (c *Config) Validate() error {
 	}
 	if c.Auth.Enabled {
 		switch c.Auth.Type {
-		case "static", "file", "oauth", "ldap", "mtls":
+		case "static", "file", "oauth", "ldap", "mtls", "scram":
 		default:
 			return fmt.Errorf("auth.type must be 'static', 'file', 'oauth', or 'ldap'")
 		}
