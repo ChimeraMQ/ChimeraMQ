@@ -8,6 +8,9 @@ import (
 	"io"
 	"net"
 	"net/http"
+	"net/http/pprof"
+	"os"
+	"runtime/trace"
 	"strconv"
 	"strings"
 	"time"
@@ -18,6 +21,7 @@ import (
 	"github.com/chimeramq/chimera/internal/message"
 	"github.com/chimeramq/chimera/internal/processing"
 	"github.com/chimeramq/chimera/internal/schema"
+	"github.com/chimeramq/chimera/internal/tenant"
 	"github.com/chimeramq/chimera/internal/ui"
 )
 
@@ -95,6 +99,17 @@ func (s *AdminServer) registerRoutes() {
 	s.mux.HandleFunc("GET /v1/dlq/{topic}", s.auth(s.handleDLQPeek))
 	s.mux.HandleFunc("DELETE /v1/dlq/{topic}", s.auth(s.handleDLQClear))
 	s.mux.HandleFunc("POST /v1/dlq/{topic}/replay", s.auth(s.handleDLQReplay))
+	s.mux.HandleFunc("POST /v1/dlq/{topic}/preview", s.auth(s.handleDLQPreview))
+	s.mux.HandleFunc("GET /v1/dlq/{topic}/export", s.auth(s.handleDLQExport))
+
+	// Tenant management endpoints
+	s.mux.HandleFunc("POST /v1/tenants", s.auth(s.handleCreateTenant))
+	s.mux.HandleFunc("GET /v1/tenants", s.auth(s.handleListTenants))
+	s.mux.HandleFunc("GET /v1/tenants/{id}", s.auth(s.handleGetTenant))
+	s.mux.HandleFunc("DELETE /v1/tenants/{id}", s.auth(s.handleDeleteTenant))
+	s.mux.HandleFunc("GET /v1/tenants/{id}/usage", s.auth(s.handleGetTenantUsage))
+	s.mux.HandleFunc("GET /v1/tenants/{id}/quotas", s.auth(s.handleGetTenantQuotas))
+	s.mux.HandleFunc("PUT /v1/tenants/{id}/quotas", s.auth(s.handleUpdateTenantQuotas))
 
 	// Exchange endpoints
 	s.mux.HandleFunc("POST /v1/exchanges", s.auth(s.handleCreateExchange))
@@ -105,12 +120,114 @@ func (s *AdminServer) registerRoutes() {
 	s.mux.HandleFunc("DELETE /v1/exchanges/{name}/bindings", s.auth(s.handleUnbindExchange))
 	s.mux.HandleFunc("POST /v1/exchanges/{name}/publish", s.auth(s.handlePublishToExchange))
 
+	// Config reload endpoint
+	s.mux.HandleFunc("POST /v1/config/reload", s.auth(s.handleConfigReload))
+
+	// pprof profiling endpoints (when enabled)
+	if s.broker.Config().Observability.PProf.Enabled {
+		s.registerPProfRoutes()
+	}
+
 	// Embedded Web UI dashboard
 	if s.broker.Config().Observability.Dashboard.Enabled {
 		if h, err := ui.Handler(); err == nil {
 			s.mux.Handle("/ui/", http.StripPrefix("/ui", h))
 		}
 	}
+}
+
+// registerPProfRoutes registers pprof profiling endpoints.
+func (s *AdminServer) registerPProfRoutes() {
+	s.mux.HandleFunc("/debug/pprof/", s.auth(s.handlePProfIndex))
+	s.mux.HandleFunc("/debug/pprof/allocs", s.auth(s.handlePProfAllocs))
+	s.mux.HandleFunc("/debug/pprof/block", s.auth(s.handlePProfBlock))
+	s.mux.HandleFunc("/debug/pprof/cmdline", s.auth(s.handlePProfCmdline))
+	s.mux.HandleFunc("/debug/pprof/goroutine", s.auth(s.handlePProfGoroutine))
+	s.mux.HandleFunc("/debug/pprof/heap", s.auth(s.handlePProfHeap))
+	s.mux.HandleFunc("/debug/pprof/mutex", s.auth(s.handlePProfMutex))
+	s.mux.HandleFunc("/debug/pprof/profile", s.auth(s.handlePProfProfile))
+	s.mux.HandleFunc("/debug/pprof/threadcreate", s.auth(s.handlePProfThreadcreate))
+	s.mux.HandleFunc("/debug/pprof/trace", s.auth(s.handlePProfTrace))
+}
+
+// handlePProfIndex serves the pprof index page.
+func (s *AdminServer) handlePProfIndex(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	fmt.Fprintf(w, `<html>
+<head><title>ChimeraMQ pprof</title></head>
+<body>
+<h1>ChimeraMQ pprof</h1>
+<ul>
+<li><a href="/debug/pprof/allocs">allocs</a></li>
+<li><a href="/debug/pprof/block">block</a></li>
+<li><a href="/debug/pprof/cmdline">cmdline</a></li>
+<li><a href="/debug/pprof/goroutine">goroutine</a></li>
+<li><a href="/debug/pprof/heap">heap</a></li>
+<li><a href="/debug/pprof/mutex">mutex</a></li>
+<li><a href="/debug/pprof/profile?seconds=30">profile (30 sec)</a></li>
+<li><a href="/debug/pprof/threadcreate">threadcreate</a></li>
+<li><a href="/debug/pprof/trace?seconds=5">trace (5 sec)</a></li>
+</ul>
+</body>
+</html>
+`)
+}
+
+// handlePProfAllocs serves the allocs profile.
+func (s *AdminServer) handlePProfAllocs(w http.ResponseWriter, r *http.Request) {
+	pprof.Handler("allocs").ServeHTTP(w, r)
+}
+
+// handlePProfBlock serves the block profile.
+func (s *AdminServer) handlePProfBlock(w http.ResponseWriter, r *http.Request) {
+	pprof.Handler("block").ServeHTTP(w, r)
+}
+
+// handlePProfCmdline serves the cmdline profile.
+func (s *AdminServer) handlePProfCmdline(w http.ResponseWriter, r *http.Request) {
+	pprof.Cmdline(w, r)
+}
+
+// handlePProfGoroutine serves the goroutine profile.
+func (s *AdminServer) handlePProfGoroutine(w http.ResponseWriter, r *http.Request) {
+	pprof.Handler("goroutine").ServeHTTP(w, r)
+}
+
+// handlePProfHeap serves the heap profile.
+func (s *AdminServer) handlePProfHeap(w http.ResponseWriter, r *http.Request) {
+	pprof.Handler("heap").ServeHTTP(w, r)
+}
+
+// handlePProfMutex serves the mutex profile.
+func (s *AdminServer) handlePProfMutex(w http.ResponseWriter, r *http.Request) {
+	pprof.Handler("mutex").ServeHTTP(w, r)
+}
+
+// handlePProfProfile serves the CPU profile.
+func (s *AdminServer) handlePProfProfile(w http.ResponseWriter, r *http.Request) {
+	pprof.Profile(w, r)
+}
+
+// handlePProfThreadcreate serves the threadcreate profile.
+func (s *AdminServer) handlePProfThreadcreate(w http.ResponseWriter, r *http.Request) {
+	pprof.Handler("threadcreate").ServeHTTP(w, r)
+}
+
+// handlePProfTrace serves the trace profile.
+func (s *AdminServer) handlePProfTrace(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/octet-stream")
+	if err := trace.Start(w); err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	defer trace.Stop()
+
+	// Wait for the specified duration or default 1 second
+	duration := 1 * time.Second
+	if sec, _ := strconv.Atoi(r.URL.Query().Get("seconds")); sec > 0 {
+		duration = time.Duration(sec) * time.Second
+	}
+	time.Sleep(duration)
 }
 
 // securityMiddleware adds security headers and CORS support.
@@ -187,12 +304,17 @@ func (s *AdminServer) auth(next http.HandlerFunc) http.HandlerFunc {
 			if name == "" {
 				name = r.PathValue("subject")
 			}
+			if name == "" {
+				name = r.PathValue("id") // for tenant IDs
+			}
 			if r.URL.Path != "" && strings.Contains(r.URL.Path, "/schemas/") {
 				rt = auth.ResourceSchema
 			} else if strings.Contains(r.URL.Path, "/wasm/") {
 				rt = auth.ResourceWASM
 			} else if strings.Contains(r.URL.Path, "/cluster/") || strings.Contains(r.URL.Path, "/processors") {
 				rt = auth.ResourceCluster
+			} else if strings.Contains(r.URL.Path, "/tenants/") {
+				rt = auth.ResourceTenant
 			}
 			if name == "" {
 				name = "*"
@@ -568,6 +690,19 @@ func (s *AdminServer) handleFetch(w http.ResponseWriter, r *http.Request) {
 		s.broker.Logger().Error("fetch failed", "topic", topic, "error", err)
 		writeError(w, http.StatusInternalServerError, "internal error")
 		return
+	}
+
+	// Record fetch for quota tracking
+	if qe := s.broker.QuotaEnforcer(); qe != nil {
+		if tm := s.broker.TenantManager(); tm != nil {
+			if t := tm.GetTenant(topic); t != nil {
+				var totalBytes int64
+				for _, env := range msgs {
+					totalBytes += int64(len(env.Payload))
+				}
+				qe.RecordFetch(t.ID, totalBytes)
+			}
+		}
 	}
 
 	type fetchMsg struct {
@@ -1093,18 +1228,421 @@ func (s *AdminServer) handleDLQReplay(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	replayed := 0
-	for {
-		entry := d.Pop(topic)
-		if entry == nil || entry.OriginalMsg == nil {
-			break
+	// Parse replay options from request body
+	var req struct {
+		DryRun            bool                   `json:"dry_run"`
+		MaxMessages       int                    `json:"max_messages"`
+		TargetTopic       string                 `json:"target_topic"`
+		DeleteAfterReplay bool                   `json:"delete_after_replay"`
+		Condition         map[string]interface{} `json:"condition"`
+		AddDLQMetadata    bool                   `json:"add_dlq_metadata"`
+	}
+
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil && err.Error() != "EOF" {
+		// Use defaults if no body or invalid
+		req.DryRun = false
+		req.MaxMessages = 0
+		req.DeleteAfterReplay = false
+	}
+
+	// Build replay options
+	opts := dlq.DefaultReplayOptions()
+	opts.DryRun = req.DryRun
+	opts.MaxMessages = req.MaxMessages
+	opts.TargetTopic = req.TargetTopic
+	opts.DeleteAfterReplay = req.DeleteAfterReplay
+
+	// Apply conditions from request
+	if req.Condition != nil {
+		opts.Condition = parseCondition(req.Condition)
+	}
+
+	// Build transform
+	transforms := []dlq.ReplayTransform{dlq.NoTransform()}
+	if req.AddDLQMetadata {
+		transforms = append(transforms, dlq.AddDLQMetadata())
+	}
+	opts.Transform = dlq.ChainTransforms(transforms...)
+
+	// Perform replay
+	result, err := d.ReplayWithOptions(topic, opts, func(msg *message.Envelope, targetTopic string) error {
+		if targetTopic == "" {
+			targetTopic = topic
 		}
-		if _, err := s.broker.Publish(entry.OriginalMsg); err == nil {
-			replayed++
+		msg.Topic = targetTopic
+		_, err := s.broker.Publish(msg)
+		return err
+	})
+
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, fmt.Sprintf("replay failed: %v", err))
+		return
+	}
+
+	writeJSON(w, http.StatusOK, map[string]interface{}{
+		"replayed": result.ReplayedCount,
+		"failed":   result.FailedCount,
+		"matched":  result.MatchedEntries,
+		"total":    result.TotalEntries,
+		"skipped":  result.SkippedCount,
+		"dry_run":  req.DryRun,
+		"topic":    topic,
+		"errors":   len(result.Errors),
+	})
+}
+
+// parseCondition parses a condition from request parameters.
+func parseCondition(cond map[string]interface{}) dlq.ReplayCondition {
+	conditions := []dlq.ReplayCondition{dlq.AllMessages()}
+
+	if reason, ok := cond["reason"].(string); ok && reason != "" {
+		conditions = append(conditions, dlq.ByReason(reason))
+	}
+
+	if minRetries, ok := cond["min_retries"].(float64); ok && minRetries > 0 {
+		conditions = append(conditions, dlq.ByRetryCount(int(minRetries)))
+	}
+
+	if pattern, ok := cond["reason_pattern"].(string); ok && pattern != "" {
+		conditions = append(conditions, dlq.ByReasonPattern(pattern))
+	}
+
+	if payload, ok := cond["payload_contains"].(string); ok && payload != "" {
+		conditions = append(conditions, dlq.ByPayloadContains(payload))
+	}
+
+	if len(conditions) == 1 {
+		return conditions[0]
+	}
+	return dlq.CompositeAND(conditions...)
+}
+
+// handleDLQPreview returns a preview of messages that would be replayed.
+func (s *AdminServer) handleDLQPreview(w http.ResponseWriter, r *http.Request) {
+	topic := r.PathValue("topic")
+	d := s.broker.DLQHandler()
+	if d == nil {
+		http.Error(w, "DLQ not enabled", http.StatusServiceUnavailable)
+		return
+	}
+
+	// Parse preview options from request body
+	var req struct {
+		MaxMessages int                    `json:"max_messages"`
+		Condition   map[string]interface{} `json:"condition"`
+	}
+
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil && err.Error() != "EOF" {
+		req.MaxMessages = 100 // default
+	}
+
+	opts := dlq.DefaultReplayOptions()
+	opts.MaxMessages = req.MaxMessages
+	if req.Condition != nil {
+		opts.Condition = parseCondition(req.Condition)
+	}
+
+	entries, err := d.ReplayPreview(topic, opts)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, fmt.Sprintf("preview failed: %v", err))
+		return
+	}
+
+	writeJSON(w, http.StatusOK, map[string]interface{}{
+		"entries": entries,
+		"count":   len(entries),
+		"topic":   topic,
+	})
+}
+
+// handleDLQExport exports DLQ entries as JSON.
+func (s *AdminServer) handleDLQExport(w http.ResponseWriter, r *http.Request) {
+	topic := r.PathValue("topic")
+	d := s.broker.DLQHandler()
+	if d == nil {
+		http.Error(w, "DLQ not enabled", http.StatusServiceUnavailable)
+		return
+	}
+
+	// Parse query parameters
+	maxMessages := 0
+	if m := r.URL.Query().Get("max_messages"); m != "" {
+		_, _ = fmt.Sscanf(m, "%d", &maxMessages)
+	}
+
+	opts := dlq.DefaultReplayOptions()
+	opts.MaxMessages = maxMessages
+
+	data, err := d.ExportToJSON(topic, opts)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, fmt.Sprintf("export failed: %v", err))
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	w.Header().Set("Content-Disposition", fmt.Sprintf("attachment; filename=dlq-%s.json", topic))
+	_, _ = w.Write(data)
+}
+
+// handleConfigReload reloads configuration from file.
+func (s *AdminServer) handleConfigReload(w http.ResponseWriter, r *http.Request) {
+	configPath := s.broker.Config().Node.DataDir + "/../chimera.yaml"
+
+	// Try to find config file
+	if _, err := os.Stat(configPath); err != nil {
+		// Try common locations
+		locations := []string{
+			"chimera.yaml",
+			"/etc/chimera/chimera.yaml",
+			"/var/lib/chimera/chimera.yaml",
+		}
+		for _, loc := range locations {
+			if _, err := os.Stat(loc); err == nil {
+				configPath = loc
+				break
+			}
 		}
 	}
+
+	if err := s.broker.ReloadConfig(configPath); err != nil {
+		writeError(w, http.StatusInternalServerError, fmt.Sprintf("reload failed: %v", err))
+		return
+	}
+
+	writeJSON(w, http.StatusOK, map[string]string{
+		"status":  "ok",
+		"message": "configuration reloaded",
+	})
+}
+
+// --- Tenant Management Handlers ---
+
+func (s *AdminServer) handleCreateTenant(w http.ResponseWriter, r *http.Request) {
+	tm := s.broker.TenantManager()
+	if tm == nil {
+		http.Error(w, "multi-tenancy not enabled", http.StatusServiceUnavailable)
+		return
+	}
+
+	var req struct {
+		ID           string            `json:"id"`
+		Name         string            `json:"name"`
+		Description  string            `json:"description"`
+		MaxStorage   int64             `json:"max_storage_bytes"`
+		MaxTopics    int               `json:"max_topics"`
+		MaxConn      int               `json:"max_connections"`
+		MaxPubRate   int64             `json:"max_publish_rate"`
+		MaxFetchRate int64             `json:"max_fetch_rate"`
+		Labels       map[string]string `json:"labels,omitempty"`
+	}
+
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid request body")
+		return
+	}
+
+	if req.ID == "" {
+		writeError(w, http.StatusBadRequest, "tenant ID is required")
+		return
+	}
+
+	tenant := &tenant.Tenant{
+		ID:          req.ID,
+		Name:        req.Name,
+		Description: req.Description,
+		CreatedAt:   time.Now(),
+		Enabled:     true,
+		Quotas: tenant.Quotas{
+			MaxStorageBytes: req.MaxStorage,
+			MaxTopics:       req.MaxTopics,
+			MaxConnections:  int64(req.MaxConn),
+			MaxPublishRate:  req.MaxPubRate,
+			MaxFetchRate:    req.MaxFetchRate,
+		},
+		Labels: req.Labels,
+	}
+
+	if err := tm.CreateTenant(tenant); err != nil {
+		writeError(w, http.StatusConflict, err.Error())
+		return
+	}
+
+	writeJSON(w, http.StatusCreated, map[string]interface{}{
+		"id":      tenant.ID,
+		"name":    tenant.Name,
+		"status":  "created",
+		"enabled": tenant.Enabled,
+	})
+}
+
+func (s *AdminServer) handleListTenants(w http.ResponseWriter, r *http.Request) {
+	tm := s.broker.TenantManager()
+	if tm == nil {
+		http.Error(w, "multi-tenancy not enabled", http.StatusServiceUnavailable)
+		return
+	}
+
+	tenants := tm.ListTenants()
+	type tenantInfo struct {
+		ID          string `json:"id"`
+		Name        string `json:"name"`
+		Enabled     bool   `json:"enabled"`
+		CreatedAt   string `json:"created_at"`
+		Description string `json:"description,omitempty"`
+	}
+
+	result := make([]tenantInfo, len(tenants))
+	for i, t := range tenants {
+		result[i] = tenantInfo{
+			ID:          t.ID,
+			Name:        t.Name,
+			Enabled:     t.Enabled,
+			CreatedAt:   t.CreatedAt.Format(time.RFC3339),
+			Description: t.Description,
+		}
+	}
+
 	writeJSON(w, http.StatusOK, map[string]interface{}{
-		"replayed": replayed,
-		"topic":    topic,
+		"tenants": result,
+		"count":   len(result),
+	})
+}
+
+func (s *AdminServer) handleGetTenant(w http.ResponseWriter, r *http.Request) {
+	tm := s.broker.TenantManager()
+	if tm == nil {
+		http.Error(w, "multi-tenancy not enabled", http.StatusServiceUnavailable)
+		return
+	}
+
+	id := r.PathValue("id")
+	t := tm.GetTenantByID(id)
+	if t == nil {
+		writeError(w, http.StatusNotFound, "tenant not found")
+		return
+	}
+
+	writeJSON(w, http.StatusOK, map[string]interface{}{
+		"id":          t.ID,
+		"name":        t.Name,
+		"description": t.Description,
+		"enabled":     t.Enabled,
+		"created_at":  t.CreatedAt.Format(time.RFC3339),
+		"quotas": map[string]interface{}{
+			"max_storage_bytes": t.Quotas.MaxStorageBytes,
+			"max_topics":        t.Quotas.MaxTopics,
+			"max_connections":   t.Quotas.MaxConnections,
+			"max_publish_rate":  t.Quotas.MaxPublishRate,
+			"max_fetch_rate":    t.Quotas.MaxFetchRate,
+		},
+		"labels": t.Labels,
+	})
+}
+
+func (s *AdminServer) handleDeleteTenant(w http.ResponseWriter, r *http.Request) {
+	tm := s.broker.TenantManager()
+	if tm == nil {
+		http.Error(w, "multi-tenancy not enabled", http.StatusServiceUnavailable)
+		return
+	}
+
+	id := r.PathValue("id")
+	if err := tm.DeleteTenant(id); err != nil {
+		writeError(w, http.StatusNotFound, err.Error())
+		return
+	}
+
+	// Also clean up quota tracking
+	if qe := s.broker.QuotaEnforcer(); qe != nil {
+		qe.DeleteUsage(id)
+	}
+
+	writeJSON(w, http.StatusOK, map[string]string{
+		"id":     id,
+		"status": "deleted",
+	})
+}
+
+func (s *AdminServer) handleGetTenantUsage(w http.ResponseWriter, r *http.Request) {
+	qe := s.broker.QuotaEnforcer()
+	if qe == nil {
+		http.Error(w, "quota enforcer not enabled", http.StatusServiceUnavailable)
+		return
+	}
+
+	id := r.PathValue("id")
+	stats := qe.GetTenantUsageStats(id)
+
+	writeJSON(w, http.StatusOK, stats)
+}
+
+func (s *AdminServer) handleGetTenantQuotas(w http.ResponseWriter, r *http.Request) {
+	tm := s.broker.TenantManager()
+	if tm == nil {
+		http.Error(w, "multi-tenancy not enabled", http.StatusServiceUnavailable)
+		return
+	}
+
+	id := r.PathValue("id")
+	t := tm.GetTenantByID(id)
+	if t == nil {
+		writeError(w, http.StatusNotFound, "tenant not found")
+		return
+	}
+
+	writeJSON(w, http.StatusOK, map[string]interface{}{
+		"tenant_id": id,
+		"quotas": map[string]interface{}{
+			"max_storage_bytes": t.Quotas.MaxStorageBytes,
+			"max_topics":        t.Quotas.MaxTopics,
+			"max_connections":   t.Quotas.MaxConnections,
+			"max_publish_rate":  t.Quotas.MaxPublishRate,
+			"max_fetch_rate":    t.Quotas.MaxFetchRate,
+		},
+	})
+}
+
+func (s *AdminServer) handleUpdateTenantQuotas(w http.ResponseWriter, r *http.Request) {
+	tm := s.broker.TenantManager()
+	if tm == nil {
+		http.Error(w, "multi-tenancy not enabled", http.StatusServiceUnavailable)
+		return
+	}
+
+	id := r.PathValue("id")
+	var req struct {
+		MaxStorage   int64 `json:"max_storage_bytes"`
+		MaxTopics    int   `json:"max_topics"`
+		MaxConn      int   `json:"max_connections"`
+		MaxPubRate   int64 `json:"max_publish_rate"`
+		MaxFetchRate int64 `json:"max_fetch_rate"`
+	}
+
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid request body")
+		return
+	}
+
+	t := tm.GetTenantByID(id)
+	if t == nil {
+		writeError(w, http.StatusNotFound, "tenant not found")
+		return
+	}
+
+	// Update quotas
+	t.Quotas.MaxStorageBytes = req.MaxStorage
+	t.Quotas.MaxTopics = req.MaxTopics
+	t.Quotas.MaxConnections = int64(req.MaxConn)
+	t.Quotas.MaxPublishRate = req.MaxPubRate
+	t.Quotas.MaxFetchRate = req.MaxFetchRate
+
+	if err := tm.UpdateTenant(t); err != nil {
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+
+	writeJSON(w, http.StatusOK, map[string]string{
+		"tenant_id": id,
+		"status":    "quotas updated",
 	})
 }

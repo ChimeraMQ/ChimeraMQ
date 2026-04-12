@@ -32,10 +32,18 @@ func main() {
 		cli.RunClusterCLI(os.Args[2:])
 	case "wasm":
 		cli.RunWASMCLI(os.Args[2:])
+	case "backup":
+		cli.RunBackupCLI(os.Args[2:])
+	case "restore":
+		cli.RunRestoreCLI(os.Args[2:])
 	case "mcp-server":
 		cli.RunMCPServer(os.Args[2:])
 	case "version":
 		printVersion()
+	case "reload":
+		cli.RunReloadCLI(os.Args[2:])
+	case "upgrade":
+		cli.RunUpgradeCLI(os.Args[2:])
 	default:
 		printUsage()
 		os.Exit(1)
@@ -51,10 +59,14 @@ func printUsage() {
 	fmt.Printf("  topic      Manage topics (create, list, describe, delete)\n")
 	fmt.Printf("  produce    Produce messages to a topic\n")
 	fmt.Printf("  consume    Consume messages from a topic\n")
-	fmt.Printf("  cluster    Cluster management (status, members)\n")
+	fmt.Printf("  cluster    Cluster management (status, members, benchmark)\n")
 	fmt.Printf("  wasm       Manage WASM modules (deploy, list, remove)\n")
+	fmt.Printf("  backup     Create a backup of the data directory\n")
+	fmt.Printf("  restore    Restore from a backup file\n")
 	fmt.Printf("  mcp-server Start MCP server for AI tooling (JSON-RPC over stdio)\n")
 	fmt.Printf("  version    Print version information\n")
+	fmt.Printf("  reload     Reload configuration without restart\n")
+	fmt.Printf("  upgrade    Rolling upgrade management (status, drain)\n")
 }
 
 func printVersion() {

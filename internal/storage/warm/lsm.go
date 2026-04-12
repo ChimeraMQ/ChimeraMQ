@@ -384,6 +384,20 @@ func (lsm *LSMTree) RemoveSSTable(sst *SSTable) {
 	}
 }
 
+// TotalSize returns the total size of all SSTables in bytes.
+func (lsm *LSMTree) TotalSize() int64 {
+	lsm.mu.RLock()
+	defer lsm.mu.RUnlock()
+
+	var total int64
+	for _, level := range lsm.levels {
+		for _, sst := range level.sstables {
+			total += sst.Size()
+		}
+	}
+	return total
+}
+
 func collectEntries(sst *SSTable) map[uint64]MemTableEntry {
 	result := make(map[uint64]MemTableEntry)
 	meta := sst.Metadata()

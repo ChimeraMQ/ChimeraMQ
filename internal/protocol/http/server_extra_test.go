@@ -334,7 +334,7 @@ func setupAuthTestServer(t *testing.T) (*AdminServer, func()) {
 		Auth: broker.AuthConfig{
 			Enabled: true,
 			Type:    "static",
-			Users:   map[string]string{"admin": "password123"},
+			Users:   map[string]string{"admin": "$2a$04$AZNl/xU1Y0OWAcPUS/vz0OJeoAa4t4UpaAwWSShyp4b4Hf0VRRRCe"},
 			Tokens:  map[string]string{"my-token": "admin"},
 		},
 	}
@@ -1018,7 +1018,7 @@ func setupACLTestServer(t *testing.T) (*AdminServer, func()) {
 		Auth: broker.AuthConfig{
 			Enabled: true,
 			Type:    "static",
-			Users:   map[string]string{"admin": "password123"},
+			Users:   map[string]string{"admin": "$2a$04$AZNl/xU1Y0OWAcPUS/vz0OJeoAa4t4UpaAwWSShyp4b4Hf0VRRRCe"},
 			Tokens:  map[string]string{"acl-token": "admin"},
 		},
 		ACL: broker.ACL{

@@ -74,10 +74,8 @@ func (p *StaticProvider) authenticateUser(username, password string) (*Identity,
 			return nil, ErrInvalidCredentials
 		}
 	} else {
-		// Plaintext comparison (for development only)
-		if subtle.ConstantTimeCompare([]byte(hash), []byte(password)) != 1 {
-			return nil, ErrInvalidCredentials
-		}
+		// Reject non-bcrypt hashes in production
+		return nil, ErrInvalidCredentials
 	}
 
 	return &Identity{
@@ -186,9 +184,8 @@ func (fp *FileProvider) Authenticate(ctx context.Context, creds Credentials) (*I
 				return nil, ErrInvalidCredentials
 			}
 		} else {
-			if hash != creds.Password {
-				return nil, ErrInvalidCredentials
-			}
+			// Reject non-bcrypt hashes in production
+			return nil, ErrInvalidCredentials
 		}
 
 		return &Identity{

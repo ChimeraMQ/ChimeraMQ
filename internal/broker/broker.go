@@ -3,18 +3,22 @@ package broker
 import (
 	"context"
 	"fmt"
+	"net"
 	"os"
 	"path/filepath"
 	"sync/atomic"
 	"syscall"
 	"time"
 
+	"github.com/chimeramq/chimera/internal/audit"
 	"github.com/chimeramq/chimera/internal/auth"
+	"github.com/chimeramq/chimera/internal/cluster/geo"
 	"github.com/chimeramq/chimera/internal/engine/dlq"
 	"github.com/chimeramq/chimera/internal/engine/exchange"
 	"github.com/chimeramq/chimera/internal/engine/queue"
 	"github.com/chimeramq/chimera/internal/engine/stream"
 	"github.com/chimeramq/chimera/internal/engine/ttl"
+	"github.com/chimeramq/chimera/internal/fips"
 	"github.com/chimeramq/chimera/internal/flow"
 	"github.com/chimeramq/chimera/internal/idempotent"
 	"github.com/chimeramq/chimera/internal/metrics"
@@ -30,36 +34,43 @@ import (
 	"github.com/chimeramq/chimera/internal/wasm"
 
 	clusterpkg "github.com/chimeramq/chimera/internal/cluster"
+	"gopkg.in/yaml.v3"
 )
 
 // Broker is the central orchestrator for all ChimeraMQ components.
 type Broker struct {
-	config       *Config
-	logger       *Logger
-	wal          *wal.WAL
-	storage      *hot.Engine
-	topics       *TopicManager
-	queueEngine  *queue.Engine
-	streamEngine *stream.Engine
-	metrics      *metrics.Collector
-	cluster      *clusterpkg.Manager
-	encryptor    *encrypt.Encryptor
-	authProvider auth.AuthProvider
-	aclEngine    *auth.ACLEngine
-	otelTracer   *tracing.Tracer
-	warmEngine   *warm.LSMTree
-	coldMgr      *tier.ColdManager
-	migrator     *tier.Migrator
-	schemaReg    *schema.Registry
-	schemaEnf    *schema.Enforcer
-	ttlExpirer   *ttl.Expirer
-	wasmRT       *wasm.Runtime
-	processor    *processing.Processor
-	dlqH         *dlq.DLQ
-	flowCtrl     *flow.Controller
-	deduper      *idempotent.Deduper
-	tenantMgr    *tenant.Manager
-	exchanges    *exchange.Registry
+	config        *Config
+	logger        *Logger
+	wal           *wal.WAL
+	storage       *hot.Engine
+	topics        *TopicManager
+	queueEngine   *queue.Engine
+	streamEngine  *stream.Engine
+	metrics       *metrics.Collector
+	cluster       *clusterpkg.Manager
+	encryptor     *encrypt.Encryptor
+	authProvider  auth.AuthProvider
+	aclEngine     *auth.ACLEngine
+	otelTracer    *tracing.Tracer
+	warmEngine    *warm.LSMTree
+	coldMgr       *tier.ColdManager
+	migrator      *tier.Migrator
+	schemaReg     *schema.Registry
+	schemaEnf     *schema.Enforcer
+	ttlExpirer    *ttl.Expirer
+	wasmRT        *wasm.Runtime
+	processor     *processing.Processor
+	dlqH          *dlq.DLQ
+	flowCtrl      *flow.Controller
+	deduper       *idempotent.Deduper
+	tenantMgr     *tenant.Manager
+	quotaEnforcer *tenant.ResourceQuotaEnforcer
+	exchanges     *exchange.Registry
+	handoff       *HandoffManager
+	auditLogger   *audit.Logger
+	geoManager    *geo.Manager
+	mainListener  net.Listener
+	protocolMux   interface{ Stop() }
 
 	startTime time.Time
 	ctx       context.Context
@@ -84,9 +95,56 @@ func NewBroker(cfg *Config) (*Broker, error) {
 func (b *Broker) Start() error {
 	b.startTime = time.Now()
 
-	// Step 2: Logger
+	// Step 0: Initialize FIPS mode (must be first)
+	if b.config.FIPS.Enabled {
+		fipsCfg := fips.Config{
+			Enabled:             b.config.FIPS.Enabled,
+			StrictMode:          b.config.FIPS.StrictMode,
+			AllowedCipherSuites: b.config.FIPS.AllowedCipherSuites,
+			MinTLSVersion:       b.config.FIPS.MinTLSVersion,
+		}
+		if err := fips.Initialize(fipsCfg); err != nil {
+			return fmt.Errorf("FIPS initialization failed: %w", err)
+		}
+		if fips.ComplianceError() != nil {
+			// Non-fatal warning will be logged after logger is initialized
+			_ = fips.ComplianceError() // Acknowledge the error
+		}
+	}
+
+	// Step 1: Logger
 	b.logger = NewLogger(b.config.Logging)
 	b.exchanges = exchange.NewRegistry()
+
+	// Log FIPS mode status
+	if b.config.FIPS.Enabled {
+		if fips.IsEnabled() {
+			b.logger.Info("FIPS 140-2 compliance mode enabled")
+			if err := fips.ComplianceError(); err != nil {
+				b.logger.Warn("FIPS system validation warning", "error", err)
+			}
+		} else {
+			b.logger.Error("FIPS mode requested but could not be enabled")
+		}
+	}
+
+	// Step 2b: Audit Logger (if enabled)
+	if b.config.Audit.Enabled {
+		auditCfg := audit.Config{
+			Enabled:  true,
+			LogPath:  b.config.Audit.LogPath,
+			MaxSize:  b.config.Audit.MaxSize,
+			MaxAge:   ParseDuration(b.config.Audit.MaxAge, 30*24*time.Hour),
+			ToStdout: b.config.Audit.ToStdout,
+		}
+		var err error
+		b.auditLogger, err = audit.NewLogger(auditCfg)
+		if err != nil {
+			b.logger.Warn("audit logger failed to start", "error", err)
+		} else {
+			b.logger.Info("audit logging enabled")
+		}
+	}
 
 	// Step 2b: Auth Provider (if enabled)
 	if b.config.Auth.Enabled {
@@ -248,7 +306,7 @@ func (b *Broker) Start() error {
 			HotMaxSize:    b.config.Storage.TierPolicy.HotMaxSize,
 			WarmMaxSize:   b.config.Storage.TierPolicy.WarmMaxSize,
 		}
-		b.migrator = tier.NewMigrator(tp, b.storage, b.warmEngine, b.coldMgr)
+		b.migrator = tier.NewMigrator(tp, b.storage, b.warmEngine, b.coldMgr, b.metrics)
 		b.migrator.Start()
 		b.streamEngine.SetMigrator(b.migrator)
 		b.logger.Info("tier migrator started")
@@ -303,6 +361,52 @@ func (b *Broker) Start() error {
 			return fmt.Errorf("start cluster: %w", err)
 		}
 		b.logger.Info("cluster mode enabled")
+	}
+
+	// Step 16b: Geo-Replication Manager (if enabled)
+	if b.config.GeoReplication.Enabled {
+		geoCfg := geo.Config{
+			Enabled:   true,
+			LocalDC:   b.config.GeoReplication.LocalDC,
+			BatchSize: b.config.GeoReplication.BatchSize,
+		}
+		if b.config.GeoReplication.ReplicationMode == "sync" {
+			geoCfg.ReplicationMode = geo.ReplicationSync
+		} else {
+			geoCfg.ReplicationMode = geo.ReplicationAsync
+		}
+		if geoCfg.BatchSize == 0 {
+			geoCfg.BatchSize = 100
+		}
+		geoCfg.FlushInterval = ParseDuration(b.config.GeoReplication.FlushInterval, time.Second)
+		geoCfg.MaxLag = ParseDuration(b.config.GeoReplication.MaxLag, 30*time.Second)
+		geoCfg.RetryPolicy = geo.RetryPolicy{
+			MaxRetries:        10,
+			InitialBackoff:    time.Second,
+			MaxBackoff:        5 * time.Minute,
+			BackoffMultiplier: 2.0,
+		}
+
+		// Convert remote DC configs
+		for _, dc := range b.config.GeoReplication.RemoteDCs {
+			geoCfg.RemoteDCs = append(geoCfg.RemoteDCs, geo.RemoteDCConfig{
+				ID:            dc.ID,
+				Name:          dc.Name,
+				Address:       dc.Address,
+				Region:        dc.Region,
+				Topics:        dc.Topics,
+				ExcludeTopics: dc.ExcludeTopics,
+			})
+		}
+
+		b.geoManager = geo.NewManager(geoCfg)
+		if err := b.geoManager.Start(); err != nil {
+			return fmt.Errorf("geo-replication manager: %w", err)
+		}
+		b.logger.Info("geo-replication enabled",
+			"mode", b.config.GeoReplication.ReplicationMode,
+			"remote_dcs", len(geoCfg.RemoteDCs),
+		)
 	}
 
 	// Step 17: DLQ (if enabled)
@@ -391,6 +495,48 @@ func (b *Broker) Start() error {
 		b.logger.Info("idempotent producer enabled")
 	}
 
+	// Step 19b: Multi-tenancy Manager (if enabled)
+	if b.config.Tenant.Enabled {
+		tenantCfg := tenant.Config{
+			Enabled:   true,
+			Separator: b.config.Tenant.Separator,
+		}
+		for _, tc := range b.config.Tenant.Tenants {
+			tenantCfg.Tenants = append(tenantCfg.Tenants, tenant.TenantConfig{
+				ID:          tc.ID,
+				TopicPrefix: tc.TopicPrefix,
+				Quotas: tenant.QuotaConfig{
+					MaxTopics:       tc.Quotas.MaxTopics,
+					MaxPartitions:   tc.Quotas.MaxPartitions,
+					MaxPublishRate:  tc.Quotas.MaxPublishRate,
+					MaxFetchRate:    tc.Quotas.MaxFetchRate,
+					MaxConnections:  tc.Quotas.MaxConnections,
+					MaxStorageBytes: tc.Quotas.MaxStorageBytes,
+				},
+				Metadata: tc.Metadata,
+			})
+		}
+		b.tenantMgr = tenant.NewManager(tenantCfg)
+		b.logger.Info("tenant manager enabled", "tenants", len(tenantCfg.Tenants))
+	}
+
+	// Step 19c: Multi-tenancy Quota Enforcer (if enabled)
+	if b.config.Tenant.Enabled && b.tenantMgr != nil {
+		b.quotaEnforcer = tenant.NewResourceQuotaEnforcer(b.tenantMgr)
+		b.quotaEnforcer.Start()
+		b.logger.Info("tenant quota enforcer started")
+	}
+
+	// Step 20: Handoff Manager (for rolling upgrades)
+	if b.config.Node.HandoffEnabled {
+		b.handoff = NewHandoffManager(b)
+		if err := b.handoff.Start(); err != nil {
+			b.logger.Warn("handoff manager failed to start", "error", err)
+		} else {
+			b.logger.Info("handoff manager enabled for rolling upgrades")
+		}
+	}
+
 	b.logger.Info("ChimeraMQ broker started",
 		"node", b.config.Node.Name,
 		"port", b.config.Listener.Port,
@@ -408,6 +554,30 @@ func (b *Broker) Stop() error {
 	b.logger.Info("initiating graceful shutdown")
 
 	b.cancel()
+
+	// Stop geo-replication manager
+	if b.geoManager != nil {
+		b.geoManager.Stop()
+		b.logger.Info("geo-replication manager stopped")
+	}
+
+	// Stop quota enforcer
+	if b.quotaEnforcer != nil {
+		b.quotaEnforcer.Stop()
+		b.logger.Info("quota enforcer stopped")
+	}
+
+	// Stop handoff manager first (signal we're shutting down)
+	if b.handoff != nil {
+		b.handoff.Stop()
+		b.logger.Info("handoff manager stopped")
+	}
+
+	// Close audit logger
+	if b.auditLogger != nil {
+		_ = b.auditLogger.Close()
+		b.logger.Info("audit logger closed")
+	}
 
 	// Stop engines (kills background goroutines)
 	b.queueEngine.Close()
@@ -537,6 +707,140 @@ func (b *Broker) Processor() *processing.Processor { return b.processor }
 // AuthProvider returns the authentication provider (nil if auth disabled).
 func (b *Broker) AuthProvider() auth.AuthProvider { return b.authProvider }
 
+// ReloadConfig reloads configuration from file and applies dynamic changes.
+// Only certain settings can be changed at runtime (logging, limits, ACL, auth file).
+func (b *Broker) ReloadConfig(configPath string) error {
+	if b.logger != nil {
+		b.logger.Info("reloading configuration", "path", configPath)
+	}
+
+	// Load new config from file
+	data, err := os.ReadFile(configPath)
+	if err != nil {
+		return fmt.Errorf("read config file: %w", err)
+	}
+
+	newConfig := defaultConfig()
+	if err := yaml.Unmarshal(data, newConfig); err != nil {
+		return fmt.Errorf("parse config: %w", err)
+	}
+
+	// Apply dynamic changes (only certain fields can be updated)
+	b.applyDynamicConfig(newConfig)
+
+	if b.logger != nil {
+		b.logger.Info("configuration reloaded successfully")
+	}
+	return nil
+}
+
+// applyDynamicConfig applies configuration changes that don't require restart.
+func (b *Broker) applyDynamicConfig(newCfg *Config) {
+	b.config.Lock()
+	defer b.config.Unlock()
+
+	// Update logging level dynamically
+	if b.logger != nil && newCfg.Logging.Level != b.config.Logging.Level {
+		b.logger.SetLevel(newCfg.Logging.Level)
+		b.logger.Info("logging level updated", "new_level", newCfg.Logging.Level)
+	}
+
+	// Update logging format dynamically
+	if b.logger != nil && newCfg.Logging.Format != b.config.Logging.Format {
+		b.logger.SetFormat(newCfg.Logging.Format)
+		b.logger.Info("logging format updated", "new_format", newCfg.Logging.Format)
+	}
+
+	// Reload auth file if changed
+	if b.config.Auth.Enabled && b.config.Auth.Type == "file" {
+		if fp, ok := b.authProvider.(*auth.FileProvider); ok {
+			if err := fp.Reload(); err != nil {
+				b.logger.Error("failed to reload auth file", "error", err)
+			} else {
+				b.logger.Info("auth file reloaded")
+			}
+		}
+	}
+
+	// Update limits (connection limits)
+	if newCfg.Limits.MaxConnections != b.config.Limits.MaxConnections {
+		b.config.Limits.MaxConnections = newCfg.Limits.MaxConnections
+		b.logger.Info("connection limit updated", "new_limit", newCfg.Limits.MaxConnections)
+	}
+
+	// Update ACL entries
+	if b.aclEngine != nil && newCfg.ACL.Enabled {
+		entries := make([]auth.ACLEntry, len(newCfg.ACL.Entries))
+		for i, e := range newCfg.ACL.Entries {
+			entries[i] = auth.ACLEntry{
+				Principal:    e.Principal,
+				ResourceType: auth.ParseResourceType(e.Resource),
+				ResourceName: e.Name,
+				Operation:    auth.ParseOperation(e.Operation),
+				Permission:   auth.ParsePermission(e.Permission),
+			}
+		}
+		b.aclEngine.SetEntries(entries)
+		b.config.ACL.Entries = newCfg.ACL.Entries
+		b.logger.Info("ACL entries updated", "count", len(entries))
+	}
+
+	// Update flow control settings
+	if b.flowCtrl != nil {
+		if newCfg.FlowControl.Enabled != b.config.FlowControl.Enabled {
+			b.config.FlowControl.Enabled = newCfg.FlowControl.Enabled
+			b.logger.Info("flow control enabled state updated", "enabled", newCfg.FlowControl.Enabled)
+		}
+		if newCfg.FlowControl.MaxMemoryBytes != b.config.FlowControl.MaxMemoryBytes {
+			b.config.FlowControl.MaxMemoryBytes = newCfg.FlowControl.MaxMemoryBytes
+			b.logger.Info("flow control max memory updated", "value", newCfg.FlowControl.MaxMemoryBytes)
+		}
+	}
+}
+
+// StartConfigWatcher starts a background goroutine that watches the config file
+// for changes and reloads it automatically.
+func (b *Broker) StartConfigWatcher(configPath string, interval time.Duration) {
+	if interval == 0 {
+		interval = 30 * time.Second // default check interval
+	}
+
+	go func() {
+		ticker := time.NewTicker(interval)
+		defer ticker.Stop()
+
+		var lastModTime time.Time
+		if info, err := os.Stat(configPath); err == nil {
+			lastModTime = info.ModTime()
+		}
+
+		for {
+			select {
+			case <-b.ctx.Done():
+				return
+			case <-ticker.C:
+				info, err := os.Stat(configPath)
+				if err != nil {
+					continue
+				}
+
+				if info.ModTime().After(lastModTime) {
+					lastModTime = info.ModTime()
+					if err := b.ReloadConfig(configPath); err != nil {
+						if b.logger != nil {
+							b.logger.Error("config reload failed", "error", err)
+						}
+					}
+				}
+			}
+		}
+	}()
+
+	if b.logger != nil {
+		b.logger.Info("config watcher started", "path", configPath, "interval", interval)
+	}
+}
+
 // Tracer returns the OpenTelemetry tracer (nil if tracing disabled).
 func (b *Broker) Tracer() *tracing.Tracer { return b.otelTracer }
 
@@ -555,8 +859,17 @@ func (b *Broker) Deduper() *idempotent.Deduper { return b.deduper }
 // TenantManager returns the tenant manager (nil if multi-tenancy disabled).
 func (b *Broker) TenantManager() *tenant.Manager { return b.tenantMgr }
 
+// QuotaEnforcer returns the resource quota enforcer (nil if multi-tenancy disabled).
+func (b *Broker) QuotaEnforcer() *tenant.ResourceQuotaEnforcer { return b.quotaEnforcer }
+
 // Exchanges returns the exchange registry.
 func (b *Broker) Exchanges() *exchange.Registry { return b.exchanges }
+
+// GeoManager returns the geo-replication manager (nil if disabled).
+func (b *Broker) GeoManager() *geo.Manager { return b.geoManager }
+
+// IsFIPSEnabled returns true if FIPS 140-2 mode is enabled.
+func (b *Broker) IsFIPSEnabled() bool { return fips.IsEnabled() }
 
 // IsClustered returns true if clustering is enabled.
 func (b *Broker) IsClustered() bool { return b.cluster != nil }

@@ -46,6 +46,13 @@ func (b *Broker) Publish(env *message.Envelope) (uint64, error) {
 		}
 	}
 
+	// Record publish for quota tracking
+	if b.quotaEnforcer != nil {
+		if t := b.tenantMgr.GetTenant(env.Topic); t != nil {
+			b.quotaEnforcer.RecordPublish(t.ID, int64(len(env.Payload)))
+		}
+	}
+
 	// Schema enforcement
 	if b.schemaEnf != nil && topicCfg.SchemaEnforcement {
 		schemaID := uint32(0)
@@ -136,6 +143,14 @@ func (b *Broker) Publish(env *message.Envelope) (uint64, error) {
 
 	// Update metrics
 	b.metrics.MessageIn(env.Topic, partID, env.SourceProto.String())
+
+	// Geo-replication (if enabled)
+	if b.geoManager != nil {
+		if err := b.geoManager.Replicate(env); err != nil {
+			// Log error but don't fail the publish - geo-replication is async
+			b.logger.Warn("geo-replication failed", "topic", env.Topic, "error", err)
+		}
+	}
 
 	return offset, nil
 }

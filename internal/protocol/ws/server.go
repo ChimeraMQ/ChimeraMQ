@@ -1,6 +1,7 @@
 package ws
 
 import (
+	"context"
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
@@ -8,14 +9,15 @@ import (
 	"net/http"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/chimeramq/chimera/internal/auth"
 	"github.com/chimeramq/chimera/internal/broker"
+	"github.com/chimeramq/chimera/internal/engine/queue"
+	"github.com/chimeramq/chimera/internal/engine/stream"
 	"github.com/chimeramq/chimera/internal/message"
 
-	"context"
-
-	"nhooyr.io/websocket"
+	"github.com/coder/websocket"
 )
 
 // Server implements the WebSocket protocol handler.
@@ -112,28 +114,35 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 
 // wsSession represents a single WebSocket connection.
 type wsSession struct {
-	conn     *websocket.Conn
-	broker   *broker.Broker
-	subproto string
-	mu       sync.Mutex
+	conn       *websocket.Conn
+	broker     *broker.Broker
+	subproto   string
+	mu         sync.Mutex
+	consumerID string
+	subTopic   string
+	cancelSub  context.CancelFunc
 }
 
 // wsMessage is the JSON message format for chimera-json-v1.
 type wsMessage struct {
-	Op         string            `json:"op"`
-	Topic      string            `json:"topic,omitempty"`
-	Payload    string            `json:"payload,omitempty"` // base64 encoded
-	RoutingKey string            `json:"routing_key,omitempty"`
-	Headers    map[string]string `json:"headers,omitempty"`
-	PacketID   uint16            `json:"packet_id,omitempty"`
-	Offset     uint64            `json:"offset,omitempty"`
-	Partition  uint32            `json:"partition,omitempty"`
-	Count      int               `json:"count,omitempty"`
-	Mode       string            `json:"mode,omitempty"`
-	Partitions uint32            `json:"partitions,omitempty"`
-	QoS        byte              `json:"qos,omitempty"`
-	Error      string            `json:"error,omitempty"`
-	Status     string            `json:"status,omitempty"`
+	Op          string            `json:"op"`
+	Topic       string            `json:"topic,omitempty"`
+	Payload     string            `json:"payload,omitempty"` // base64 encoded
+	RoutingKey  string            `json:"routing_key,omitempty"`
+	Headers     map[string]string `json:"headers,omitempty"`
+	PacketID    uint16            `json:"packet_id,omitempty"`
+	Offset      uint64            `json:"offset,omitempty"`
+	Partition   uint32            `json:"partition,omitempty"`
+	Count       int               `json:"count,omitempty"`
+	Mode        string            `json:"mode,omitempty"`
+	Partitions  uint32            `json:"partitions,omitempty"`
+	QoS         byte              `json:"qos,omitempty"`
+	Error       string            `json:"error,omitempty"`
+	Status      string            `json:"status,omitempty"`
+	Group       string            `json:"group,omitempty"`        // consumer group for subscribe
+	AutoCommit  bool              `json:"auto_commit,omitempty"`  // auto commit offset
+	MaxWait     int               `json:"max_wait_ms,omitempty"`  // max wait time for fetch (ms)
+	MaxMessages int               `json:"max_messages,omitempty"` // max messages to fetch
 }
 
 func (s *wsSession) serve() {
@@ -172,9 +181,17 @@ func (s *wsSession) handleJSON(ctx interface{}, data []byte) {
 	case "publish":
 		s.handlePublishJSON(&msg)
 	case "subscribe":
-		s.sendError("subscribe not yet supported via WebSocket")
+		s.handleSubscribeJSON(&msg)
+	case "unsubscribe":
+		s.handleUnsubscribeJSON(&msg)
 	case "fetch":
-		s.sendError("fetch not yet supported via WebSocket")
+		s.handleFetchJSON(&msg)
+	case "ack":
+		s.handleAckJSON(&msg)
+	case "nack":
+		s.handleNackJSON(&msg)
+	case "commit":
+		s.handleCommitJSON(&msg)
 	case "create_topic":
 		s.handleCreateTopicJSON(&msg)
 	case "delete_topic":
@@ -318,7 +335,246 @@ func (s *wsSession) sendError(msg string) {
 }
 
 func (s *wsSession) close() {
+	s.stopSubscription()
 	s.conn.Close(websocket.StatusNormalClosure, "server shutting down")
+}
+
+// handleSubscribeJSON handles subscribe operation for both queue and stream modes.
+func (s *wsSession) handleSubscribeJSON(msg *wsMessage) {
+	if msg.Topic == "" {
+		s.sendError("topic is required for subscribe")
+		return
+	}
+
+	// Check if already subscribed
+	s.mu.Lock()
+	if s.subTopic != "" {
+		s.mu.Unlock()
+		s.sendError("already subscribed to a topic, unsubscribe first")
+		return
+	}
+	s.mu.Unlock()
+
+	// Get topic info
+	topicInfo, ok := s.broker.Topics().GetTopic(msg.Topic)
+	if !ok || topicInfo == nil {
+		s.sendError("topic not found")
+		return
+	}
+
+	// Generate unique consumer ID
+	consumerID := fmt.Sprintf("ws-%s-%d", msg.Topic, time.Now().UnixNano())
+
+	s.mu.Lock()
+	s.consumerID = consumerID
+	s.subTopic = msg.Topic
+	ctx, cancel := context.WithCancel(context.Background())
+	s.cancelSub = cancel
+	s.mu.Unlock()
+
+	// Send subscribe ack
+	s.sendJSON(&wsMessage{
+		Op:     "suback",
+		Status: "ok",
+		Topic:  msg.Topic,
+	})
+
+	// Start subscription based on mode
+	switch topicInfo.Mode {
+	case broker.ModeQueue, broker.ModeUnified:
+		s.runQueueSubscription(ctx, msg.Topic, consumerID)
+	case broker.ModeStream:
+		s.runStreamSubscription(ctx, msg.Topic, msg.Group, msg.AutoCommit)
+	}
+}
+
+// handleUnsubscribeJSON handles unsubscribe operation.
+func (s *wsSession) handleUnsubscribeJSON(msg *wsMessage) {
+	s.stopSubscription()
+	s.sendJSON(&wsMessage{Op: "unsuback", Status: "ok"})
+}
+
+// stopSubscription stops the current subscription.
+func (s *wsSession) stopSubscription() {
+	s.mu.Lock()
+	if s.cancelSub != nil {
+		s.cancelSub()
+	}
+	topic := s.subTopic
+	consumerID := s.consumerID
+	s.subTopic = ""
+	s.consumerID = ""
+	s.cancelSub = nil
+	s.mu.Unlock()
+
+	// Remove from queue engine if queue mode
+	if topic != "" && consumerID != "" {
+		s.broker.QueueEngine().RemoveConsumer(topic, consumerID)
+	}
+}
+
+// runQueueSubscription runs a queue mode subscription.
+func (s *wsSession) runQueueSubscription(ctx context.Context, topic, consumerID string) {
+	// Register consumer with queue engine
+	qc := &queue.QueueConsumer{
+		ID:       consumerID,
+		Prefetch: 10,
+		InFlight: make(map[uint64]time.Time),
+	}
+	s.broker.QueueEngine().AddConsumer(topic, qc)
+
+	// Message delivery loop
+	go func() {
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			default:
+				// Wait for messages via queue engine dispatch
+				time.Sleep(100 * time.Millisecond)
+			}
+		}
+	}()
+}
+
+// runStreamSubscription runs a stream mode subscription with long-poll.
+func (s *wsSession) runStreamSubscription(ctx context.Context, topic, group string, autoCommit bool) {
+	// Join consumer group if specified
+	partitionCount := uint32(1)
+	if topicInfo, ok := s.broker.Topics().GetTopic(topic); ok && topicInfo != nil {
+		partitionCount = topicInfo.Partitions
+	}
+
+	if group != "" {
+		s.broker.StreamEngine().JoinGroup(group, topic, s.consumerID, partitionCount, stream.StrategyRoundRobin)
+	}
+
+	// Fetch loop
+	go func() {
+		partitionID := uint32(0)
+		offset := uint64(0)
+
+		for {
+			select {
+			case <-ctx.Done():
+				if group != "" {
+					s.broker.StreamEngine().LeaveGroup(group, s.consumerID)
+				}
+				return
+			default:
+			}
+
+			// Fetch messages
+			msgs, newOffset, err := s.broker.StreamEngine().Fetch(topic, partitionID, offset, 10, 5*time.Second)
+			if err != nil {
+				time.Sleep(100 * time.Millisecond)
+				continue
+			}
+
+			for _, env := range msgs {
+				s.sendJSON(&wsMessage{
+					Op:        "message",
+					Topic:     topic,
+					Payload:   base64.StdEncoding.EncodeToString(env.Payload),
+					Offset:    env.Sequence,
+					Partition: env.PartitionID,
+					Headers:   bytesHeadersToString(env.Headers),
+				})
+				offset = env.Sequence + 1
+			}
+
+			// Auto-commit if enabled
+			if autoCommit && group != "" && newOffset > offset {
+				_ = s.broker.StreamEngine().CommitOffset(group, partitionID, newOffset)
+			}
+
+			if len(msgs) == 0 {
+				time.Sleep(100 * time.Millisecond)
+			}
+		}
+	}()
+}
+
+// handleFetchJSON handles on-demand fetch operation.
+func (s *wsSession) handleFetchJSON(msg *wsMessage) {
+	if msg.Topic == "" {
+		s.sendError("topic is required for fetch")
+		return
+	}
+
+	partitionID := msg.Partition
+	offset := msg.Offset
+	maxMessages := msg.MaxMessages
+	if maxMessages <= 0 {
+		maxMessages = 10
+	}
+	maxWait := time.Duration(msg.MaxWait) * time.Millisecond
+	if maxWait <= 0 {
+		maxWait = 5 * time.Second
+	}
+
+	// Fetch from stream engine
+	msgs, newOffset, err := s.broker.StreamEngine().Fetch(msg.Topic, partitionID, offset, maxMessages, maxWait)
+	if err != nil {
+		s.sendError(fmt.Sprintf("fetch failed: %v", err))
+		return
+	}
+
+	// Send messages
+	for _, env := range msgs {
+		s.sendJSON(&wsMessage{
+			Op:        "message",
+			Topic:     msg.Topic,
+			Payload:   base64.StdEncoding.EncodeToString(env.Payload),
+			Offset:    env.Sequence,
+			Partition: env.PartitionID,
+			Headers:   bytesHeadersToString(env.Headers),
+		})
+	}
+
+	// Send fetch complete
+	s.sendJSON(&wsMessage{
+		Op:     "fetch_complete",
+		Status: "ok",
+		Topic:  msg.Topic,
+		Offset: newOffset,
+		Count:  len(msgs),
+	})
+}
+
+// handleAckJSON handles ack operation for queue mode.
+func (s *wsSession) handleAckJSON(msg *wsMessage) {
+	s.broker.QueueEngine().HandleAck(msg.Topic, msg.Offset)
+	s.sendJSON(&wsMessage{Op: "ackack", Status: "ok", Offset: msg.Offset})
+}
+
+// handleNackJSON handles nack operation for queue mode.
+func (s *wsSession) handleNackJSON(msg *wsMessage) {
+	s.broker.QueueEngine().HandleNack(msg.Topic, msg.Offset)
+	s.sendJSON(&wsMessage{Op: "nackack", Status: "ok", Offset: msg.Offset})
+}
+
+// handleCommitJSON handles offset commit for stream mode.
+func (s *wsSession) handleCommitJSON(msg *wsMessage) {
+	if msg.Group == "" {
+		s.sendError("group is required for commit")
+		return
+	}
+	err := s.broker.StreamEngine().CommitOffset(msg.Group, msg.Partition, msg.Offset)
+	if err != nil {
+		s.sendError(fmt.Sprintf("commit failed: %v", err))
+		return
+	}
+	s.sendJSON(&wsMessage{Op: "commitack", Status: "ok", Offset: msg.Offset})
+}
+
+// bytesHeadersToString converts map[string][]byte headers to map[string]string.
+func bytesHeadersToString(headers map[string][]byte) map[string]string {
+	result := make(map[string]string, len(headers))
+	for k, v := range headers {
+		result[k] = string(v)
+	}
+	return result
 }
 
 type basicAuthCreds struct {

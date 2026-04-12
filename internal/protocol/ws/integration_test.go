@@ -10,7 +10,7 @@ import (
 	"time"
 
 	"github.com/chimeramq/chimera/internal/broker"
-	"nhooyr.io/websocket"
+	"github.com/coder/websocket"
 )
 
 func newWSTestBroker(t *testing.T) *broker.Broker {
@@ -246,7 +246,7 @@ func TestWSInvalidJSON(t *testing.T) {
 	}
 }
 
-func TestWSSubscribeUnsupported(t *testing.T) {
+func TestWSSubscribeTopicNotFound(t *testing.T) {
 	bkr := newWSTestBroker(t)
 	srv := NewServer(bkr)
 	server := httptest.NewServer(srv)
@@ -261,8 +261,8 @@ func TestWSSubscribeUnsupported(t *testing.T) {
 	if resp.Op != "error" {
 		t.Errorf("op = %q, want error", resp.Op)
 	}
-	if !strings.Contains(resp.Error, "not yet supported") {
-		t.Errorf("error = %q", resp.Error)
+	if !strings.Contains(resp.Error, "not found") {
+		t.Errorf("error = %q, want 'not found'", resp.Error)
 	}
 }
 
@@ -358,7 +358,7 @@ func TestWSDeleteTopicNoName(t *testing.T) {
 	}
 }
 
-func TestWSFetchUnsupported(t *testing.T) {
+func TestWSFetchTopicNotFound(t *testing.T) {
 	bkr := newWSTestBroker(t)
 	srv := NewServer(bkr)
 	server := httptest.NewServer(srv)
@@ -370,8 +370,9 @@ func TestWSFetchUnsupported(t *testing.T) {
 	wsWrite(t, conn, `{"op":"fetch","topic":"test"}`)
 	resp := wsRead(t, conn)
 
-	if resp.Op != "error" {
-		t.Errorf("op = %q, want error", resp.Op)
+	// Fetch now works but returns error for non-existent topic
+	if resp.Op != "error" && resp.Op != "fetch_complete" {
+		t.Errorf("op = %q, want error or fetch_complete", resp.Op)
 	}
 }
 

@@ -8,6 +8,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/chimeramq/chimera/internal/metrics"
 	"github.com/chimeramq/chimera/internal/storage/cold"
 	"github.com/chimeramq/chimera/internal/storage/hot"
 	"github.com/chimeramq/chimera/internal/storage/warm"
@@ -25,12 +26,13 @@ type TierPolicy struct {
 
 // Migrator orchestrates data migration between storage tiers.
 type Migrator struct {
-	policy TierPolicy
-	hot    *hot.Engine
-	warm   *warm.LSMTree
-	cold   *ColdManager
-	stopCh chan struct{}
-	done   chan struct{}
+	policy  TierPolicy
+	hot     *hot.Engine
+	warm    *warm.LSMTree
+	cold    *ColdManager
+	metrics *metrics.Collector
+	stopCh  chan struct{}
+	done    chan struct{}
 }
 
 // ColdManager manages cold archive files.
@@ -69,14 +71,15 @@ func (cm *ColdManager) loadExisting() {
 }
 
 // NewMigrator creates a new tier migration orchestrator.
-func NewMigrator(policy TierPolicy, hotEngine *hot.Engine, warmEngine *warm.LSMTree, coldMgr *ColdManager) *Migrator {
+func NewMigrator(policy TierPolicy, hotEngine *hot.Engine, warmEngine *warm.LSMTree, coldMgr *ColdManager, mc *metrics.Collector) *Migrator {
 	return &Migrator{
-		policy: policy,
-		hot:    hotEngine,
-		warm:   warmEngine,
-		cold:   coldMgr,
-		stopCh: make(chan struct{}),
-		done:   make(chan struct{}),
+		policy:  policy,
+		hot:     hotEngine,
+		warm:    warmEngine,
+		cold:    coldMgr,
+		metrics: mc,
+		stopCh:  make(chan struct{}),
+		done:    make(chan struct{}),
 	}
 }
 
@@ -139,6 +142,9 @@ func (m *Migrator) run() {
 	ticker := time.NewTicker(1 * time.Minute)
 	defer ticker.Stop()
 
+	// Update metrics immediately on start
+	m.updateStorageMetrics()
+
 	for {
 		select {
 		case <-m.stopCh:
@@ -147,7 +153,33 @@ func (m *Migrator) run() {
 			m.migrateHotToWarm()
 			m.migrateWarmToCold()
 			m.purgeExpiredCold()
+			m.updateStorageMetrics()
 		}
+	}
+}
+
+// updateStorageMetrics updates the storage size metrics for all tiers.
+func (m *Migrator) updateStorageMetrics() {
+	if m.metrics == nil {
+		return
+	}
+
+	// Hot tier size
+	if m.hot != nil {
+		hotSize := m.hot.TotalSize()
+		m.metrics.TierStorageBytes("hot", hotSize)
+	}
+
+	// Warm tier size
+	if m.warm != nil {
+		warmSize := m.warm.TotalSize()
+		m.metrics.TierStorageBytes("warm", warmSize)
+	}
+
+	// Cold tier size
+	if m.cold != nil {
+		coldSize := m.cold.TotalSize()
+		m.metrics.TierStorageBytes("cold", coldSize)
 	}
 }
 
@@ -157,6 +189,7 @@ func (m *Migrator) migrateHotToWarm() {
 	}
 
 	cutoff := time.Now().Add(-m.policy.HotRetention)
+	totalMigrated := 0
 
 	m.hot.ForEachPartition(func(topic string, partID uint32, p *hot.Partition) bool {
 		frozen := p.FrozenSegments()
@@ -185,6 +218,7 @@ func (m *Migrator) migrateHotToWarm() {
 			}
 
 			if migrated > 0 {
+				totalMigrated += migrated
 				p.RemoveSegment(seg)
 				if err := seg.Remove(); err != nil {
 					log.Printf("tier: remove segment %s: %v", seg.Path(), err)
@@ -194,6 +228,10 @@ func (m *Migrator) migrateHotToWarm() {
 		}
 		return true
 	})
+
+	if totalMigrated > 0 && m.metrics != nil {
+		m.metrics.TierMigrationTotal("hot", "warm")
+	}
 }
 
 func (m *Migrator) migrateWarmToCold() {
@@ -207,6 +245,7 @@ func (m *Migrator) migrateWarmToCold() {
 	}
 
 	batchSize := 10
+	archivedCount := 0
 	for i := 0; i < len(oldSSTs); i += batchSize {
 		end := i + batchSize
 		if end > len(oldSSTs) {
@@ -231,7 +270,12 @@ func (m *Migrator) migrateWarmToCold() {
 			m.warm.RemoveSSTable(sst)
 		}
 
+		archivedCount += len(batch)
 		log.Printf("tier: archived %d SSTables to %s", len(batch), archiveName)
+	}
+
+	if archivedCount > 0 && m.metrics != nil {
+		m.metrics.TierMigrationTotal("warm", "cold")
 	}
 }
 
@@ -259,4 +303,16 @@ func (cm *ColdManager) Close() {
 	for _, ca := range cm.archives {
 		ca.Close()
 	}
+}
+
+// TotalSize returns the total size of all cold archives in bytes.
+func (cm *ColdManager) TotalSize() int64 {
+	cm.mu.RLock()
+	defer cm.mu.RUnlock()
+
+	var total int64
+	for _, ca := range cm.archives {
+		total += ca.Size()
+	}
+	return total
 }

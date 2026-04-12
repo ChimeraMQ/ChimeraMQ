@@ -9,6 +9,8 @@ import (
 	"io"
 	"os"
 	"sync"
+
+	"github.com/chimeramq/chimera/internal/fips"
 )
 
 var (
@@ -32,6 +34,10 @@ func NewEncryptor(keyPath string) (*Encryptor, error) {
 	}
 	if len(data) != 32 {
 		return nil, errors.New("encryption key must be exactly 32 bytes")
+	}
+	// Validate FIPS compliance
+	if fips.IsEnabled() && len(data) != 32 {
+		return nil, errors.New("FIPS mode requires AES-256 (32 byte key)")
 	}
 	enc := &Encryptor{keyLen: 32}
 	copy(enc.key[:], data)

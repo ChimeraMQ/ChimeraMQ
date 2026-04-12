@@ -518,7 +518,7 @@ STEP 2 — START:
 - Terminal window:
 - Command: "$ chimera server"
 - Output lines:
-  "ChimeraMQ v1.0.0 starting..."
+  "ChimeraMQ v0.1.0 starting..."
   "Protocol listener: 0.0.0.0:5672 (chimera|amqp|mqtt|ws)"
   "Admin API: 0.0.0.0:9090"
   "Dashboard: http://localhost:9090/ui"

@@ -7,10 +7,15 @@ import (
 	"io"
 	"net/http"
 	"os"
+	"strings"
 )
 
 func getAdminAddr() string {
 	if addr := os.Getenv("CHIMERA_ADMIN_ADDR"); addr != "" {
+		// Add http:// prefix if not present
+		if !strings.HasPrefix(addr, "http://") && !strings.HasPrefix(addr, "https://") {
+			return "http://" + addr
+		}
 		return addr
 	}
 	return "http://localhost:9090"
@@ -42,4 +47,24 @@ func printResponse(resp *http.Response) {
 func readStdin() []byte {
 	data, _ := io.ReadAll(io.LimitReader(os.Stdin, 16*1024*1024))
 	return data
+}
+
+// RunReloadCLI triggers configuration reload via admin API.
+func RunReloadCLI(args []string) {
+	adminAddr := getAdminAddr()
+
+	resp, err := http.Post(adminAddr+"/v1/config/reload", "application/json", nil)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
+		os.Exit(1)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		body, _ := io.ReadAll(resp.Body)
+		fmt.Fprintf(os.Stderr, "Error: %s\n", string(body))
+		os.Exit(1)
+	}
+
+	printResponse(resp)
 }

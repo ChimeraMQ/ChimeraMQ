@@ -71,7 +71,7 @@ func createSSTablesAtL1(t *testing.T, warmDir string, n, entriesPerTable int) *w
 }
 
 func TestMigrateWarmToColdNilCold(t *testing.T) {
-	m := NewMigrator(TierPolicy{}, nil, nil, nil)
+	m := NewMigrator(TierPolicy{}, nil, nil, nil, nil)
 	// Should not panic when cold is nil
 	m.migrateWarmToCold()
 }
@@ -94,7 +94,7 @@ func TestMigrateWarmToColdZeroRetention(t *testing.T) {
 	defer cm.Close()
 
 	policy := TierPolicy{WarmRetention: 0}
-	m := NewMigrator(policy, nil, we, cm)
+	m := NewMigrator(policy, nil, we, cm, nil)
 	m.migrateWarmToCold()
 }
 
@@ -117,7 +117,7 @@ func TestMigrateWarmToColdNoOldSSTables(t *testing.T) {
 
 	// No data written — should complete without error
 	policy := TierPolicy{WarmRetention: time.Nanosecond}
-	m := NewMigrator(policy, nil, we, cm)
+	m := NewMigrator(policy, nil, we, cm, nil)
 	m.migrateWarmToCold()
 }
 
@@ -153,7 +153,7 @@ func TestMigrateWarmToColdWithL1Data(t *testing.T) {
 	defer cm.Close()
 
 	policy := TierPolicy{WarmRetention: -1 * time.Second}
-	m := NewMigrator(policy, nil, we, cm)
+	m := NewMigrator(policy, nil, we, cm, nil)
 	m.migrateWarmToCold()
 
 	cm.mu.RLock()
@@ -194,7 +194,7 @@ func TestMigrateWarmToColdBatchSplitting(t *testing.T) {
 	defer cm.Close()
 
 	policy := TierPolicy{WarmRetention: -1 * time.Second}
-	m := NewMigrator(policy, nil, we, cm)
+	m := NewMigrator(policy, nil, we, cm, nil)
 	m.migrateWarmToCold()
 }
 
@@ -205,19 +205,19 @@ func TestNewColdManagerError(t *testing.T) {
 }
 
 func TestPurgeExpiredColdNoRetention(t *testing.T) {
-	m := NewMigrator(TierPolicy{}, nil, nil, nil)
+	m := NewMigrator(TierPolicy{}, nil, nil, nil, nil)
 	// Should not panic with nil cold
 	m.purgeExpiredCold()
 }
 
 func TestPurgeExpiredColdNilCold(t *testing.T) {
 	policy := TierPolicy{ColdRetention: time.Nanosecond}
-	m := NewMigrator(policy, nil, nil, nil)
+	m := NewMigrator(policy, nil, nil, nil, nil)
 	m.purgeExpiredCold()
 }
 
 func TestMigrateHotToWarmNoWarm(t *testing.T) {
-	m := NewMigrator(TierPolicy{}, nil, nil, nil)
+	m := NewMigrator(TierPolicy{}, nil, nil, nil, nil)
 	// Should not panic when warm is nil
 	m.migrateHotToWarm()
 }
@@ -270,7 +270,7 @@ func TestColdManagerLoadExistingSkipsCorruptDat(t *testing.T) {
 }
 
 func TestMigrateRunStop(t *testing.T) {
-	m := NewMigrator(TierPolicy{}, nil, nil, nil)
+	m := NewMigrator(TierPolicy{}, nil, nil, nil, nil)
 	m.Start()
 	time.Sleep(50 * time.Millisecond)
 	m.Stop()
@@ -298,7 +298,7 @@ func TestMigrateWarmToColdWithManualL1(t *testing.T) {
 	}
 	defer cm.Close()
 	policy := TierPolicy{WarmRetention: -1 * time.Second}
-	m := NewMigrator(policy, nil, we, cm)
+	m := NewMigrator(policy, nil, we, cm, nil)
 	m.migrateWarmToCold()
 	cm.mu.RLock()
 	count := len(cm.archives)
@@ -343,7 +343,7 @@ func TestMigrateWarmToColdRemovesSSTables(t *testing.T) {
 	}
 	defer cm.Close()
 	policy := TierPolicy{WarmRetention: -1 * time.Second}
-	m := NewMigrator(policy, nil, we, cm)
+	m := NewMigrator(policy, nil, we, cm, nil)
 	m.migrateWarmToCold()
 	statsAfter := we.Stats()
 	l1After := 0
@@ -373,7 +373,7 @@ func TestMigrateWarmToColdReadThrough(t *testing.T) {
 	}
 	defer cm.Close()
 	policy := TierPolicy{WarmRetention: -1 * time.Second}
-	m := NewMigrator(policy, he, we, cm)
+	m := NewMigrator(policy, he, we, cm, nil)
 	m.migrateWarmToCold()
 	cm.mu.RLock()
 	archiveCount := len(cm.archives)
@@ -412,7 +412,7 @@ func TestMigrateWarmToColdLoadExistingArchives(t *testing.T) {
 		t.Fatal(err)
 	}
 	policy := TierPolicy{WarmRetention: -1 * time.Second}
-	m := NewMigrator(policy, nil, we, cm)
+	m := NewMigrator(policy, nil, we, cm, nil)
 	m.migrateWarmToCold()
 	cm.mu.RLock()
 	firstCount := len(cm.archives)
@@ -495,7 +495,7 @@ func TestReadDeletedFromWarm(t *testing.T) {
 	we.Put(key, []byte("to-be-deleted"))
 	we.Delete(key)
 	policy := TierPolicy{HotRetention: time.Hour}
-	m := NewMigrator(policy, he, we, nil)
+	m := NewMigrator(policy, he, we, nil, nil)
 	_, err = m.Read("test", 0, 42)
 	if err == nil {
 		t.Error("expected error for deleted offset")
@@ -535,7 +535,7 @@ func TestReadFromColdTierWithHotEngine(t *testing.T) {
 	he := hot.NewEngine(dir, hot.HotConfig{SegmentSize: 1024 * 1024})
 	defer he.Close()
 	policy := TierPolicy{HotRetention: time.Hour}
-	m := NewMigrator(policy, he, nil, cm)
+	m := NewMigrator(policy, he, nil, cm, nil)
 	data, err := m.Read("test", 0, 12)
 	if err != nil {
 		t.Fatalf("Read(12): %v", err)
@@ -579,7 +579,7 @@ func TestPurgeExpiredColdWithColdArchive(t *testing.T) {
 	sst.Close()
 	cm.archives[archivePath] = ca
 	policy := TierPolicy{ColdRetention: 0}
-	m := NewMigrator(policy, nil, nil, cm)
+	m := NewMigrator(policy, nil, nil, cm, nil)
 	m.purgeExpiredCold()
 	cm.mu.RLock()
 	n := len(cm.archives)
@@ -607,7 +607,7 @@ func TestMigrateWarmToColdCreateArchiveError(t *testing.T) {
 	// On Windows, this may not work, so the test is best-effort
 	_ = os.Chmod(coldDir, 0555)
 	policy := TierPolicy{WarmRetention: -1 * time.Second}
-	m := NewMigrator(policy, nil, we, cm)
+	m := NewMigrator(policy, nil, we, cm, nil)
 	m.migrateWarmToCold()
 	_ = os.Chmod(coldDir, 0755)
 }

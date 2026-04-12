@@ -18,10 +18,15 @@ type Manager struct {
 // Tenant represents an isolated namespace.
 type Tenant struct {
 	ID          string
+	Name        string
+	Description string
 	TopicPrefix string              // e.g., "tenant-1_"
 	Quotas      QuotaConfig         // per-tenant limits
 	Topics      map[string]struct{} // registered topics
 	Metadata    map[string]string
+	Labels      map[string]string
+	CreatedAt   time.Time
+	Enabled     bool
 
 	// Rate tracking
 	publishCount atomic.Int64 // current window count
@@ -29,6 +34,9 @@ type Tenant struct {
 	connCount    atomic.Int64
 	windowStart  atomic.Int64 // unix seconds
 }
+
+// Quotas holds per-tenant resource limits (alias for QuotaConfig for compatibility).
+type Quotas = QuotaConfig
 
 // QuotaConfig holds per-tenant resource limits.
 type QuotaConfig struct {
@@ -163,15 +171,62 @@ func (m *Manager) TopicCount(tenantID string) int {
 	return len(t.Topics)
 }
 
-// ListTenants returns all tenant IDs.
-func (m *Manager) ListTenants() []string {
+// ListTenants returns all tenants.
+func (m *Manager) ListTenants() []*Tenant {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
-	ids := make([]string, 0, len(m.tenants))
-	for id := range m.tenants {
-		ids = append(ids, id)
+	tenants := make([]*Tenant, 0, len(m.tenants))
+	for _, t := range m.tenants {
+		tenants = append(tenants, t)
 	}
-	return ids
+	return tenants
+}
+
+func (m *Manager) CreateTenant(t *Tenant) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if _, exists := m.tenants[t.ID]; exists {
+		return fmt.Errorf("tenant %q already exists", t.ID)
+	}
+	if t.Topics == nil {
+		t.Topics = make(map[string]struct{})
+	}
+	if t.Metadata == nil {
+		t.Metadata = make(map[string]string)
+	}
+	if t.Labels == nil {
+		t.Labels = make(map[string]string)
+	}
+	if t.TopicPrefix == "" {
+		t.TopicPrefix = t.ID + "_"
+	}
+	if t.CreatedAt.IsZero() {
+		t.CreatedAt = time.Now()
+	}
+	m.tenants[t.ID] = t
+	return nil
+}
+
+// UpdateTenant updates an existing tenant.
+func (m *Manager) UpdateTenant(t *Tenant) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if _, exists := m.tenants[t.ID]; !exists {
+		return fmt.Errorf("tenant %q not found", t.ID)
+	}
+	m.tenants[t.ID] = t
+	return nil
+}
+
+// DeleteTenant deletes a tenant by ID.
+func (m *Manager) DeleteTenant(id string) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if _, exists := m.tenants[id]; !exists {
+		return fmt.Errorf("tenant %q not found", id)
+	}
+	delete(m.tenants, id)
+	return nil
 }
 
 // ListTopics returns all topics for a tenant.

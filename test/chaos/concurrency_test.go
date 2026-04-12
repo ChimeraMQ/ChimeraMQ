@@ -97,7 +97,11 @@ func TestConcurrentACLEntryModification(t *testing.T) {
 // TestConcurrentAuth tests concurrent authentication.
 func TestConcurrentAuth(t *testing.T) {
 	p := auth.NewStaticProvider(
-		map[string]string{"user1": "pass1", "user2": "pass2", "admin": "admin123"},
+		map[string]string{
+			"user1": "$2a$04$r5iJ3IrDdfp4Kd5uunLDvOpecH4ET/K7rsNeM7AnanK.ASvl57Yyy",
+			"user2": "$2a$04$sxeKRkPFyMRE6WB0JQ0MVe7OzNniSjhsUIUjwGatxAyivnJPmt30q",
+			"admin": "$2a$04$1Ccib.V/0HyDXqFpb1g42Oi4TolPtYe7uCTRMNRXdfLGpi9VtMtA2",
+		},
 		map[string]string{"token1": "user1", "token2": "user2"},
 	)
 	defer p.Close()

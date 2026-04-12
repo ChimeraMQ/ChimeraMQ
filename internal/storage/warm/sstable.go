@@ -339,6 +339,27 @@ func (sst *SSTable) Close() error {
 	return sst.file.Close()
 }
 
+// Size returns the file size of the SSTable in bytes.
+func (sst *SSTable) Size() int64 {
+	sst.mu.RLock()
+	defer sst.mu.RUnlock()
+
+	if sst.file == nil {
+		// Try to get size from path
+		info, err := os.Stat(sst.path)
+		if err != nil {
+			return 0
+		}
+		return info.Size()
+	}
+
+	info, err := sst.file.Stat()
+	if err != nil {
+		return 0
+	}
+	return info.Size()
+}
+
 // Remove deletes the SSTable file.
 func (sst *SSTable) Remove() error {
 	sst.Close()

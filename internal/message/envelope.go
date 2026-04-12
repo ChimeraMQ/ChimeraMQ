@@ -31,6 +31,8 @@ const (
 	ProtoMQTT    ProtocolType = 2
 	ProtoWS      ProtocolType = 3
 	ProtoHTTP    ProtocolType = 4
+	ProtoSTOMP   ProtocolType = 5
+	ProtoNATS    ProtocolType = 6
 )
 
 // String returns a human-readable protocol name.
@@ -46,6 +48,10 @@ func (p ProtocolType) String() string {
 		return "websocket"
 	case ProtoHTTP:
 		return "http"
+	case ProtoSTOMP:
+		return "stomp"
+	case ProtoNATS:
+		return "nats"
 	default:
 		return "unknown"
 	}

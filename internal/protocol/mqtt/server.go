@@ -104,7 +104,7 @@ func (s *Server) handleConnection(conn net.Conn) {
 	}
 
 	// Session
-	session := NewSession(clientID, connect.CleanSession, connect.KeepAlive)
+	session := NewSession(clientID, connect.CleanSession, connect.KeepAlive, connect.ProtocolLevel)
 	if connect.WillTopic != "" {
 		session.SetWill(connect.WillTopic, connect.WillPayload, connect.WillQoS, connect.WillRetain)
 	}
@@ -216,7 +216,8 @@ func (s *Server) handleConnection(conn net.Conn) {
 			return
 
 		case PacketAuth:
-			// MQTT 5.0 AUTH — enhanced auth, not implemented yet
+			// MQTT 5.0 AUTH — enhanced authentication
+			s.handleAuth(writer, session, pkt)
 		}
 	}
 }
@@ -351,4 +352,47 @@ func (s *Server) authenticate(username, password string) bool {
 
 func (s *Server) writePacket(w *bufio.Writer, pktType byte, flags byte, data []byte) {
 	_ = WritePacket(w, pktType, flags, data)
+}
+
+// handleAuth processes MQTT 5.0 AUTH packets for reauthentication.
+func (s *Server) handleAuth(writer *bufio.Writer, session *Session, pkt *Packet) {
+	// Parse AUTH packet
+	authPkt, err := ParseAuth(pkt)
+	if err != nil {
+		// Send AUTH with error reason code
+		s.writePacket(writer, PacketAuth, 0, BuildAuth(0x80, "", nil)) // 0x80 = Unspecified error
+		writer.Flush()
+		return
+	}
+
+	// Check if this is reauthentication
+	if session.ProtocolLevel() != ProtocolLevel50 {
+		// AUTH only supported in MQTT 5.0
+		s.writePacket(writer, PacketAuth, 0, BuildAuth(0x8C, "", nil)) // 0x8C = Protocol error
+		writer.Flush()
+		return
+	}
+
+	// For now, we support simple reauthentication success
+	// In a full implementation, this would validate auth data
+	switch authPkt.ReasonCode {
+	case 0x00: // Continue authentication
+		// Re-authentication success
+		s.writePacket(writer, PacketAuth, 0, BuildAuth(0x00, "", nil)) // 0x00 = Success
+	case 0x18: // Re-authentication
+		// Client is re-authenticating
+		// Validate credentials if auth method/data provided
+		if s.broker.Config().Auth.Enabled {
+			// In a full implementation, validate against auth provider
+			// For now, accept re-auth
+			s.writePacket(writer, PacketAuth, 0, BuildAuth(0x00, "", nil))
+		} else {
+			// Auth disabled, re-auth successful
+			s.writePacket(writer, PacketAuth, 0, BuildAuth(0x00, "", nil))
+		}
+	default:
+		// Unknown reason code
+		s.writePacket(writer, PacketAuth, 0, BuildAuth(0x80, "", nil))
+	}
+	writer.Flush()
 }

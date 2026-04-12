@@ -8,15 +8,16 @@ import (
 
 // Session represents an MQTT client session.
 type Session struct {
-	mu         sync.RWMutex
-	clientID   string
-	clean      bool
-	keepAlive  uint16
-	subs       map[string]byte // topic filter → granted QoS
-	inflight   map[uint16]*inflightMessage
-	nextPID    atomic.Uint32
-	will       *willMessage
-	lastActive time.Time
+	mu            sync.RWMutex
+	clientID      string
+	clean         bool
+	keepAlive     uint16
+	protocolLevel byte            // MQTT protocol level (4 for 3.1.1, 5 for 5.0)
+	subs          map[string]byte // topic filter → granted QoS
+	inflight      map[uint16]*inflightMessage
+	nextPID       atomic.Uint32
+	will          *willMessage
+	lastActive    time.Time
 }
 
 type inflightMessage struct {
@@ -43,17 +44,25 @@ type willMessage struct {
 }
 
 // NewSession creates a new MQTT session.
-func NewSession(clientID string, clean bool, keepAlive uint16) *Session {
+func NewSession(clientID string, clean bool, keepAlive uint16, protocolLevel byte) *Session {
 	s := &Session{
-		clientID:  clientID,
-		clean:     clean,
-		keepAlive: keepAlive,
-		subs:      make(map[string]byte),
-		inflight:  make(map[uint16]*inflightMessage),
+		clientID:      clientID,
+		clean:         clean,
+		keepAlive:     keepAlive,
+		protocolLevel: protocolLevel,
+		subs:          make(map[string]byte),
+		inflight:      make(map[uint16]*inflightMessage),
 	}
 	s.nextPID.Store(1)
 	s.lastActive = time.Now()
 	return s
+}
+
+// ProtocolLevel returns the MQTT protocol level.
+func (s *Session) ProtocolLevel() byte {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return s.protocolLevel
 }
 
 // ClientID returns the session's client ID.

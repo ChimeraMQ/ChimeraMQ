@@ -197,7 +197,7 @@ func TestMQTTRetainedWildcard(t *testing.T) {
 
 // TestMQTTSessionPacketID verifies packet ID generation is unique and non-zero.
 func TestMQTTSessionPacketID(t *testing.T) {
-	sess := mqtt.NewSession("test-client", true, 60)
+	sess := mqtt.NewSession("test-client", true, 60, mqtt.ProtocolLevel311)
 
 	ids := make(map[uint16]bool)
 	for i := 0; i < 100; i++ {
@@ -214,7 +214,7 @@ func TestMQTTSessionPacketID(t *testing.T) {
 
 // TestMQTTSessionInflight verifies inflight message add/ack flow.
 func TestMQTTSessionInflight(t *testing.T) {
-	sess := mqtt.NewSession("inflight-client", true, 60)
+	sess := mqtt.NewSession("inflight-client", true, 60, mqtt.ProtocolLevel311)
 
 	// Add inflight and verify packet IDs skip existing ones
 	sess.AddInflight(1, "topic/a", []byte("msg1"), 1)

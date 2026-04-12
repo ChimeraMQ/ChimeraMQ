@@ -130,7 +130,7 @@ func TestRetainedStoreWildcard(t *testing.T) {
 }
 
 func TestSession(t *testing.T) {
-	s := NewSession("client-1", true, 60)
+	s := NewSession("client-1", true, 60, ProtocolLevel311)
 
 	if s.ClientID() != "client-1" {
 		t.Errorf("clientID = %q", s.ClientID())

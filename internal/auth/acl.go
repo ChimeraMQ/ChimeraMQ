@@ -15,6 +15,7 @@ const (
 	ResourceCluster
 	ResourceSchema
 	ResourceWASM
+	ResourceTenant
 )
 
 // Operation identifies the action being performed.
@@ -169,6 +170,8 @@ func ParseResourceType(s string) ResourceType {
 		return ResourceSchema
 	case "wasm":
 		return ResourceWASM
+	case "tenant":
+		return ResourceTenant
 	default:
 		return ResourceTopic
 	}

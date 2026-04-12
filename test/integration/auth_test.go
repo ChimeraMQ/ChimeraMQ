@@ -67,7 +67,7 @@ func newAuthTestBroker(t *testing.T) *testBroker {
 		Auth: broker.AuthConfig{
 			Enabled: true,
 			Type:    "static",
-			Users:   map[string]string{"admin": "admin123", "reader": "reader123"},
+			Users:   map[string]string{"admin": "$2a$04$Yn5OMAdh3HYOpXGclm0olOvKGYxkwrEyeIzzECzXywsPs1gt.sPvy", "reader": "$2a$04$lzwVfGnaJJ.HLsQPBPh1DulA9sq4vf2wbl3zHAkHVxjSvnL8eLHLa"},
 			Tokens:  map[string]string{"api-key-admin": "admin", "api-key-reader": "reader"},
 		},
 		ACL: broker.ACL{

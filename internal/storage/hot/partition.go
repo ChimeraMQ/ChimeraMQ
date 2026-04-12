@@ -293,6 +293,18 @@ func (p *Partition) AdvanceLogStart(targetOffset uint64) int {
 	return removed
 }
 
+// TotalSize returns the total size of all segments in bytes.
+func (p *Partition) TotalSize() int64 {
+	p.mu.RLock()
+	defer p.mu.RUnlock()
+
+	var total int64
+	for _, seg := range p.segments {
+		total += seg.Size()
+	}
+	return total
+}
+
 // ReadRecord reads a length-prefixed record at a byte position.
 func ReadRecordAt(f *os.File, position int64) ([]byte, error) {
 	var lenBuf [4]byte

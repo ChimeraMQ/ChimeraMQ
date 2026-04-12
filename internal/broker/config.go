@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 	"strconv"
+	"sync"
 	"time"
 
 	"gopkg.in/yaml.v3"
@@ -11,28 +12,44 @@ import (
 
 // Config holds all ChimeraMQ broker configuration.
 type Config struct {
-	Node          NodeConfig          `yaml:"node"`
-	Listener      ListenerConfig      `yaml:"listener"`
-	Storage       StorageConfig       `yaml:"storage"`
-	Defaults      DefaultsConfig      `yaml:"defaults"`
-	Logging       LoggingConfig       `yaml:"logging"`
-	Auth          AuthConfig          `yaml:"auth"`
-	TLS           TLSConfig           `yaml:"tls"`
-	Limits        LimitsConfig        `yaml:"limits"`
-	Protocols     ProtocolsConfig     `yaml:"protocols"`
-	Cluster       ClusterConfig       `yaml:"cluster"`
-	Schema        SchemaConfig        `yaml:"schema"`
-	Priority      PriorityConfig      `yaml:"priority"`
-	TTL           TTLConfigRoot       `yaml:"ttl"`
-	WASM          WASMConfig          `yaml:"wasm"`
-	ACL           ACL                 `yaml:"acl"`
-	Processing    ProcessingConfig    `yaml:"processing"`
-	Observability ObservabilityConfig `yaml:"observability"`
-	DLQ           DLQConfig           `yaml:"dlq"`
-	FlowControl   FlowControlConfig   `yaml:"flow_control"`
-	Idempotent    IdempotentConfig    `yaml:"idempotent"`
-	Tenant        TenantConfigRoot    `yaml:"tenant"`
+	mu             sync.RWMutex
+	Node           NodeConfig           `yaml:"node"`
+	Listener       ListenerConfig       `yaml:"listener"`
+	Storage        StorageConfig        `yaml:"storage"`
+	Defaults       DefaultsConfig       `yaml:"defaults"`
+	Logging        LoggingConfig        `yaml:"logging"`
+	Auth           AuthConfig           `yaml:"auth"`
+	TLS            TLSConfig            `yaml:"tls"`
+	Limits         LimitsConfig         `yaml:"limits"`
+	Protocols      ProtocolsConfig      `yaml:"protocols"`
+	Cluster        ClusterConfig        `yaml:"cluster"`
+	Schema         SchemaConfig         `yaml:"schema"`
+	Priority       PriorityConfig       `yaml:"priority"`
+	TTL            TTLConfigRoot        `yaml:"ttl"`
+	WASM           WASMConfig           `yaml:"wasm"`
+	ACL            ACL                  `yaml:"acl"`
+	Processing     ProcessingConfig     `yaml:"processing"`
+	Observability  ObservabilityConfig  `yaml:"observability"`
+	Audit          AuditConfig          `yaml:"audit"`
+	DLQ            DLQConfig            `yaml:"dlq"`
+	FlowControl    FlowControlConfig    `yaml:"flow_control"`
+	Idempotent     IdempotentConfig     `yaml:"idempotent"`
+	Tenant         TenantConfigRoot     `yaml:"tenant"`
+	GeoReplication GeoReplicationConfig `yaml:"geo_replication"`
+	FIPS           FIPSConfig           `yaml:"fips"`
 }
+
+// Lock acquires write lock for config updates.
+func (c *Config) Lock() { c.mu.Lock() }
+
+// Unlock releases write lock.
+func (c *Config) Unlock() { c.mu.Unlock() }
+
+// RLock acquires read lock.
+func (c *Config) RLock() { c.mu.RLock() }
+
+// RUnlock releases read lock.
+func (c *Config) RUnlock() { c.mu.RUnlock() }
 
 // ClusterConfig controls clustering behavior.
 type ClusterConfig struct {
@@ -76,6 +93,8 @@ type ProtocolsConfig struct {
 	MQTT      ProtocolMQTTConfig      `yaml:"mqtt"`
 	WebSocket ProtocolWebSocketConfig `yaml:"websocket"`
 	AMQP      ProtocolAMQPConfig      `yaml:"amqp"`
+	STOMP     ProtocolSTOMPConfig     `yaml:"stomp"`
+	NATS      ProtocolNATSConfig      `yaml:"nats"`
 }
 
 // ProtocolChimeraConfig controls the native Chimera protocol.
@@ -107,6 +126,22 @@ type ProtocolAMQPConfig struct {
 	MaxFrameSize int32 `yaml:"max_frame_size"`
 }
 
+// ProtocolSTOMPConfig controls the STOMP adapter.
+type ProtocolSTOMPConfig struct {
+	Enabled        bool `yaml:"enabled"`
+	MaxFrameSize   int  `yaml:"max_frame_size"`
+	HeartBeat      bool `yaml:"heartbeat"`
+	MaxConnections int  `yaml:"max_connections"`
+}
+
+// ProtocolNATSConfig controls the NATS adapter.
+type ProtocolNATSConfig struct {
+	Enabled     bool `yaml:"enabled"`
+	MaxPayload  int  `yaml:"max_payload"`
+	MaxPending  int  `yaml:"max_pending"`
+	PingTimeout int  `yaml:"ping_timeout"`
+}
+
 // TLSConfig controls TLS encryption for listeners.
 type TLSConfig struct {
 	Enabled    bool   `yaml:"enabled"`
@@ -116,6 +151,15 @@ type TLSConfig struct {
 	MinVersion string `yaml:"min_version,omitempty"`
 	Mutual     bool   `yaml:"mutual,omitempty"`
 	ClientCA   string `yaml:"client_ca,omitempty"`
+}
+
+// AuditConfig controls audit logging.
+type AuditConfig struct {
+	Enabled  bool   `yaml:"enabled"`
+	LogPath  string `yaml:"log_path"`
+	MaxSize  int64  `yaml:"max_size"` // bytes
+	MaxAge   string `yaml:"max_age"`  // duration string
+	ToStdout bool   `yaml:"to_stdout"`
 }
 
 // AuthConfig controls authentication.
@@ -181,9 +225,10 @@ type LimitsConfig struct {
 
 // NodeConfig identifies this broker node.
 type NodeConfig struct {
-	ID      uint64 `yaml:"id"`
-	Name    string `yaml:"name"`
-	DataDir string `yaml:"data_dir"`
+	ID             uint64 `yaml:"id"`
+	Name           string `yaml:"name"`
+	DataDir        string `yaml:"data_dir"`
+	HandoffEnabled bool   `yaml:"handoff_enabled"`
 }
 
 // ListenerConfig controls network listeners.
@@ -287,6 +332,12 @@ type ProcessingConfig struct {
 type ObservabilityConfig struct {
 	Tracing   TracingConfig   `yaml:"tracing"`
 	Dashboard DashboardConfig `yaml:"dashboard"`
+	PProf     PProfConfig     `yaml:"pprof"`
+}
+
+// PProfConfig controls profiling endpoints.
+type PProfConfig struct {
+	Enabled bool `yaml:"enabled"`
 }
 
 // DashboardConfig controls the embedded Web UI.
@@ -352,6 +403,35 @@ type TenantQuotaConfig struct {
 	MaxFetchRate    int64 `yaml:"max_fetch_rate"`    // fetches/sec, 0=unlimited
 	MaxConnections  int64 `yaml:"max_connections"`   // 0=unlimited
 	MaxStorageBytes int64 `yaml:"max_storage_bytes"` // 0=unlimited
+}
+
+// GeoReplicationConfig controls geo-replication behavior.
+type GeoReplicationConfig struct {
+	Enabled         bool                `yaml:"enabled"`
+	LocalDC         string              `yaml:"local_dc"`
+	RemoteDCs       []GeoRemoteDCConfig `yaml:"remote_dcs"`
+	ReplicationMode string              `yaml:"replication_mode"` // async, sync
+	BatchSize       int                 `yaml:"batch_size"`
+	FlushInterval   string              `yaml:"flush_interval"`
+	MaxLag          string              `yaml:"max_lag"`
+}
+
+// GeoRemoteDCConfig represents a remote datacenter configuration.
+type GeoRemoteDCConfig struct {
+	ID            string   `yaml:"id"`
+	Name          string   `yaml:"name"`
+	Address       string   `yaml:"address"`
+	Region        string   `yaml:"region"`
+	Topics        []string `yaml:"topics"`
+	ExcludeTopics []string `yaml:"exclude_topics"`
+}
+
+// FIPSConfig controls FIPS 140-2 compliance mode.
+type FIPSConfig struct {
+	Enabled             bool     `yaml:"enabled"`
+	StrictMode          bool     `yaml:"strict_mode"`
+	AllowedCipherSuites []string `yaml:"allowed_cipher_suites"`
+	MinTLSVersion       string   `yaml:"min_tls_version"`
 }
 
 // EncryptionConfig controls at-rest encryption.
@@ -562,6 +642,18 @@ func defaultConfig() *Config {
 			Enabled:       false,
 			DefaultPolicy: "allow",
 		},
+		GeoReplication: GeoReplicationConfig{
+			Enabled:         false,
+			ReplicationMode: "async",
+			BatchSize:       100,
+			FlushInterval:   "1s",
+			MaxLag:          "30s",
+		},
+		FIPS: FIPSConfig{
+			Enabled:       false,
+			StrictMode:    false,
+			MinTLSVersion: "1.2",
+		},
 	}
 }
 
@@ -728,6 +820,15 @@ func (c *Config) Validate() error {
 		}
 		if _, err := time.ParseDuration(c.Cluster.Raft.HeartbeatInterval); err != nil {
 			return fmt.Errorf("cluster.raft.heartbeat_interval is invalid: %w", err)
+		}
+	}
+	if c.FIPS.Enabled {
+		if c.FIPS.MinTLSVersion != "" && c.FIPS.MinTLSVersion != "1.2" && c.FIPS.MinTLSVersion != "1.3" {
+			return fmt.Errorf("fips.min_tls_version must be '1.2' or '1.3'")
+		}
+		// FIPS requires TLS when enabled
+		if !c.TLS.Enabled {
+			return fmt.Errorf("fips.enabled requires tls.enabled")
 		}
 	}
 	return nil

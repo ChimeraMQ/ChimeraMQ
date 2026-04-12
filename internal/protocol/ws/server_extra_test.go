@@ -10,7 +10,7 @@ import (
 	"time"
 
 	"github.com/chimeramq/chimera/internal/broker"
-	"nhooyr.io/websocket"
+	"github.com/coder/websocket"
 )
 
 func setupWSTestServer(t *testing.T) (*Server, *broker.Broker, *httptest.Server, func()) {
@@ -241,7 +241,7 @@ func TestWSServeHTTPUnknownOp(t *testing.T) {
 	}
 }
 
-func TestWSServeHTTPSubscribeUnsupported(t *testing.T) {
+func TestWSServeHTTPSubscribeNoTopic(t *testing.T) {
 	_, _, httpSrv, cleanup := setupWSTestServer(t)
 	defer cleanup()
 
@@ -261,8 +261,8 @@ func TestWSServeHTTPSubscribeUnsupported(t *testing.T) {
 
 	var resp wsMessage
 	json.Unmarshal(data, &resp)
-	if resp.Op != "error" || !contains(resp.Error, "not yet supported") {
-		t.Errorf("expected subscribe unsupported error, got %q", resp.Error)
+	if resp.Op != "error" {
+		t.Errorf("expected error for missing topic, got %q", resp.Op)
 	}
 }
 
@@ -376,19 +376,6 @@ func TestWSServeHTTPDeleteTopicNoName(t *testing.T) {
 	if resp.Op != "error" {
 		t.Errorf("expected error for missing name, got %q", resp.Op)
 	}
-}
-
-func contains(s, substr string) bool {
-	return len(s) >= len(substr) && (s == substr || len(s) > 0 && containsHelper(s, substr))
-}
-
-func containsHelper(s, substr string) bool {
-	for i := 0; i <= len(s)-len(substr); i++ {
-		if s[i:i+len(substr)] == substr {
-			return true
-		}
-	}
-	return false
 }
 
 func TestWSServeHTTPChimeraBinaryFrame(t *testing.T) {

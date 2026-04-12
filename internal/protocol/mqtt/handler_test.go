@@ -420,7 +420,7 @@ func TestServerStopWithWill(t *testing.T) {
 	b.Topics().CreateTopic(broker.TopicConfig{Name: "will.topic", Mode: broker.ModeUnified, Partitions: 1})
 
 	srv := NewServer(b)
-	sess := NewSession("will-client", true, 60)
+	sess := NewSession("will-client", true, 60, ProtocolLevel311)
 	sess.SetWill("will/topic", []byte("client died"), 0, false)
 	srv.sessions.Store("will-client", sess)
 
@@ -457,7 +457,7 @@ func TestHandlePublishRetained(t *testing.T) {
 
 	var buf bytes.Buffer
 	writer := bufio.NewWriter(&buf)
-	sess := NewSession("retain-client", true, 60)
+	sess := NewSession("retain-client", true, 60, ProtocolLevel311)
 
 	pkt := &Packet{
 		Type:      PacketPublish,
@@ -622,7 +622,7 @@ func TestBuildUnsubAckPacket(t *testing.T) {
 }
 
 func TestSessionTouchAndLastActive(t *testing.T) {
-	sess := NewSession("touch-test", true, 60)
+	sess := NewSession("touch-test", true, 60, ProtocolLevel311)
 	before := sess.LastActive()
 	time.Sleep(10 * time.Millisecond)
 	sess.Touch()
@@ -633,7 +633,7 @@ func TestSessionTouchAndLastActive(t *testing.T) {
 }
 
 func TestSessionInflightState(t *testing.T) {
-	sess := NewSession("inflight-test", true, 60)
+	sess := NewSession("inflight-test", true, 60, ProtocolLevel311)
 	pid := sess.NextPacketID()
 	sess.AddInflight(pid, "topic", []byte("msg"), QoS2)
 	sess.SetInflightState(pid, statePubRec)
@@ -641,7 +641,7 @@ func TestSessionInflightState(t *testing.T) {
 }
 
 func TestSessionKeepAliveZero(t *testing.T) {
-	sess := NewSession("ka-zero", true, 0)
+	sess := NewSession("ka-zero", true, 0, ProtocolLevel311)
 	if sess.KeepAliveDuration() != 0 {
 		t.Errorf("keepalive = %v, want 0", sess.KeepAliveDuration())
 	}
@@ -695,7 +695,7 @@ func TestQoS2FullHandshakeClientToServer(t *testing.T) {
 }
 
 func TestQoS2InflightStateTransitions(t *testing.T) {
-	sess := NewSession("state-test", true, 60)
+	sess := NewSession("state-test", true, 60, ProtocolLevel311)
 	pid := sess.NextPacketID()
 
 	// Initial: add inflight with QoS 2 (statePubSent)

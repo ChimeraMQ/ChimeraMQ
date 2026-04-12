@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"os"
 	"os/signal"
+	"strings"
 	"syscall"
 	"time"
 
@@ -16,13 +17,16 @@ import (
 	"github.com/chimeramq/chimera/internal/protocol/chimera"
 	httpadmin "github.com/chimeramq/chimera/internal/protocol/http"
 	"github.com/chimeramq/chimera/internal/protocol/mqtt"
+	"github.com/chimeramq/chimera/internal/protocol/nats"
+	"github.com/chimeramq/chimera/internal/protocol/stomp"
 	"github.com/chimeramq/chimera/internal/protocol/ws"
+	"github.com/chimeramq/chimera/test/cluster"
 )
 
 // RunClusterCLI manages cluster operations via the admin API.
 func RunClusterCLI(args []string) {
 	if len(args) < 1 {
-		fmt.Println("Usage: chimera cluster [status|members]")
+		fmt.Println("Usage: chimera cluster [status|members|benchmark]")
 		os.Exit(1)
 	}
 
@@ -47,11 +51,62 @@ func RunClusterCLI(args []string) {
 		defer resp.Body.Close()
 		printResponse(resp)
 
+	case "benchmark":
+		runClusterBenchmark(args[1:])
+
 	default:
 		fmt.Printf("Unknown cluster command: %s\n", args[0])
-		fmt.Println("Usage: chimera cluster [status|members]")
+		fmt.Println("Usage: chimera cluster [status|members|benchmark]")
 		os.Exit(1)
 	}
+}
+
+// runClusterBenchmark runs a load benchmark against a cluster.
+func runClusterBenchmark(args []string) {
+	flags := flag.NewFlagSet("benchmark", flag.ExitOnError)
+	nodes := flags.String("nodes", "localhost:9090", "Comma-separated list of node admin addresses")
+	topic := flags.String("topic", "benchmark", "Topic to publish to")
+	producers := flags.Int("producers", 10, "Number of concurrent producers")
+	msgRate := flags.Int("rate", 10000, "Target messages per second")
+	duration := flags.Duration("duration", 30*time.Second, "Test duration")
+	messageSize := flags.Int("size", 100, "Message size in bytes")
+	_ = flags.Parse(args)
+
+	// Parse nodes
+	nodeList := make([]string, 0)
+	for _, n := range strings.Split(*nodes, ",") {
+		if n = strings.TrimSpace(n); n != "" {
+			nodeList = append(nodeList, n)
+		}
+	}
+
+	fmt.Printf("Cluster Benchmark\n")
+	fmt.Printf("=================\n")
+	fmt.Printf("Nodes:      %v\n", nodeList)
+	fmt.Printf("Topic:      %s\n", *topic)
+	fmt.Printf("Producers:  %d\n", *producers)
+	fmt.Printf("Rate:       %d msg/s\n", *msgRate)
+	fmt.Printf("Duration:   %v\n", *duration)
+	fmt.Printf("Msg Size:   %d bytes\n\n", *messageSize)
+
+	// Create load tester
+	config := cluster.LoadTestConfig{
+		Nodes:             nodeList,
+		Topic:             *topic,
+		Producers:         *producers,
+		MessagesPerSecond: *msgRate,
+		Duration:          *duration,
+		MessageSize:       *messageSize,
+	}
+
+	tester := cluster.NewLoadTester(config)
+	result, err := tester.Run()
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Benchmark failed: %v\n", err)
+		os.Exit(1)
+	}
+
+	result.PrintResults()
 }
 
 // RunServer starts the ChimeraMQ broker.
@@ -88,6 +143,11 @@ func RunServer(args []string) {
 	if err := b.Start(); err != nil {
 		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
 		os.Exit(1)
+	}
+
+	// Start config watcher if config file exists
+	if *configPath != "" {
+		b.StartConfigWatcher(*configPath, 30*time.Second)
 	}
 
 	// Create protocol multiplexer
@@ -147,6 +207,18 @@ func registerProtocols(mux *protocol.ProtocolMux, cfg *broker.Config, b *broker.
 		b.Logger().Info("MQTT adapter enabled")
 	}
 
+	if cfg.Protocols.STOMP.Enabled {
+		stompServer := stomp.NewServer(b)
+		mux.Register(&stomp.Detector{}, stompServer)
+		b.Logger().Info("STOMP adapter enabled")
+	}
+
+	if cfg.Protocols.NATS.Enabled {
+		natsServer := nats.NewServer(b)
+		mux.Register(&nats.Detector{}, natsServer)
+		b.Logger().Info("NATS adapter enabled")
+	}
+
 	// HTTP is always registered on the main port for API access
 	httpServer := httpadmin.NewAdminServer(b)
 	mux.Register(&httpadmin.Detector{}, httpServer)
@@ -173,12 +245,14 @@ func RunTopicCLI(args []string) {
 		name := flags.String("name", "", "Topic name")
 		mode := flags.String("mode", "unified", "Topic mode: stream, queue, unified")
 		partitions := flags.Uint("partitions", 8, "Number of partitions")
+		replication := flags.Int("replication", 1, "Replication factor (for clustered mode)")
 		_ = flags.Parse(args[1:])
 
 		body, _ := json.Marshal(map[string]interface{}{
-			"name":       *name,
-			"mode":       *mode,
-			"partitions": *partitions,
+			"name":        *name,
+			"mode":        *mode,
+			"partitions":  *partitions,
+			"replication": *replication,
 		})
 
 		resp, err := httpPost(adminAddr+"/v1/topics", body)

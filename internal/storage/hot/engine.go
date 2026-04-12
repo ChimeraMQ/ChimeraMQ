@@ -108,3 +108,17 @@ func (e *Engine) ForEachPartition(fn func(topic string, partID uint32, p *Partit
 		}
 	}
 }
+
+// TotalSize returns the total size of all partitions in bytes.
+func (e *Engine) TotalSize() int64 {
+	e.mu.RLock()
+	defer e.mu.RUnlock()
+
+	var total int64
+	for _, topicParts := range e.partitions {
+		for _, part := range topicParts {
+			total += part.TotalSize()
+		}
+	}
+	return total
+}

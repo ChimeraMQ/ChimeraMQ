@@ -35,9 +35,9 @@ func TestStaticProviderTokenInvalid(t *testing.T) {
 	}
 }
 
-func TestStaticProviderUserPlaintext(t *testing.T) {
+func TestStaticProviderUserBcrypt(t *testing.T) {
 	p := NewStaticProvider(
-		map[string]string{"admin": "password123"},
+		map[string]string{"admin": "$2a$04$AZNl/xU1Y0OWAcPUS/vz0OJeoAa4t4UpaAwWSShyp4b4Hf0VRRRCe"},
 		nil,
 	)
 	defer p.Close()
@@ -56,7 +56,7 @@ func TestStaticProviderUserPlaintext(t *testing.T) {
 
 func TestStaticProviderUserWrongPassword(t *testing.T) {
 	p := NewStaticProvider(
-		map[string]string{"admin": "password123"},
+		map[string]string{"admin": "$2a$04$AZNl/xU1Y0OWAcPUS/vz0OJeoAa4t4UpaAwWSShyp4b4Hf0VRRRCe"},
 		nil,
 	)
 	defer p.Close()
@@ -136,8 +136,9 @@ func TestFileProviderToken(t *testing.T) {
 func TestFileProviderUser(t *testing.T) {
 	dir := t.TempDir()
 	path := dir + "/auth.json"
+	// Passwords are bcrypt hashed: "secret" -> $2a$04$30HxUYsoBvQUHavktOfcG.sVFvdBFj3f4WmdeirSqsOcm5kb4mmVa
 	os.WriteFile(path, []byte(`{
-		"users": {"admin": {"password": "secret", "roles": ["admin"]}},
+		"users": {"admin": {"password": "$2a$04$30HxUYsoBvQUHavktOfcG.sVFvdBFj3f4WmdeirSqsOcm5kb4mmVa", "roles": ["admin"]}},
 		"tokens": {}
 	}`), 0600)
 
@@ -172,8 +173,9 @@ func TestFileProviderInvalidPath(t *testing.T) {
 func TestFileProviderReload(t *testing.T) {
 	dir := t.TempDir()
 	path := dir + "/auth.json"
+	// Passwords are bcrypt hashed: "old" -> $2a$04$e138xwh9N2FKRUKWSVHYlel5sW0m9GmJCBNd4jAzS9xOBvFsLH8pq
 	os.WriteFile(path, []byte(`{
-		"users": {"admin": {"password": "old"}},
+		"users": {"admin": {"password": "$2a$04$e138xwh9N2FKRUKWSVHYlel5sW0m9GmJCBNd4jAzS9xOBvFsLH8pq"}},
 		"tokens": {}
 	}`), 0600)
 
@@ -189,9 +191,9 @@ func TestFileProviderReload(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	// Update file
+	// Update file with new password hash: "new" -> $2a$04$YnVIsU9NJCW7.PAcCqSHDO8Ssjhs1VXqTAeq1RPGRSlXQVXfWlOF2
 	os.WriteFile(path, []byte(`{
-		"users": {"admin": {"password": "new"}},
+		"users": {"admin": {"password": "$2a$04$YnVIsU9NJCW7.PAcCqSHDO8Ssjhs1VXqTAeq1RPGRSlXQVXfWlOF2"}},
 		"tokens": {}
 	}`), 0600)
 

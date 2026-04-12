@@ -52,7 +52,7 @@ func TestMigratorRead(t *testing.T) {
 		WarmRetention: 24 * time.Hour,
 		ColdRetention: 7 * 24 * time.Hour,
 	}
-	m := NewMigrator(policy, he, we, nil)
+	m := NewMigrator(policy, he, we, nil, nil)
 
 	// Read from hot tier
 	data, err := m.Read("test", 0, 5)
@@ -79,7 +79,7 @@ func TestMigratorStartStop(t *testing.T) {
 	defer he.Close()
 
 	policy := TierPolicy{HotRetention: time.Hour}
-	m := NewMigrator(policy, he, nil, nil)
+	m := NewMigrator(policy, he, nil, nil, nil)
 
 	m.Start()
 	time.Sleep(100 * time.Millisecond)
@@ -133,7 +133,7 @@ func TestMigrateHotToWarm(t *testing.T) {
 
 	// Migrate with 0 retention = migrate everything immediately
 	policy := TierPolicy{HotRetention: 0}
-	m := NewMigrator(policy, he, we, nil)
+	m := NewMigrator(policy, he, we, nil, nil)
 
 	// Force immediate migration by calling directly
 	// Use a very short retention to trigger migration
@@ -192,7 +192,7 @@ func TestMigrateWarmToCold(t *testing.T) {
 	defer cm.Close()
 
 	policy := TierPolicy{WarmRetention: time.Nanosecond}
-	m := NewMigrator(policy, nil, we, cm)
+	m := NewMigrator(policy, nil, we, cm, nil)
 	m.migrateWarmToCold()
 
 	// Test the cold creation path directly: create SSTables, make archive
@@ -274,7 +274,7 @@ func TestReadFromColdTier(t *testing.T) {
 	cm.archives[archivePath] = ca
 
 	policy := TierPolicy{HotRetention: time.Hour}
-	m := NewMigrator(policy, he, we, cm)
+	m := NewMigrator(policy, he, we, cm, nil)
 
 	data, err := m.Read("test", 0, 505)
 	if err != nil {
@@ -322,7 +322,7 @@ func TestPurgeExpiredCold(t *testing.T) {
 	// purgeExpiredCold checks: now.Sub(ca.CreatedAt()) > ColdRetention
 	// With negative retention, even a freshly-created archive passes.
 	policy := TierPolicy{ColdRetention: -1 * time.Second}
-	m := NewMigrator(policy, nil, nil, cm)
+	m := NewMigrator(policy, nil, nil, cm, nil)
 	m.purgeExpiredCold()
 
 	if len(cm.archives) != 0 {
@@ -383,7 +383,7 @@ func TestMigratorNoWarmNilPanics(t *testing.T) {
 	defer he.Close()
 
 	policy := TierPolicy{HotRetention: time.Hour}
-	m := NewMigrator(policy, he, nil, nil)
+	m := NewMigrator(policy, he, nil, nil, nil)
 
 	m.migrateHotToWarm()
 	m.migrateWarmToCold()
@@ -412,7 +412,7 @@ func TestMigratorNoRetentionNoMigration(t *testing.T) {
 	defer we.Close()
 
 	policy := TierPolicy{HotRetention: 0}
-	m := NewMigrator(policy, he, we, nil)
+	m := NewMigrator(policy, he, we, nil, nil)
 	m.migrateHotToWarm()
 
 	stats := we.Stats()
@@ -469,7 +469,7 @@ func TestFullMigrationPipeline(t *testing.T) {
 		WarmRetention: time.Nanosecond,
 		ColdRetention: 7 * 24 * time.Hour,
 	}
-	m := NewMigrator(policy, he, we, cm)
+	m := NewMigrator(policy, he, we, cm, nil)
 
 	// Phase 1: Hot → Warm
 	m.migrateHotToWarm()
