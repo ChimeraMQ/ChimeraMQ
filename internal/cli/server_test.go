@@ -8,6 +8,9 @@ import (
 	"os"
 	"strings"
 	"testing"
+
+	"github.com/chimeramq/chimera/internal/broker"
+	"github.com/chimeramq/chimera/internal/protocol"
 )
 
 func TestRunClusterCLINoArgs(t *testing.T) {
@@ -387,4 +390,77 @@ func TestRunTopicCLIUnknownCommand(t *testing.T) {
 		RunTopicCLI([]string{"unknown"})
 		return
 	}
+}
+
+func TestRunTopicCLIDescribeNoName(t *testing.T) {
+	if os.Getenv("TEST_TOPIC_DESCRIBE_NONAME") == "1" {
+		RunTopicCLI([]string{"describe"})
+		return
+	}
+}
+
+func TestRunTopicCLINoArgs(t *testing.T) {
+	if os.Getenv("TEST_TOPIC_NOARGS") == "1" {
+		RunTopicCLI([]string{})
+		return
+	}
+}
+
+func TestRegisterProtocols(t *testing.T) {
+	cfg, err := broker.LoadConfig("", nil)
+	if err != nil {
+		t.Fatalf("LoadConfig: %v", err)
+	}
+	cfg.Node.DataDir = t.TempDir()
+	cfg.Listener.Port = 0
+	cfg.Listener.AdminPort = 0
+	cfg.Protocols.AMQP.Enabled = true
+	cfg.Protocols.MQTT.Enabled = true
+	cfg.Protocols.STOMP.Enabled = true
+	cfg.Protocols.NATS.Enabled = true
+	cfg.Protocols.Chimera.Enabled = true
+
+	b, err := broker.NewBroker(cfg)
+	if err != nil {
+		t.Fatalf("NewBroker: %v", err)
+	}
+	if err := b.Start(); err != nil {
+		t.Fatalf("Start: %v", err)
+	}
+	defer b.Stop()
+
+	mux := protocol.NewProtocolMux(b)
+	registerProtocols(mux, cfg, b)
+
+	// Verify no panic and Stop iterates all registered handlers
+	mux.Stop()
+}
+
+func TestRegisterProtocolsMinimal(t *testing.T) {
+	cfg, err := broker.LoadConfig("", nil)
+	if err != nil {
+		t.Fatalf("LoadConfig: %v", err)
+	}
+	cfg.Node.DataDir = t.TempDir()
+	cfg.Listener.Port = 0
+	cfg.Listener.AdminPort = 0
+	// All protocols disabled except HTTP (always on)
+	cfg.Protocols.AMQP.Enabled = false
+	cfg.Protocols.MQTT.Enabled = false
+	cfg.Protocols.STOMP.Enabled = false
+	cfg.Protocols.NATS.Enabled = false
+	cfg.Protocols.Chimera.Enabled = false
+
+	b, err := broker.NewBroker(cfg)
+	if err != nil {
+		t.Fatalf("NewBroker: %v", err)
+	}
+	if err := b.Start(); err != nil {
+		t.Fatalf("Start: %v", err)
+	}
+	defer b.Stop()
+
+	mux := protocol.NewProtocolMux(b)
+	registerProtocols(mux, cfg, b)
+	mux.Stop()
 }

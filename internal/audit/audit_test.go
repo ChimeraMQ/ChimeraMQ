@@ -434,3 +434,113 @@ func TestLevelConstants(t *testing.T) {
 		t.Errorf("expected LevelError to be 'ERROR', got %s", LevelError)
 	}
 }
+
+func TestLogRotation(t *testing.T) {
+	tmpDir := t.TempDir()
+	logPath := filepath.Join(tmpDir, "audit.log")
+
+	cfg := Config{
+		Enabled: true,
+		LogPath: logPath,
+		MaxSize: 100, // 100 bytes to trigger rotation quickly
+	}
+
+	logger, err := NewLogger(cfg)
+	if err != nil {
+		t.Fatalf("NewLogger failed: %v", err)
+	}
+
+	// Write enough data to trigger rotation
+	for i := 0; i < 10; i++ {
+		logger.LogAdmin("admin", "10.0.0.1", "topic", "orders", "create", "success")
+	}
+
+	logger.Close()
+
+	// Check that a rotated file exists
+	entries, err := os.ReadDir(tmpDir)
+	if err != nil {
+		t.Fatalf("ReadDir failed: %v", err)
+	}
+
+	rotatedFound := false
+	for _, entry := range entries {
+		if strings.HasPrefix(entry.Name(), "audit.log.") {
+			rotatedFound = true
+			break
+		}
+	}
+
+	if !rotatedFound {
+		t.Error("expected a rotated log file to exist")
+	}
+}
+
+func TestCleanupOldLogs(t *testing.T) {
+	tmpDir := t.TempDir()
+	logPath := filepath.Join(tmpDir, "audit.log")
+
+	cfg := Config{
+		Enabled: true,
+		LogPath: logPath,
+		MaxAge:  1 * time.Hour,
+	}
+
+	logger, err := NewLogger(cfg)
+	if err != nil {
+		t.Fatalf("NewLogger failed: %v", err)
+	}
+	defer logger.Close()
+
+	// Create an old rotated file with old modification time
+	oldLogPath := logPath + ".20230101-120000"
+	os.WriteFile(oldLogPath, []byte("old log"), 0644)
+	oldTime := time.Now().Add(-48 * time.Hour)
+	os.Chtimes(oldLogPath, oldTime, oldTime)
+
+	// Create a recent rotated file
+	recentLogPath := logPath + "." + time.Now().Format("20060102-150405")
+	os.WriteFile(recentLogPath, []byte("recent log"), 0644)
+
+	// Trigger cleanup
+	logger.cleanupOldLogs()
+
+	// Old file should be removed
+	if _, err := os.Stat(oldLogPath); !os.IsNotExist(err) {
+		t.Error("expected old rotated log to be cleaned up")
+	}
+
+	// Recent file should still exist
+	if _, err := os.Stat(recentLogPath); os.IsNotExist(err) {
+		t.Error("expected recent rotated log to be preserved")
+	}
+}
+
+func TestNewLoggerMkdirAllFailure(t *testing.T) {
+	// Create a file, then try to use it as a directory
+	tmpFile, err := os.CreateTemp("", "notadir")
+	if err != nil {
+		t.Fatal(err)
+	}
+	tmpFile.Close()
+	defer os.Remove(tmpFile.Name())
+
+	cfg := Config{
+		Enabled: true,
+		LogPath: filepath.Join(tmpFile.Name(), "audit.log"),
+	}
+
+	_, err = NewLogger(cfg)
+	if err == nil {
+		t.Fatal("expected error when log path parent is a file")
+	}
+}
+
+func TestLogWithNilEncoder(t *testing.T) {
+	logger := &Logger{
+		enabled: true,
+		encoder: nil,
+	}
+	// Should not panic
+	logger.Log(Event{Action: "test", Result: "success"})
+}
