@@ -276,3 +276,25 @@ func TestReplicateFlushOnStop(t *testing.T) {
 	// Stop immediately to trigger flush of pending batch
 	replica.Stop()
 }
+
+func TestReplicateTickerFlush(t *testing.T) {
+	cfg := RemoteDCConfig{ID: "dc1", Address: "localhost:9091"}
+	client := &Client{address: cfg.Address}
+	replica := &Replica{
+		cfg:     cfg,
+		client:  client,
+		buffer:  make(chan *ReplicationEvent, 100),
+		stopCh:  make(chan struct{}),
+		lagInfo: make(map[string]*LagInfo),
+	}
+
+	if err := replica.Start(); err != nil {
+		t.Fatal(err)
+	}
+
+	// Send one event and wait for ticker to flush
+	replica.buffer <- &ReplicationEvent{Topic: "t1", Partition: 0, Offset: 1}
+	time.Sleep(250 * time.Millisecond)
+
+	replica.Stop()
+}
