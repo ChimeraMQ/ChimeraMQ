@@ -651,3 +651,37 @@ func TestRouteConnectionAMQP(t *testing.T) {
 		t.Errorf("handler count = %d, want 1", handler.Count())
 	}
 }
+
+// bigDetector needs more bytes than the default 8.
+type bigDetector struct{}
+
+func (d *bigDetector) Detect(peeked []byte) bool { return len(peeked) >= 10 && peeked[0] == 'B' }
+func (d *bigDetector) BytesNeeded() int          { return 10 }
+
+func TestMuxRouteWithLargeBytesNeeded(t *testing.T) {
+	b, cleanup := newTestBrokerForMux(t)
+	defer cleanup()
+
+	handler := &trackingHandler{}
+	mux := NewProtocolMux(b)
+	mux.Register(&bigDetector{}, handler)
+
+	done := make(chan error, 1)
+	go func() { done <- mux.Serve() }()
+	time.Sleep(50 * time.Millisecond)
+
+	addr := mux.listener.Addr().String()
+	conn, err := net.DialTimeout("tcp", addr, 2*time.Second)
+	if err != nil {
+		t.Fatalf("dial: %v", err)
+	}
+	conn.Write([]byte("BIG-DATA-HERE"))
+	conn.Close()
+
+	time.Sleep(50 * time.Millisecond)
+	mux.Stop()
+
+	if handler.Count() != 1 {
+		t.Errorf("handled = %d, want 1", handler.Count())
+	}
+}
