@@ -595,6 +595,9 @@ func TestIsProcessAliveExtra(t *testing.T) {
 	if isProcessAlive(999999) {
 		t.Error("expected non-existent PID to be not alive")
 	}
+	if isProcessAlive(-1) {
+		t.Error("expected invalid PID to be not alive")
+	}
 }
 
 // --- FetchMessages coverage ---

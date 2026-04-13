@@ -197,3 +197,59 @@ func TestCollectorMixedLabelAndNoLabel(t *testing.T) {
 		t.Error("expected labeled mixed counter")
 	}
 }
+
+func TestCollectorTierMetrics(t *testing.T) {
+	c := NewCollector()
+	c.TierStorageBytes("hot", 1024)
+	c.TierObjectCount("warm", 42)
+	c.TierMigrationTotal("hot", "warm")
+
+	out := c.Expose()
+	if !strings.Contains(out, "chimera_tier_storage_bytes") {
+		t.Error("expected tier_storage_bytes")
+	}
+	if !strings.Contains(out, "chimera_tier_object_count") {
+		t.Error("expected tier_object_count")
+	}
+	if !strings.Contains(out, "chimera_tier_migration_total") {
+		t.Error("expected tier_migration_total")
+	}
+}
+
+func TestCollectorSchemaMetrics(t *testing.T) {
+	c := NewCollector()
+	c.SchemaRegistered("orders", "avro")
+	c.SchemaValidationFailed("orders")
+
+	out := c.Expose()
+	if !strings.Contains(out, "chimera_schema_registered_total") {
+		t.Error("expected schema_registered_total")
+	}
+	if !strings.Contains(out, "chimera_schema_validation_failed_total") {
+		t.Error("expected schema_validation_failed_total")
+	}
+}
+
+func TestCollectorMessageExpired(t *testing.T) {
+	c := NewCollector()
+	c.MessageExpired("orders", "dropped")
+
+	out := c.Expose()
+	if !strings.Contains(out, "chimera_message_expired_total") {
+		t.Error("expected message_expired_total")
+	}
+}
+
+func TestCollectorWASMMetrics(t *testing.T) {
+	c := NewCollector()
+	c.WASMExecOK("orders")
+	c.WASMExecError("orders")
+
+	out := c.Expose()
+	if !strings.Contains(out, `chimera_wasm_executions_total{status="ok",topic="orders"}`) {
+		t.Error("expected wasm exec ok metric")
+	}
+	if !strings.Contains(out, `chimera_wasm_executions_total{status="error",topic="orders"}`) {
+		t.Error("expected wasm exec error metric")
+	}
+}
