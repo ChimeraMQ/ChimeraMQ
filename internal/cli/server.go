@@ -297,6 +297,11 @@ func RunTopicCLI(args []string) {
 		}
 		defer resp.Body.Close()
 		printResponse(resp)
+
+	default:
+		fmt.Printf("Unknown topic command: %s\n", args[0])
+		fmt.Println("Usage: chimera topic [create|list|describe|delete]")
+		os.Exit(1)
 	}
 }
 
