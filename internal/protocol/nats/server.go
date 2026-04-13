@@ -109,7 +109,6 @@ func (s *Session) handle() error {
 		}
 
 		if err := s.processMessage(msg); err != nil {
-			_ = s.sendError(err.Error())
 			return err
 		}
 	}
@@ -142,14 +141,16 @@ func (s *Session) handleConnect(msg *Message) error {
 		// JSON encoded connection info
 		jsonData := msg.Args[0]
 		if err := json.Unmarshal([]byte(jsonData), &s.info); err != nil {
-			return s.sendError("Invalid CONNECT JSON")
+			_ = s.sendError("Invalid CONNECT JSON")
+			return fmt.Errorf("invalid connect json")
 		}
 	}
 
 	// Authentication
 	if s.b.Config().Auth.Enabled {
 		if !s.authenticate(s.info.User, s.info.Pass, s.info.AuthToken) {
-			return s.sendError("Authorization Violation")
+			_ = s.sendError("Authorization Violation")
+			return fmt.Errorf("authorization violation")
 		}
 	}
 

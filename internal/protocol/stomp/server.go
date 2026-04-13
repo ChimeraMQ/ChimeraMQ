@@ -87,7 +87,6 @@ func (s *Session) handle() error {
 		}
 
 		if err := s.processFrame(frame); err != nil {
-			_ = s.sendError("Processing error", err.Error())
 			return err
 		}
 	}
@@ -128,7 +127,8 @@ func (s *Session) handleConnect(frame *Frame) error {
 		if !s.authenticate(login, passcode) {
 			errFrame := NewFrame(CmdError)
 			errFrame.Set("message", "Authentication failed")
-			return s.writeFrame(errFrame)
+			_ = s.writeFrame(errFrame)
+			return fmt.Errorf("authentication failed")
 		}
 	}
 
@@ -426,7 +426,6 @@ func (s *Session) authenticate(username, password string) bool {
 	_, err := provider.Authenticate(context.Background(), auth.Credentials{
 		Username: username,
 		Password: password,
-		Token:    password,
 	})
 	return err == nil
 }
