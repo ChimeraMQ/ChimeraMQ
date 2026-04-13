@@ -336,3 +336,97 @@ func TestLoggerCloseMultiple(t *testing.T) {
 	_ = logger.Close()
 	_ = logger.Close() // should not panic on double close
 }
+
+func TestLoggerRotation(t *testing.T) {
+	dir := t.TempDir()
+	logPath := filepath.Join(dir, "test.log")
+
+	logger := NewLogger(LoggingConfig{
+		Level:   "info",
+		Format:  "text",
+		Output:  "file",
+		File:    logPath,
+		MaxSize: 1, // 1 byte to force rotation
+	})
+	defer logger.Close()
+
+	logger.Info("trigger rotation")
+	// doRotate is called via write -> rotate when size exceeds MaxSize
+}
+
+func TestLoggerCleanupOldLogs(t *testing.T) {
+	dir := t.TempDir()
+	logPath := filepath.Join(dir, "app.log")
+
+	logger := NewLogger(LoggingConfig{
+		Level:  "info",
+		Format: "text",
+		Output: "file",
+		File:   logPath,
+		MaxAge: 1,
+	})
+	defer logger.Close()
+
+	// Create an old rotated log file with past mod time
+	oldLog := logPath + ".20200101-000000"
+	os.WriteFile(oldLog, []byte("old"), 0644)
+	past := time.Now().AddDate(0, 0, -7)
+	os.Chtimes(oldLog, past, past)
+
+	logger.cleanupOldLogs()
+
+	if _, err := os.Stat(oldLog); !os.IsNotExist(err) {
+		t.Error("old log file should be cleaned up")
+	}
+}
+
+func TestIsLogFile(t *testing.T) {
+	if !isLogFile("app.log.20240101-120000", "app.log") {
+		t.Error("expected rotated log to match")
+	}
+	if isLogFile("app.log", "app.log") {
+		t.Error("base file should not match")
+	}
+	if isLogFile("other.log.20240101-120000", "app.log") {
+		t.Error("different base should not match")
+	}
+	if isLogFile("app.logx.20240101-120000", "app.log") {
+		t.Error("missing dot separator should not match")
+	}
+}
+
+func TestLoggerSetLevelWithFile(t *testing.T) {
+	dir := t.TempDir()
+	logPath := filepath.Join(dir, "level.log")
+
+	logger := NewLogger(LoggingConfig{
+		Level:  "info",
+		Format: "text",
+		Output: "file",
+		File:   logPath,
+	})
+	defer logger.Close()
+
+	logger.SetLevel("warn")
+	if logger.level != slog.LevelWarn {
+		t.Errorf("level = %v, want warn", logger.level)
+	}
+}
+
+func TestLoggerSetFormatWithFile(t *testing.T) {
+	dir := t.TempDir()
+	logPath := filepath.Join(dir, "format.log")
+
+	logger := NewLogger(LoggingConfig{
+		Level:  "info",
+		Format: "text",
+		Output: "file",
+		File:   logPath,
+	})
+	defer logger.Close()
+
+	logger.SetFormat("json")
+	if logger.config.Format != "json" {
+		t.Errorf("format = %q, want json", logger.config.Format)
+	}
+}
