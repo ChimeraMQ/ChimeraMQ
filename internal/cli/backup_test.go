@@ -137,3 +137,61 @@ func TestRunRestoreCLI(t *testing.T) {
 	}
 }
 
+func TestRunBackupCLIDefaultOutput(t *testing.T) {
+	srcDir := t.TempDir()
+	os.WriteFile(filepath.Join(srcDir, "a.txt"), []byte("hello"), 0644)
+
+	oldStdout := os.Stdout
+	r, w, _ := os.Pipe()
+	os.Stdout = w
+
+	RunBackupCLI([]string{"-data-dir", srcDir})
+
+	w.Close()
+	os.Stdout = oldStdout
+
+	buf := make([]byte, 1024)
+	n, _ := r.Read(buf)
+	output := string(buf[:n])
+	if !strings.Contains(output, "Backup created:") {
+		t.Errorf("expected success output, got: %s", output)
+	}
+
+	// Find the created backup file
+	entries, _ := os.ReadDir(srcDir)
+	for _, e := range entries {
+		if strings.HasPrefix(e.Name(), "chimera-backup-") {
+			return
+		}
+	}
+	// Backup is created in current working directory, not srcDir
+	wd, _ := os.Getwd()
+	entries, _ = os.ReadDir(wd)
+	for _, e := range entries {
+		if strings.HasPrefix(e.Name(), "chimera-backup-") {
+			os.Remove(filepath.Join(wd, e.Name()))
+			return
+		}
+	}
+	t.Error("expected backup file to be created in working directory")
+}
+
+func TestCreateBackupBadOutputPath(t *testing.T) {
+	srcDir := t.TempDir()
+	os.WriteFile(filepath.Join(srcDir, "a.txt"), []byte("hello"), 0644)
+
+	badOutput := filepath.Join(t.TempDir(), "nonexistent", "backup.tar.gz")
+	err := createBackup(srcDir, badOutput)
+	if err == nil {
+		t.Error("expected error for invalid output path")
+	}
+}
+
+func TestRestoreBackupNonExistentFile(t *testing.T) {
+	err := restoreBackup(filepath.Join(t.TempDir(), "missing.tar.gz"), t.TempDir())
+	if err == nil {
+		t.Error("expected error for non-existent backup file")
+	}
+}
+
+
