@@ -425,3 +425,36 @@ func TestRegisterProtocolsMinimal(t *testing.T) {
 	registerProtocols(mux, cfg, b)
 	mux.Stop()
 }
+
+func TestRunClusterBenchmark(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method == "POST" && r.URL.Path == "/v1/messages/benchmark" {
+			w.WriteHeader(http.StatusCreated)
+			return
+		}
+		w.WriteHeader(http.StatusNotFound)
+	}))
+	defer server.Close()
+
+	nodeAddr := strings.TrimPrefix(server.URL, "http://")
+
+	oldStdout := os.Stdout
+	r, w, _ := os.Pipe()
+	os.Stdout = w
+
+	runClusterBenchmark([]string{"-nodes", nodeAddr, "-topic", "benchmark", "-duration", "100ms", "-producers", "1", "-rate", "10", "-size", "10"})
+
+	w.Close()
+	os.Stdout = oldStdout
+
+	buf := make([]byte, 2048)
+	n, _ := r.Read(buf)
+	output := string(buf[:n])
+	if !strings.Contains(output, "Cluster Benchmark") {
+		t.Errorf("expected benchmark header in output, got: %s", output)
+	}
+	if !strings.Contains(output, "Cluster Load Test Results") {
+		t.Errorf("expected results in output, got: %s", output)
+	}
+}
+

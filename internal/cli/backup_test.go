@@ -6,6 +6,7 @@ import (
 	"compress/gzip"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -72,3 +73,67 @@ func TestRestoreBackupPathTraversal(t *testing.T) {
 		t.Fatal("expected error for path traversal in archive")
 	}
 }
+
+func TestRunBackupCLI(t *testing.T) {
+	srcDir := t.TempDir()
+	os.WriteFile(filepath.Join(srcDir, "a.txt"), []byte("hello"), 0644)
+
+	backupPath := filepath.Join(t.TempDir(), "backup.tar.gz")
+
+	oldStdout := os.Stdout
+	r, w, _ := os.Pipe()
+	os.Stdout = w
+
+	RunBackupCLI([]string{"-data-dir", srcDir, "-output", backupPath, "-v"})
+
+	w.Close()
+	os.Stdout = oldStdout
+
+	buf := make([]byte, 1024)
+	n, _ := r.Read(buf)
+	output := string(buf[:n])
+	if !strings.Contains(output, "Backing up") {
+		t.Errorf("expected verbose output, got: %s", output)
+	}
+
+	if _, err := os.Stat(backupPath); os.IsNotExist(err) {
+		t.Fatalf("backup file not created: %s", backupPath)
+	}
+}
+
+func TestRunRestoreCLI(t *testing.T) {
+	srcDir := t.TempDir()
+	os.WriteFile(filepath.Join(srcDir, "a.txt"), []byte("hello"), 0644)
+
+	backupPath := filepath.Join(t.TempDir(), "backup.tar.gz")
+	if err := createBackup(srcDir, backupPath); err != nil {
+		t.Fatalf("createBackup failed: %v", err)
+	}
+
+	dstDir := t.TempDir()
+
+	oldStdout := os.Stdout
+	r, w, _ := os.Pipe()
+	os.Stdout = w
+
+	RunRestoreCLI([]string{"-input", backupPath, "-data-dir", dstDir, "-v"})
+
+	w.Close()
+	os.Stdout = oldStdout
+
+	buf := make([]byte, 1024)
+	n, _ := r.Read(buf)
+	output := string(buf[:n])
+	if !strings.Contains(output, "Restoring") {
+		t.Errorf("expected verbose output, got: %s", output)
+	}
+
+	data, err := os.ReadFile(filepath.Join(dstDir, "a.txt"))
+	if err != nil {
+		t.Fatalf("read restored file: %v", err)
+	}
+	if string(data) != "hello" {
+		t.Errorf("restored data = %q, want hello", string(data))
+	}
+}
+

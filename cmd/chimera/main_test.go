@@ -8,6 +8,7 @@ import (
 	"os/exec"
 	"strings"
 	"testing"
+	"time"
 )
 
 func TestMainNoArgsSubprocess(t *testing.T) {
@@ -329,5 +330,266 @@ func TestMainMCPServerConfigErrorSubprocess(t *testing.T) {
 	}
 	if exitErr, ok := err.(*exec.ExitError); ok && exitErr.ExitCode() != 1 {
 		t.Fatalf("expected exit code 1, got %d", exitErr.ExitCode())
+	}
+}
+
+func TestMainMCPServerServeSubprocess(t *testing.T) {
+	if os.Getenv("TEST_MAIN_MCP_SERVE") == "1" {
+		r, w, _ := os.Pipe()
+		os.Stdin = r
+		w.Close()
+		os.Args = []string{"chimera", "mcp-server"}
+		main()
+		return
+	}
+	cmd := exec.Command(os.Args[0], "-test.run=TestMainMCPServerServeSubprocess", "-test.v")
+	cmd.Env = append(os.Environ(), "TEST_MAIN_MCP_SERVE=1")
+	output, err := cmd.CombinedOutput()
+	if err != nil {
+		t.Fatalf("mcp-server failed: %v\noutput: %s", err, string(output))
+	}
+}
+
+// --- Direct tests for main() command dispatch ---
+
+func TestMainDispatchTopicList(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/v1/topics" {
+			w.WriteHeader(http.StatusOK)
+			fmt.Fprint(w, `{"topics":["t1"]}`)
+		}
+	}))
+	defer server.Close()
+
+	oldArgs := os.Args
+	oldStdout := os.Stdout
+	oldEnv := os.Getenv("CHIMERA_ADMIN_ADDR")
+	defer func() {
+		os.Args = oldArgs
+		os.Stdout = oldStdout
+		os.Setenv("CHIMERA_ADMIN_ADDR", oldEnv)
+	}()
+
+	os.Setenv("CHIMERA_ADMIN_ADDR", server.URL)
+	os.Args = []string{"chimera", "topic", "list"}
+
+	rOut, wOut, _ := os.Pipe()
+	os.Stdout = wOut
+
+	main()
+
+	wOut.Close()
+	os.Stdout = oldStdout
+
+	buf := make([]byte, 1024)
+	n, _ := rOut.Read(buf)
+	output := string(buf[:n])
+	if !strings.Contains(output, "t1") {
+		t.Errorf("expected topic in output, got: %s", output)
+	}
+}
+
+func TestMainDispatchClusterStatus(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/v1/health" {
+			w.WriteHeader(http.StatusOK)
+			fmt.Fprint(w, `{"status":"ok"}`)
+		}
+	}))
+	defer server.Close()
+
+	oldArgs := os.Args
+	oldStdout := os.Stdout
+	oldEnv := os.Getenv("CHIMERA_ADMIN_ADDR")
+	defer func() {
+		os.Args = oldArgs
+		os.Stdout = oldStdout
+		os.Setenv("CHIMERA_ADMIN_ADDR", oldEnv)
+	}()
+
+	os.Setenv("CHIMERA_ADMIN_ADDR", server.URL)
+	os.Args = []string{"chimera", "cluster", "status"}
+
+	rOut, wOut, _ := os.Pipe()
+	os.Stdout = wOut
+
+	main()
+
+	wOut.Close()
+	os.Stdout = oldStdout
+
+	buf := make([]byte, 1024)
+	n, _ := rOut.Read(buf)
+	output := string(buf[:n])
+	if !strings.Contains(output, "ok") {
+		t.Errorf("expected status in output, got: %s", output)
+	}
+}
+
+func TestMainDispatchWASMList(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/v1/wasm/modules" {
+			w.WriteHeader(http.StatusOK)
+			fmt.Fprint(w, `{"modules":["mod1"]}`)
+		}
+	}))
+	defer server.Close()
+
+	oldArgs := os.Args
+	oldStdout := os.Stdout
+	oldEnv := os.Getenv("CHIMERA_ADMIN_ADDR")
+	defer func() {
+		os.Args = oldArgs
+		os.Stdout = oldStdout
+		os.Setenv("CHIMERA_ADMIN_ADDR", oldEnv)
+	}()
+
+	os.Setenv("CHIMERA_ADMIN_ADDR", server.URL)
+	os.Args = []string{"chimera", "wasm", "list"}
+
+	rOut, wOut, _ := os.Pipe()
+	os.Stdout = wOut
+
+	main()
+
+	wOut.Close()
+	os.Stdout = oldStdout
+
+	buf := make([]byte, 1024)
+	n, _ := rOut.Read(buf)
+	output := string(buf[:n])
+	if !strings.Contains(output, "mod1") {
+		t.Errorf("expected module in output, got: %s", output)
+	}
+}
+
+func TestMainDispatchProduce(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+		fmt.Fprint(w, `{"partition":0,"offset":1}`)
+	}))
+	defer server.Close()
+
+	oldArgs := os.Args
+	oldStdout := os.Stdout
+	oldEnv := os.Getenv("CHIMERA_ADMIN_ADDR")
+	defer func() {
+		os.Args = oldArgs
+		os.Stdout = oldStdout
+		os.Setenv("CHIMERA_ADMIN_ADDR", oldEnv)
+	}()
+
+	os.Setenv("CHIMERA_ADMIN_ADDR", server.URL)
+	os.Args = []string{"chimera", "produce", "-topic", "test", "-message", "hello"}
+
+	rOut, wOut, _ := os.Pipe()
+	os.Stdout = wOut
+
+	main()
+
+	wOut.Close()
+	os.Stdout = oldStdout
+
+	buf := make([]byte, 1024)
+	n, _ := rOut.Read(buf)
+	output := string(buf[:n])
+	if !strings.Contains(output, "Published") {
+		t.Errorf("expected published message in output, got: %s", output)
+	}
+}
+
+func TestMainDispatchConsume(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+		fmt.Fprint(w, `{"messages":[],"next_offset":0,"count":0}`)
+	}))
+	defer server.Close()
+
+	oldArgs := os.Args
+	oldStdout := os.Stdout
+	oldEnv := os.Getenv("CHIMERA_ADMIN_ADDR")
+	defer func() {
+		os.Args = oldArgs
+		os.Stdout = oldStdout
+		os.Setenv("CHIMERA_ADMIN_ADDR", oldEnv)
+	}()
+
+	os.Setenv("CHIMERA_ADMIN_ADDR", server.URL)
+	os.Args = []string{"chimera", "consume", "-topic", "test", "-limit", "1"}
+
+	rOut, wOut, _ := os.Pipe()
+	os.Stdout = wOut
+
+	main()
+
+	wOut.Close()
+	os.Stdout = oldStdout
+
+	// Empty message list is fine — we exercised the dispatch branch
+	_ = rOut
+}
+
+func TestMainDispatchReload(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method == "POST" && r.URL.Path == "/v1/config/reload" {
+			w.WriteHeader(http.StatusOK)
+			fmt.Fprint(w, `{"status":"reloaded"}`)
+		}
+	}))
+	defer server.Close()
+
+	oldArgs := os.Args
+	oldStdout := os.Stdout
+	oldEnv := os.Getenv("CHIMERA_ADMIN_ADDR")
+	defer func() {
+		os.Args = oldArgs
+		os.Stdout = oldStdout
+		os.Setenv("CHIMERA_ADMIN_ADDR", oldEnv)
+	}()
+
+	os.Setenv("CHIMERA_ADMIN_ADDR", server.URL)
+	os.Args = []string{"chimera", "reload"}
+
+	rOut, wOut, _ := os.Pipe()
+	os.Stdout = wOut
+
+	main()
+
+	wOut.Close()
+	os.Stdout = oldStdout
+
+	buf := make([]byte, 1024)
+	n, _ := rOut.Read(buf)
+	output := string(buf[:n])
+	if !strings.Contains(output, "reloaded") {
+		t.Errorf("expected reloaded in output, got: %s", output)
+	}
+}
+
+func TestMainDispatchMCPServer(t *testing.T) {
+	oldArgs := os.Args
+	oldStdin := os.Stdin
+	defer func() {
+		os.Args = oldArgs
+		os.Stdin = oldStdin
+	}()
+
+	r, w, _ := os.Pipe()
+	os.Stdin = r
+	w.Close()
+
+	os.Args = []string{"chimera", "mcp-server"}
+
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		main()
+	}()
+
+	select {
+	case <-done:
+		// Expected
+	case <-time.After(2 * time.Second):
+		t.Fatal("mcp-server dispatch did not return within timeout")
 	}
 }

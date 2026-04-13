@@ -948,6 +948,29 @@ func TestRunTopicCLIDeleteHTTPErrorSubprocess(t *testing.T) {
 	}
 }
 
+// --- MCP server success path ---
+
+func TestRunMCPServerServe(t *testing.T) {
+	oldStdin := os.Stdin
+	r, w, _ := os.Pipe()
+	os.Stdin = r
+	w.Close()
+	defer func() { os.Stdin = oldStdin }()
+
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		RunMCPServer([]string{})
+	}()
+
+	select {
+	case <-done:
+		// Expected: Serve() returns EOF and RunMCPServer returns
+	case <-time.After(2 * time.Second):
+		t.Fatal("RunMCPServer did not return within timeout")
+	}
+}
+
 // --- Consume CLI follow mode ---
 
 func TestRunConsumeCLIFollowSubprocess(t *testing.T) {
