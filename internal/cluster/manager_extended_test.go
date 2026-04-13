@@ -65,6 +65,12 @@ func TestManagerStartIdempotent(t *testing.T) {
 		t.Fatalf("second Start: %v", err)
 	}
 
+	// NewReplicator with raftNode set
+	rep := m.NewReplicator("test", 0)
+	if rep == nil {
+		t.Fatal("expected non-nil replicator")
+	}
+
 	m.Stop()
 }
 
