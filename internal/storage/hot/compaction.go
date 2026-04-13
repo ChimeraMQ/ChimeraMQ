@@ -7,6 +7,7 @@ import (
 	"os"
 	"path/filepath"
 	"sync"
+	"time"
 
 	"github.com/chimeramq/chimera/internal/message"
 )
@@ -125,6 +126,18 @@ func (lc *LogCompactor) Compact(p *Partition) error {
 		return fmt.Errorf("create compacted segment: %w", err)
 	}
 
+	// Write segment header
+	var header [SegmentHeaderLen]byte
+	binary.BigEndian.PutUint32(header[0:], SegmentMagic)
+	binary.BigEndian.PutUint32(header[4:], SegmentVersion)
+	binary.BigEndian.PutUint64(header[8:], frozen[0].BaseOffset())
+	binary.BigEndian.PutUint64(header[16:], uint64(time.Now().UnixNano()))
+	if _, err := compactedFile.Write(header[:]); err != nil {
+		compactedFile.Close()
+		os.Remove(compactedPath)
+		return fmt.Errorf("write compacted header: %w", err)
+	}
+
 	written := 0
 	writeRecord := func(data []byte) error {
 		lenBuf := make([]byte, 4)
@@ -225,7 +238,7 @@ func (lc *LogCompactor) readAllRecords(seg *Segment) ([][]byte, error) {
 		return nil, err
 	}
 
-	pos := int64(0)
+	pos := int64(SegmentHeaderLen)
 	for pos < info.Size() {
 		var lenBuf [4]byte
 		if _, err := seg.file.ReadAt(lenBuf[:], pos); err != nil {
