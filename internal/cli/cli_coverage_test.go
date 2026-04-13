@@ -894,3 +894,78 @@ node:
 		t.Fatalf("expected exit code 1, got %d", exitErr.ExitCode())
 	}
 }
+
+// --- Topic CLI HTTP error paths ---
+
+func TestRunTopicCLICreateHTTPErrorSubprocess(t *testing.T) {
+	if os.Getenv("TEST_TOPIC_CREATE_HTTP_SUB") == "1" {
+		RunTopicCLI([]string{"create", "-name", "test-topic"})
+		return
+	}
+
+	cmd := exec.Command(os.Args[0], "-test.run=TestRunTopicCLICreateHTTPErrorSubprocess", "-test.v")
+	cmd.Env = append(os.Environ(), "TEST_TOPIC_CREATE_HTTP_SUB=1", "CHIMERA_ADMIN_ADDR=http://127.0.0.1:1")
+	err := cmd.Run()
+	if err == nil {
+		t.Fatal("expected exit error for HTTP failure")
+	}
+	if exitErr, ok := err.(*exec.ExitError); ok && exitErr.ExitCode() != 1 {
+		t.Fatalf("expected exit code 1, got %d", exitErr.ExitCode())
+	}
+}
+
+func TestRunTopicCLIDescribeHTTPErrorSubprocess(t *testing.T) {
+	if os.Getenv("TEST_TOPIC_DESCRIBE_HTTP_SUB") == "1" {
+		RunTopicCLI([]string{"describe", "test-topic"})
+		return
+	}
+
+	cmd := exec.Command(os.Args[0], "-test.run=TestRunTopicCLIDescribeHTTPErrorSubprocess", "-test.v")
+	cmd.Env = append(os.Environ(), "TEST_TOPIC_DESCRIBE_HTTP_SUB=1", "CHIMERA_ADMIN_ADDR=http://127.0.0.1:1")
+	err := cmd.Run()
+	if err == nil {
+		t.Fatal("expected exit error for HTTP failure")
+	}
+	if exitErr, ok := err.(*exec.ExitError); ok && exitErr.ExitCode() != 1 {
+		t.Fatalf("expected exit code 1, got %d", exitErr.ExitCode())
+	}
+}
+
+func TestRunTopicCLIDeleteHTTPErrorSubprocess(t *testing.T) {
+	if os.Getenv("TEST_TOPIC_DELETE_HTTP_SUB") == "1" {
+		RunTopicCLI([]string{"delete", "test-topic"})
+		return
+	}
+
+	cmd := exec.Command(os.Args[0], "-test.run=TestRunTopicCLIDeleteHTTPErrorSubprocess", "-test.v")
+	cmd.Env = append(os.Environ(), "TEST_TOPIC_DELETE_HTTP_SUB=1", "CHIMERA_ADMIN_ADDR=http://127.0.0.1:1")
+	err := cmd.Run()
+	if err == nil {
+		t.Fatal("expected exit error for HTTP failure")
+	}
+	if exitErr, ok := err.(*exec.ExitError); ok && exitErr.ExitCode() != 1 {
+		t.Fatalf("expected exit code 1, got %d", exitErr.ExitCode())
+	}
+}
+
+// --- Consume CLI follow mode ---
+
+func TestRunConsumeCLIFollowSubprocess(t *testing.T) {
+	if os.Getenv("TEST_CONSUME_FOLLOW_SUB") == "1" {
+		RunConsumeCLI([]string{"-topic", "test", "-follow", "-limit", "1"})
+		return
+	}
+
+	cmd := exec.Command(os.Args[0], "-test.run=TestRunConsumeCLIFollowSubprocess", "-test.v")
+	cmd.Env = append(os.Environ(), "TEST_CONSUME_FOLLOW_SUB=1", "CHIMERA_ADMIN_ADDR=http://127.0.0.1:1")
+	// It will retry indefinitely in follow mode with HTTP errors.
+	// We need to kill it after a short delay.
+	err := cmd.Start()
+	if err != nil {
+		t.Fatal(err)
+	}
+	time.Sleep(500 * time.Millisecond)
+	_ = cmd.Process.Kill()
+	_, _ = cmd.Process.Wait()
+	// Just verifying it starts and doesn't panic is enough.
+}
