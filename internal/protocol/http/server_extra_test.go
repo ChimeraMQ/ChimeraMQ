@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"os"
+	"strings"
 	"testing"
 	"time"
 
@@ -572,9 +573,8 @@ func TestHandleCreateTopologyInvalidJSON(t *testing.T) {
 	defer cleanup()
 
 	resp := doRequest(t, srv, "POST", "/v1/processors", []byte("not json"))
-	// Accept 503 if processor is nil, or 400 if processor exists but body is bad
-	if resp.StatusCode != http.StatusServiceUnavailable && resp.StatusCode != http.StatusBadRequest {
-		t.Errorf("status = %d, want 503 or 400", resp.StatusCode)
+	if resp.StatusCode != http.StatusBadRequest {
+		t.Errorf("status = %d, want 400", resp.StatusCode)
 	}
 }
 
@@ -588,9 +588,8 @@ func TestHandleCreateTopologyMissingName(t *testing.T) {
 		},
 	})
 	resp := doRequest(t, srv, "POST", "/v1/processors", body)
-	// Accept 503 if processor is nil, or 400 if processor exists but name is missing
-	if resp.StatusCode != http.StatusServiceUnavailable && resp.StatusCode != http.StatusBadRequest {
-		t.Errorf("status = %d, want 503 or 400", resp.StatusCode)
+	if resp.StatusCode != http.StatusBadRequest {
+		t.Errorf("status = %d, want 400", resp.StatusCode)
 	}
 }
 
@@ -602,19 +601,15 @@ func TestHandleCreateTopologyWithFeatures(t *testing.T) {
 		"name": "feat-topo",
 		"source": map[string]interface{}{
 			"topic":      "topo-src",
-			"partitions": 1,
+			"partitions": []int{1},
 		},
 		"sink": map[string]interface{}{
 			"topic": "topo-sink",
 		},
-		"operators": []map[string]interface{}{
-			{"type": "filter", "module": "identity"},
-		},
 	})
 	resp := doRequest(t, srv, "POST", "/v1/processors", body)
-	// Accept 503 if processor not initialized
-	if resp.StatusCode != http.StatusServiceUnavailable && resp.StatusCode != http.StatusCreated && resp.StatusCode != http.StatusConflict {
-		t.Logf("create topology with features: status = %d", resp.StatusCode)
+	if resp.StatusCode != http.StatusCreated && resp.StatusCode != http.StatusConflict {
+		t.Errorf("status = %d, want 201 or 409", resp.StatusCode)
 	}
 }
 
@@ -625,9 +620,8 @@ func TestHandleGetTopologyWithFeatures(t *testing.T) {
 	defer cleanup()
 
 	resp := doRequest(t, srv, "GET", "/v1/processors/nonexistent", nil)
-	// Accept 503 if processor not initialized, or 404 if topology not found
-	if resp.StatusCode != http.StatusServiceUnavailable && resp.StatusCode != http.StatusNotFound {
-		t.Errorf("status = %d, want 503 or 404", resp.StatusCode)
+	if resp.StatusCode != http.StatusNotFound {
+		t.Errorf("status = %d, want 404", resp.StatusCode)
 	}
 }
 
@@ -638,9 +632,8 @@ func TestHandleDeleteTopologyWithFeatures(t *testing.T) {
 	defer cleanup()
 
 	resp := doRequest(t, srv, "DELETE", "/v1/processors/nonexistent", nil)
-	// Accept 503 if processor not initialized, or 404/409 if topology not found
-	if resp.StatusCode != http.StatusServiceUnavailable && resp.StatusCode != http.StatusNotFound && resp.StatusCode != http.StatusConflict {
-		t.Errorf("status = %d, want 503, 404, or 409", resp.StatusCode)
+	if resp.StatusCode != http.StatusNotFound && resp.StatusCode != http.StatusConflict {
+		t.Errorf("status = %d, want 404 or 409", resp.StatusCode)
 	}
 }
 
@@ -1180,4 +1173,195 @@ func TestServeTLSConfigPath(t *testing.T) {
 	defer cancel()
 	srv.Shutdown(ctx)
 	<-done
+}
+
+// --- Topology full lifecycle with processor enabled ---
+
+func TestTopologyFullLifecycle(t *testing.T) {
+	srv, _, cleanup := setupTestServerWithFeatures(t)
+	defer cleanup()
+
+	// Create topology
+	body, _ := json.Marshal(map[string]interface{}{
+		"name": "lifecycle-topo",
+		"source": map[string]interface{}{
+			"topic":      "life-src",
+			"partitions": []int{1},
+		},
+		"sink": map[string]interface{}{
+			"topic": "life-sink",
+		},
+		"operators": []map[string]interface{}{},
+	})
+	resp := doRequest(t, srv, "POST", "/v1/processors", body)
+	if resp.StatusCode != http.StatusCreated {
+		b, _ := io.ReadAll(resp.Body)
+		t.Fatalf("create topology: status = %d, body = %s", resp.StatusCode, string(b))
+	}
+
+	// Get topology
+	resp = doRequest(t, srv, "GET", "/v1/processors/lifecycle-topo", nil)
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("get topology: status = %d", resp.StatusCode)
+	}
+	var topo map[string]interface{}
+	json.NewDecoder(resp.Body).Decode(&topo)
+	if topo["name"] != "lifecycle-topo" {
+		t.Errorf("name = %v, want lifecycle-topo", topo["name"])
+	}
+
+	// Start topology
+	resp = doRequest(t, srv, "POST", "/v1/processors/lifecycle-topo/start", nil)
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("start topology: status = %d", resp.StatusCode)
+	}
+	var startResult map[string]string
+	json.NewDecoder(resp.Body).Decode(&startResult)
+	if startResult["status"] != "running" {
+		t.Errorf("status = %v, want running", startResult["status"])
+	}
+
+	// Stop topology
+	resp = doRequest(t, srv, "POST", "/v1/processors/lifecycle-topo/stop", nil)
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("stop topology: status = %d", resp.StatusCode)
+	}
+	var stopResult map[string]string
+	json.NewDecoder(resp.Body).Decode(&stopResult)
+	if stopResult["status"] != "stopped" {
+		t.Errorf("status = %v, want stopped", stopResult["status"])
+	}
+
+	// Delete topology
+	resp = doRequest(t, srv, "DELETE", "/v1/processors/lifecycle-topo", nil)
+	if resp.StatusCode != http.StatusNoContent {
+		t.Fatalf("delete topology: status = %d", resp.StatusCode)
+	}
+
+	// Verify deletion
+	resp = doRequest(t, srv, "GET", "/v1/processors/lifecycle-topo", nil)
+	if resp.StatusCode != http.StatusNotFound {
+		t.Errorf("after delete: status = %d, want 404", resp.StatusCode)
+	}
+}
+
+func TestTopologyStartStopNotFound(t *testing.T) {
+	srv, _, cleanup := setupTestServerWithFeatures(t)
+	defer cleanup()
+
+	resp := doRequest(t, srv, "POST", "/v1/processors/no-such-topo/start", nil)
+	if resp.StatusCode != http.StatusNotFound {
+		t.Errorf("start not found: status = %d, want 404", resp.StatusCode)
+	}
+
+	resp = doRequest(t, srv, "POST", "/v1/processors/no-such-topo/stop", nil)
+	if resp.StatusCode != http.StatusNotFound {
+		t.Errorf("stop not found: status = %d, want 404", resp.StatusCode)
+	}
+}
+
+func TestTopologyCreateDuplicate(t *testing.T) {
+	srv, _, cleanup := setupTestServerWithFeatures(t)
+	defer cleanup()
+
+	body, _ := json.Marshal(map[string]interface{}{
+		"name": "dup-topo",
+		"source": map[string]interface{}{
+			"topic":      "dup-src",
+			"partitions": []int{1},
+		},
+		"sink": map[string]interface{}{
+			"topic": "dup-sink",
+		},
+		"operators": []map[string]interface{}{},
+	})
+
+	resp := doRequest(t, srv, "POST", "/v1/processors", body)
+	if resp.StatusCode != http.StatusCreated {
+		t.Fatalf("first create: status = %d", resp.StatusCode)
+	}
+
+	resp = doRequest(t, srv, "POST", "/v1/processors", body)
+	if resp.StatusCode != http.StatusConflict {
+		t.Errorf("duplicate create: status = %d, want 409", resp.StatusCode)
+	}
+}
+
+func TestTopologyListWithFeatures(t *testing.T) {
+	srv, _, cleanup := setupTestServerWithFeatures(t)
+	defer cleanup()
+
+	// Create a topology
+	body, _ := json.Marshal(map[string]interface{}{
+		"name": "list-topo",
+		"source": map[string]interface{}{
+			"topic":      "list-src",
+			"partitions": []int{1},
+		},
+		"sink": map[string]interface{}{
+			"topic": "list-sink",
+		},
+		"operators": []map[string]interface{}{},
+	})
+	doRequest(t, srv, "POST", "/v1/processors", body)
+
+	resp := doRequest(t, srv, "GET", "/v1/processors", nil)
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("list topologies: status = %d", resp.StatusCode)
+	}
+
+	var result map[string]interface{}
+	json.NewDecoder(resp.Body).Decode(&result)
+	count, ok := result["count"].(float64)
+	if !ok || count < 1 {
+		t.Errorf("expected at least 1 topology, got count=%v", result["count"])
+	}
+}
+
+// --- Consumer handler edge cases ---
+
+func TestHandleConsumerJoinMemberIDTooLong(t *testing.T) {
+	srv, _, cleanup := setupTestServer(t)
+	defer cleanup()
+
+	longID := strings.Repeat("a", 300)
+	body, _ := json.Marshal(map[string]interface{}{
+		"member_id": longID,
+		"topic":     "t1",
+	})
+	resp := doRequest(t, srv, "POST", "/v1/consumers/g/join", body)
+	if resp.StatusCode != http.StatusBadRequest {
+		t.Errorf("long member_id: status = %d, want 400", resp.StatusCode)
+	}
+}
+
+// --- validateTopicName edge cases ---
+
+func TestValidateTopicNameTooLong(t *testing.T) {
+	srv, _, cleanup := setupTestServer(t)
+	defer cleanup()
+
+	name := strings.Repeat("a", 256)
+	body, _ := json.Marshal(map[string]interface{}{
+		"name": name,
+		"mode": "stream",
+	})
+	resp := doRequest(t, srv, "POST", "/v1/topics", body)
+	if resp.StatusCode != http.StatusBadRequest {
+		t.Errorf("status = %d, want 400", resp.StatusCode)
+	}
+}
+
+func TestValidateTopicNamePathTraversal(t *testing.T) {
+	srv, _, cleanup := setupTestServer(t)
+	defer cleanup()
+
+	body, _ := json.Marshal(map[string]interface{}{
+		"name": "../etc/passwd",
+		"mode": "stream",
+	})
+	resp := doRequest(t, srv, "POST", "/v1/topics", body)
+	if resp.StatusCode != http.StatusBadRequest {
+		t.Errorf("status = %d, want 400", resp.StatusCode)
+	}
 }

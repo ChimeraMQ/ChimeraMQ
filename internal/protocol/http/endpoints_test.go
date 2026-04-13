@@ -67,6 +67,9 @@ func setupTestServerWithFeatures(t *testing.T) (*AdminServer, *broker.Broker, fu
 			Enabled:        true,
 			MaxMemoryPages: 256,
 		},
+		Processing: broker.ProcessingConfig{
+			Enabled: true,
+		},
 	}
 
 	b, err := broker.NewBroker(cfg)
@@ -471,7 +474,7 @@ func TestHandleCreateTopology(t *testing.T) {
 		"name": "test-topo",
 		"source": map[string]interface{}{
 			"topic":      "topo-src",
-			"partitions": 1,
+			"partitions": []int{1},
 		},
 		"sink": map[string]interface{}{
 			"topic": "topo-sink",
