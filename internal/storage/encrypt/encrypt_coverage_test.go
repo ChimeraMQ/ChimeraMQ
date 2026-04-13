@@ -37,10 +37,11 @@ func TestNewEncryptorWeakKeyPatterns(t *testing.T) {
 
 func TestNewEncryptorLowEntropy(t *testing.T) {
 	dir := t.TempDir()
-	// 15 unique bytes repeated -> should fail entropy check
+	// 15 unique bytes repeated -> should fail entropy check.
+	// Use bytes 16-30 to avoid matching the sequential weak patterns 0x01-0x08.
 	key := make([]byte, 32)
 	for i := 0; i < 32; i++ {
-		key[i] = byte(i % 15)
+		key[i] = byte(16 + i%15)
 	}
 
 	keyPath := filepath.Join(dir, "low-entropy.key")
@@ -48,6 +49,34 @@ func TestNewEncryptorLowEntropy(t *testing.T) {
 	_, err := NewEncryptor(keyPath)
 	if err == nil {
 		t.Error("expected weak key rejection for low entropy")
+	}
+}
+
+func TestValidateKeyWrongLength(t *testing.T) {
+	if err := validateKey([]byte("short")); err == nil {
+		t.Error("expected error for short key")
+	}
+	if err := validateKey(make([]byte, 64)); err == nil {
+		t.Error("expected error for long key")
+	}
+}
+
+func TestRotateKeyWeakKey(t *testing.T) {
+	dir := t.TempDir()
+	keyPath := filepath.Join(dir, "test.key")
+	GenerateKeyFile(keyPath)
+
+	enc, err := NewEncryptor(keyPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	weakKeyPath := filepath.Join(dir, "weak.key")
+	os.WriteFile(weakKeyPath, bytesRepeat(0x42, 32), 0600)
+
+	err = enc.RotateKey(weakKeyPath)
+	if err == nil {
+		t.Error("expected weak key rejection during rotation")
 	}
 }
 
