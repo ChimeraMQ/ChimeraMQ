@@ -2,6 +2,7 @@ package stomp
 
 import (
 	"bufio"
+	"context"
 	"fmt"
 	"net"
 	"strconv"
@@ -9,6 +10,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/chimeramq/chimera/internal/auth"
 	"github.com/chimeramq/chimera/internal/broker"
 	"github.com/chimeramq/chimera/internal/message"
 )
@@ -119,6 +121,17 @@ func (s *Session) processFrame(frame *Frame) error {
 }
 
 func (s *Session) handleConnect(frame *Frame) error {
+	// Authentication
+	if s.b.Config().Auth.Enabled {
+		login := frame.Get("login")
+		passcode := frame.Get("passcode")
+		if !s.authenticate(login, passcode) {
+			errFrame := NewFrame(CmdError)
+			errFrame.Set("message", "Authentication failed")
+			return s.writeFrame(errFrame)
+		}
+	}
+
 	// Parse version header
 	acceptVersion := frame.Get("accept-version")
 	if acceptVersion == "" {
@@ -403,6 +416,19 @@ func (s *Session) close() {
 	}
 	s.closed = true
 	s.conn.Close()
+}
+
+func (s *Session) authenticate(username, password string) bool {
+	provider := s.b.AuthProvider()
+	if provider == nil {
+		return false
+	}
+	_, err := provider.Authenticate(context.Background(), auth.Credentials{
+		Username: username,
+		Password: password,
+		Token:    password,
+	})
+	return err == nil
 }
 
 func generateSessionID() string {

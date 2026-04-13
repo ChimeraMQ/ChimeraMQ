@@ -4,7 +4,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"regexp"
-	"strings"
 	"time"
 
 	"github.com/chimeramq/chimera/internal/message"
@@ -72,47 +71,54 @@ func ByTimeRange(start, end time.Time) ReplayCondition {
 }
 
 // ByReasonPattern returns a condition that matches reason against a regex pattern.
-// The pattern is validated to prevent ReDoS attacks.
+// Pattern compilation and matching are guarded by timeouts to prevent ReDoS attacks.
 func ByReasonPattern(pattern string) ReplayCondition {
 	// Validate pattern is not empty and has reasonable length
 	if pattern == "" || len(pattern) > 256 {
 		return func(e *DLQEntry) bool { return false }
 	}
 
-	// Check for potentially dangerous patterns that could cause catastrophic backtracking
-	if !isSafeRegexPattern(pattern) {
-		return func(e *DLQEntry) bool { return false }
-	}
-
-	re, err := regexp.Compile(pattern)
+	re, err := compileRegexWithTimeout(pattern, 1*time.Second)
 	if err != nil {
 		return func(e *DLQEntry) bool { return false }
 	}
-	return func(e *DLQEntry) bool { return re.MatchString(e.Reason) }
+	return func(e *DLQEntry) bool { return matchWithTimeout(re, e.Reason, 1*time.Second) }
 }
 
-// isSafeRegexPattern checks if a regex pattern is safe from ReDoS attacks.
-// It rejects patterns with nested quantifiers and excessive repetition.
-func isSafeRegexPattern(pattern string) bool {
-	// Reject patterns with nested quantifiers (e.g., (a+)+, (a*)*)
-	// These are common causes of catastrophic backtracking
-	dangerousPatterns := []string{
-		"++", "**", "+*", "*+", "?+", "+?", "*?", "?*",
-		"{0,}", "{1,}", "{0,}", "{0,100000}", "{99999,}",
+// compileRegexWithTimeout compiles a regex pattern with a timeout to prevent DoS.
+func compileRegexWithTimeout(pattern string, timeout time.Duration) (*regexp.Regexp, error) {
+	type result struct {
+		re  *regexp.Regexp
+		err error
 	}
-	for _, dp := range dangerousPatterns {
-		if strings.Contains(pattern, dp) {
-			return false
-		}
+	done := make(chan result, 1)
+	go func() {
+		re, err := regexp.Compile(pattern)
+		done <- result{re, err}
+	}()
+	select {
+	case r := <-done:
+		return r.re, r.err
+	case <-time.After(timeout):
+		return nil, fmt.Errorf("regex compilation timed out")
 	}
+}
 
-	// Check for excessive repetition counts
-	// This is a simple check - in production, use a proper regex parser
-	if strings.Contains(pattern, "{999") || strings.Contains(pattern, "{9999") {
+// matchWithTimeout matches a string against a regex with a timeout.
+func matchWithTimeout(re *regexp.Regexp, s string, timeout time.Duration) bool {
+	type result struct {
+		matched bool
+	}
+	done := make(chan result, 1)
+	go func() {
+		done <- result{re.MatchString(s)}
+	}()
+	select {
+	case r := <-done:
+		return r.matched
+	case <-time.After(timeout):
 		return false
 	}
-
-	return true
 }
 
 // ByPayloadContains returns a condition that matches if payload contains substring.

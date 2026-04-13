@@ -2,6 +2,7 @@ package nats
 
 import (
 	"bufio"
+	"context"
 	"encoding/json"
 	"fmt"
 	"net"
@@ -10,6 +11,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/chimeramq/chimera/internal/auth"
 	"github.com/chimeramq/chimera/internal/broker"
 	"github.com/chimeramq/chimera/internal/message"
 )
@@ -144,6 +146,13 @@ func (s *Session) handleConnect(msg *Message) error {
 		}
 	}
 
+	// Authentication
+	if s.b.Config().Auth.Enabled {
+		if !s.authenticate(s.info.User, s.info.Pass, s.info.AuthToken) {
+			return s.sendError("Authorization Violation")
+		}
+	}
+
 	s.connected = true
 
 	// Send +OK for verbose mode if enabled
@@ -151,6 +160,19 @@ func (s *Session) handleConnect(msg *Message) error {
 		return s.sendOk()
 	}
 	return nil
+}
+
+func (s *Session) authenticate(username, password, token string) bool {
+	provider := s.b.AuthProvider()
+	if provider == nil {
+		return false
+	}
+	_, err := provider.Authenticate(context.Background(), auth.Credentials{
+		Username: username,
+		Password: password,
+		Token:    token,
+	})
+	return err == nil
 }
 
 func (s *Session) handlePub(msg *Message) error {

@@ -52,6 +52,10 @@ type RaftConfig struct {
 	HeartbeatInterval string   `yaml:"heartbeat_interval"`
 	SnapshotInterval  string   `yaml:"snapshot_interval"`
 	MaxLogEntries     int      `yaml:"max_log_entries"`
+	TLSEnabled        bool     `yaml:"tls_enabled"`
+	CertFile          string   `yaml:"cert_file"`
+	KeyFile           string   `yaml:"key_file"`
+	CAFile            string   `yaml:"ca_file"`
 }
 
 // GossipConfig controls the SWIM gossip layer.
@@ -62,6 +66,7 @@ type GossipConfig struct {
 	ProbeTimeout     string   `yaml:"probe_timeout"`
 	IndirectNodes    int      `yaml:"indirect_nodes"`
 	SuspicionTimeout string   `yaml:"suspicion_timeout"`
+	HMACKey          string   `yaml:"hmac_key"`
 }
 
 // ReplicationConfig controls partition replication.

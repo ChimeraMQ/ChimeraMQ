@@ -429,14 +429,19 @@ func TestHealthNoAuth(t *testing.T) {
 	}
 }
 
-func TestClusterMembersNoAuth(t *testing.T) {
+func TestClusterMembersRequiresAuth(t *testing.T) {
 	srv, cleanup := setupAuthTestServer(t)
 	defer cleanup()
 
-	// Cluster members endpoint should NOT require auth
+	// Cluster members endpoint now requires auth
 	resp := doRequest(t, srv, "GET", "/v1/cluster/members", nil)
+	if resp.StatusCode != http.StatusUnauthorized {
+		t.Errorf("cluster members without auth status = %d, want 401", resp.StatusCode)
+	}
+
+	resp = doAuthRequest(t, srv, "GET", "/v1/cluster/members", nil, "my-token")
 	if resp.StatusCode != http.StatusOK {
-		t.Errorf("cluster members status = %d, want 200", resp.StatusCode)
+		t.Errorf("cluster members with auth status = %d, want 200", resp.StatusCode)
 	}
 }
 
@@ -1074,8 +1079,8 @@ func TestACLWithTokenClusterResource(t *testing.T) {
 	srv, cleanup := setupACLTestServer(t)
 	defer cleanup()
 
-	// Access cluster members — should work (no auth wrapper)
-	resp := doRequest(t, srv, "GET", "/v1/cluster/members", nil)
+	// Access cluster members — requires auth
+	resp := doAuthRequest(t, srv, "GET", "/v1/cluster/members", nil, "acl-token")
 	if resp.StatusCode != http.StatusOK {
 		t.Errorf("cluster members: status = %d, want 200", resp.StatusCode)
 	}

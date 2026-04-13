@@ -1,9 +1,12 @@
 package raft
 
 import (
+	"crypto/tls"
+	"crypto/x509"
 	"encoding/json"
 	"fmt"
 	"net"
+	"os"
 	"sync"
 	"time"
 )
@@ -24,10 +27,11 @@ type RPCHandler interface {
 
 // TCPTransport implements Transport over TCP.
 type TCPTransport struct {
-	mu      sync.RWMutex
-	conns   map[NodeID]net.Conn
-	addrs   map[NodeID]string
-	timeout time.Duration
+	mu        sync.RWMutex
+	conns     map[NodeID]net.Conn
+	addrs     map[NodeID]string
+	timeout   time.Duration
+	tlsConfig *tls.Config
 }
 
 // NewTCPTransport creates a new TCP transport.
@@ -37,6 +41,39 @@ func NewTCPTransport() *TCPTransport {
 		addrs:   make(map[NodeID]string),
 		timeout: 5 * time.Second,
 	}
+}
+
+// NewTCPTransportWithTLS creates a new TCP transport with TLS.
+func NewTCPTransportWithTLS(tlsConfig *tls.Config) *TCPTransport {
+	t := NewTCPTransport()
+	t.tlsConfig = tlsConfig
+	return t
+}
+
+// LoadTLSConfig loads a TLS config from cert, key, and optional CA file.
+func LoadTLSConfig(certFile, keyFile, caFile string) (*tls.Config, error) {
+	cert, err := tls.LoadX509KeyPair(certFile, keyFile)
+	if err != nil {
+		return nil, fmt.Errorf("load raft TLS keypair: %w", err)
+	}
+	cfg := &tls.Config{
+		Certificates: []tls.Certificate{cert},
+		MinVersion:   tls.VersionTLS12,
+	}
+	if caFile != "" {
+		caPEM, err := os.ReadFile(caFile)
+		if err != nil {
+			return nil, fmt.Errorf("load raft CA file: %w", err)
+		}
+		pool := x509.NewCertPool()
+		if !pool.AppendCertsFromPEM(caPEM) {
+			return nil, fmt.Errorf("parse raft CA file")
+		}
+		cfg.RootCAs = pool
+		cfg.ClientCAs = pool
+		cfg.ClientAuth = tls.RequireAndVerifyClientCert
+	}
+	return cfg, nil
 }
 
 // SetAddr sets the network address for a node.
@@ -67,7 +104,14 @@ func (t *TCPTransport) getConn(nodeID NodeID) (net.Conn, error) {
 		return nil, fmt.Errorf("no address for node %s", nodeID)
 	}
 
-	conn, err := net.DialTimeout("tcp", addr, t.timeout)
+	var conn net.Conn
+	var err error
+	if t.tlsConfig != nil {
+		dialer := &net.Dialer{Timeout: t.timeout}
+		conn, err = tls.DialWithDialer(dialer, "tcp", addr, t.tlsConfig)
+	} else {
+		conn, err = net.DialTimeout("tcp", addr, t.timeout)
+	}
 	if err != nil {
 		return nil, err
 	}
@@ -146,6 +190,18 @@ func (t *TCPTransport) SendInstallSnapshot(nodeID NodeID, req *InstallSnapshotRe
 
 // ServeRPC serves incoming Raft RPCs on a listener.
 func ServeRPC(ln net.Listener, handler RPCHandler) error {
+	return serveRPC(ln, handler)
+}
+
+// ServeRPCWithTLS serves incoming Raft RPCs on a listener with TLS.
+func ServeRPCWithTLS(ln net.Listener, handler RPCHandler, tlsConfig *tls.Config) error {
+	if tlsConfig != nil {
+		ln = tls.NewListener(ln, tlsConfig)
+	}
+	return serveRPC(ln, handler)
+}
+
+func serveRPC(ln net.Listener, handler RPCHandler) error {
 	for {
 		conn, err := ln.Accept()
 		if err != nil {

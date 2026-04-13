@@ -74,7 +74,7 @@ func (s *AdminServer) registerRoutes() {
 	s.mux.HandleFunc("POST /v1/consumers/{group}/offsets", s.auth(s.handleConsumerCommitOffsets))
 	s.mux.HandleFunc("GET /v1/health", s.handleHealth)
 	s.mux.HandleFunc("GET /v1/metrics", s.handleMetrics)
-	s.mux.HandleFunc("GET /v1/cluster/members", s.handleClusterMembers)
+	s.mux.HandleFunc("GET /v1/cluster/members", s.auth(s.handleClusterMembers))
 	s.mux.HandleFunc("POST /v1/schemas/{subject}", s.auth(s.handleRegisterSchema))
 	s.mux.HandleFunc("GET /v1/schemas/{subject}", s.auth(s.handleListSchemas))
 	s.mux.HandleFunc("GET /v1/schemas/{subject}/latest", s.auth(s.handleGetLatestSchema))
@@ -131,7 +131,14 @@ func (s *AdminServer) registerRoutes() {
 	// Embedded Web UI dashboard
 	if s.broker.Config().Observability.Dashboard.Enabled {
 		if h, err := ui.Handler(); err == nil {
-			s.mux.Handle("/ui/", http.StripPrefix("/ui", h))
+			dashboardHandler := http.StripPrefix("/ui", h)
+			if s.broker.Config().Auth.Enabled {
+				s.mux.Handle("/ui/", s.auth(func(w http.ResponseWriter, r *http.Request) {
+					dashboardHandler.ServeHTTP(w, r)
+				}))
+			} else {
+				s.mux.Handle("/ui/", dashboardHandler)
+			}
 		}
 	}
 }

@@ -1,6 +1,7 @@
 package dlq
 
 import (
+	"regexp"
 	"testing"
 
 	"github.com/chimeramq/chimera/internal/message"
@@ -263,5 +264,72 @@ func TestDLQTotalSizeEmpty(t *testing.T) {
 	d := newTestDLQ(t, Config{Enabled: true})
 	if d.TotalSize() != 0 {
 		t.Error("total size should be 0 for empty DLQ")
+	}
+}
+
+func TestByReasonPatternMatches(t *testing.T) {
+	entry := &DLQEntry{Reason: "connection timeout"}
+	cond := ByReasonPattern("timeout")
+	if !cond(entry) {
+		t.Error("should match 'timeout' substring via regex")
+	}
+}
+
+func TestByReasonPatternNoMatch(t *testing.T) {
+	entry := &DLQEntry{Reason: "processing error"}
+	cond := ByReasonPattern("timeout")
+	if cond(entry) {
+		t.Error("should not match unrelated reason")
+	}
+}
+
+func TestByReasonPatternInvalidRegex(t *testing.T) {
+	entry := &DLQEntry{Reason: "any"}
+	cond := ByReasonPattern("(")
+	if cond(entry) {
+		t.Error("invalid regex should return false")
+	}
+}
+
+func TestByReasonPatternEmptyPattern(t *testing.T) {
+	entry := &DLQEntry{Reason: "any"}
+	cond := ByReasonPattern("")
+	if cond(entry) {
+		t.Error("empty pattern should return false")
+	}
+}
+
+func TestByReasonPatternTooLong(t *testing.T) {
+	entry := &DLQEntry{Reason: "any"}
+	cond := ByReasonPattern(string(make([]byte, 257)))
+	if cond(entry) {
+		t.Error("pattern exceeding 256 chars should return false")
+	}
+}
+
+func TestCompileRegexWithTimeoutValid(t *testing.T) {
+	re, err := compileRegexWithTimeout("^test$", 1)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !re.MatchString("test") {
+		t.Error("should match 'test'")
+	}
+}
+
+func TestCompileRegexWithTimeoutInvalid(t *testing.T) {
+	_, err := compileRegexWithTimeout("(", 1)
+	if err == nil {
+		t.Error("expected error for invalid pattern")
+	}
+}
+
+func TestMatchWithTimeout(t *testing.T) {
+	re := regexp.MustCompile("hello")
+	if !matchWithTimeout(re, "hello world", 1) {
+		t.Error("should match")
+	}
+	if matchWithTimeout(re, "goodbye", 1) {
+		t.Error("should not match")
 	}
 }

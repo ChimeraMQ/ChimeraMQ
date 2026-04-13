@@ -17,6 +17,16 @@ type Config struct {
 	ProbeTimeout     time.Duration
 	IndirectNodes    int
 	SuspicionTimeout time.Duration
+	// HMACKey enables HMAC-SHA256 message authentication when non-empty.
+	HMACKey []byte
+}
+
+// transport is the minimal interface required by SWIM.
+type transport interface {
+	Send(addr string, msg *Message) error
+	Receive() (*Message, *net.UDPAddr, error)
+	Close() error
+	LocalAddr() string
 }
 
 // SWIM implements the SWIM gossip protocol.
@@ -25,7 +35,7 @@ type SWIM struct {
 	cfg       Config
 	members   *MemberList
 	detector  *PhiAccrualDetector
-	transport *UDPTransport
+	transport transport
 	stopCh    chan struct{}
 	done      chan struct{}
 
@@ -36,9 +46,14 @@ type SWIM struct {
 // NewSWIM creates a new SWIM gossip instance.
 func NewSWIM(cfg Config) (*SWIM, error) {
 	addr := fmt.Sprintf("%s:%d", cfg.BindAddr, cfg.BindPort)
-	transport, err := NewUDPTransport(addr)
+	udpTransport, err := NewUDPTransport(addr)
 	if err != nil {
 		return nil, fmt.Errorf("bind gossip: %w", err)
+	}
+
+	var t transport = udpTransport
+	if len(cfg.HMACKey) > 0 {
+		t = NewHMACTransport(udpTransport, cfg.HMACKey)
 	}
 
 	if cfg.ProbeInterval == 0 {
@@ -58,7 +73,7 @@ func NewSWIM(cfg Config) (*SWIM, error) {
 		cfg:       cfg,
 		members:   NewMemberList(cfg.NodeID),
 		detector:  NewPhiAccrualDetector(),
-		transport: transport,
+		transport: t,
 		stopCh:    make(chan struct{}),
 		done:      make(chan struct{}),
 	}

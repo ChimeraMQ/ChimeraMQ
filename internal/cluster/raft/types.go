@@ -111,6 +111,11 @@ type Config struct {
 	MaxLogEntries     int
 	// DataDir is the root directory for Raft persistent storage.
 	DataDir string
+	// TLS configuration for internode communication.
+	TLSEnabled bool
+	CertFile   string
+	KeyFile    string
+	CAFile     string
 }
 
 // DefaultConfig returns a sensible Raft config.

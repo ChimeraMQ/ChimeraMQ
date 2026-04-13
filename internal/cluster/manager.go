@@ -30,8 +30,13 @@ type ClusterConfig struct {
 	HeartbeatInterval time.Duration
 	SnapshotInterval  time.Duration
 	MaxLogEntries     int
+	RaftTLSEnabled    bool
+	RaftCertFile      string
+	RaftKeyFile       string
+	RaftCAFile        string
 	GossipBindPort    int
 	GossipSeeds       []string
+	GossipHMACKey     []byte
 	ProbeInterval     time.Duration
 	ProbeTimeout      time.Duration
 	IndirectNodes     int
@@ -78,6 +83,10 @@ func (m *Manager) Start() error {
 		SnapshotInterval:  m.cfg.SnapshotInterval,
 		MaxLogEntries:     m.cfg.MaxLogEntries,
 		DataDir:           m.cfg.DataDir,
+		TLSEnabled:        m.cfg.RaftTLSEnabled,
+		CertFile:          m.cfg.RaftCertFile,
+		KeyFile:           m.cfg.RaftKeyFile,
+		CAFile:            m.cfg.RaftCAFile,
 	}
 
 	node, err := raft.NewRaftNode(raftCfg)
@@ -85,8 +94,17 @@ func (m *Manager) Start() error {
 		return fmt.Errorf("create raft node: %w", err)
 	}
 
-	// Set up transport
-	transport := raft.NewTCPTransport()
+	// Set up transport with optional TLS
+	var transport *raft.TCPTransport
+	if m.cfg.RaftTLSEnabled {
+		tlsCfg, err := raft.LoadTLSConfig(m.cfg.RaftCertFile, m.cfg.RaftKeyFile, m.cfg.RaftCAFile)
+		if err != nil {
+			return fmt.Errorf("load raft TLS: %w", err)
+		}
+		transport = raft.NewTCPTransportWithTLS(tlsCfg)
+	} else {
+		transport = raft.NewTCPTransport()
+	}
 	for id, addr := range peerAddrs {
 		transport.SetAddr(id, addr)
 	}
@@ -107,6 +125,7 @@ func (m *Manager) Start() error {
 		ProbeTimeout:     m.cfg.ProbeTimeout,
 		IndirectNodes:    m.cfg.IndirectNodes,
 		SuspicionTimeout: m.cfg.SuspicionTimeout,
+		HMACKey:          m.cfg.GossipHMACKey,
 	}
 
 	swim, err := gossip.NewSWIM(swimCfg)
