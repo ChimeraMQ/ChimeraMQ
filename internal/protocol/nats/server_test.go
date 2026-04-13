@@ -102,6 +102,7 @@ func TestHandleConnectionNoAuth(t *testing.T) {
 	}
 
 	client.Close()
+	client.Close()
 	select {
 	case <-done:
 	case <-time.After(3 * time.Second):
@@ -143,6 +144,7 @@ func TestHandleConnectionAuthSuccess(t *testing.T) {
 	}
 
 	client.Close()
+	client.Close()
 	select {
 	case <-done:
 	case <-time.After(3 * time.Second):
@@ -182,6 +184,7 @@ func TestHandleConnectionAuthFailure(t *testing.T) {
 		t.Fatalf("expected auth error, got: %s", line)
 	}
 
+	client.Close()
 	select {
 	case <-done:
 	case <-time.After(3 * time.Second):
@@ -218,6 +221,7 @@ func TestHandleConnectionInvalidJSON(t *testing.T) {
 		t.Fatalf("expected invalid JSON error, got: %s", line)
 	}
 
+	client.Close()
 	select {
 	case <-done:
 	case <-time.After(3 * time.Second):
@@ -308,5 +312,509 @@ func TestAuthProviderIntegration(t *testing.T) {
 	_, err := provider.Authenticate(nil, auth.Credentials{Username: "admin", Password: "secret"})
 	if err != nil {
 		t.Errorf("expected auth success, got: %v", err)
+	}
+}
+
+func TestHandlePubNotConnected(t *testing.T) {
+	b, cleanup := newNATSTestBroker(t, false)
+	defer cleanup()
+	srv := NewServer(b)
+
+	server, client := net.Pipe()
+	defer server.Close()
+	defer client.Close()
+
+	done := make(chan struct{})
+	go func() {
+		srv.HandleConnection(server, nil)
+		close(done)
+	}()
+
+	reader := bufio.NewReader(client)
+	_, _ = reader.ReadString('\n') // INFO
+
+	_, _ = client.Write([]byte("PUB orders 5\r\nhello\r\n"))
+
+	client.SetReadDeadline(time.Now().Add(2 * time.Second))
+	line, err := reader.ReadString('\n')
+	if err != nil {
+		t.Fatalf("read error: %v", err)
+	}
+	if !strings.Contains(line, "Not connected") {
+		t.Fatalf("expected Not connected error, got: %s", line)
+	}
+
+	client.Close()
+	client.Close()
+	select {
+	case <-done:
+	case <-time.After(3 * time.Second):
+		t.Error("HandleConnection did not finish")
+	}
+}
+
+func TestHandleSubNotConnected(t *testing.T) {
+	b, cleanup := newNATSTestBroker(t, false)
+	defer cleanup()
+	srv := NewServer(b)
+
+	server, client := net.Pipe()
+	defer server.Close()
+	defer client.Close()
+
+	done := make(chan struct{})
+	go func() {
+		srv.HandleConnection(server, nil)
+		close(done)
+	}()
+
+	reader := bufio.NewReader(client)
+	_, _ = reader.ReadString('\n') // INFO
+
+	_, _ = client.Write([]byte("SUB orders 1\r\n"))
+
+	client.SetReadDeadline(time.Now().Add(2 * time.Second))
+	line, err := reader.ReadString('\n')
+	if err != nil {
+		t.Fatalf("read error: %v", err)
+	}
+	if !strings.Contains(line, "Not connected") {
+		t.Fatalf("expected Not connected error, got: %s", line)
+	}
+
+	client.Close()
+	select {
+	case <-done:
+	case <-time.After(3 * time.Second):
+		t.Error("HandleConnection did not finish")
+	}
+}
+
+func TestHandleUnsubNotConnected(t *testing.T) {
+	b, cleanup := newNATSTestBroker(t, false)
+	defer cleanup()
+	srv := NewServer(b)
+
+	server, client := net.Pipe()
+	defer server.Close()
+	defer client.Close()
+
+	done := make(chan struct{})
+	go func() {
+		srv.HandleConnection(server, nil)
+		close(done)
+	}()
+
+	reader := bufio.NewReader(client)
+	_, _ = reader.ReadString('\n') // INFO
+
+	_, _ = client.Write([]byte("UNSUB 1\r\n"))
+
+	client.SetReadDeadline(time.Now().Add(2 * time.Second))
+	line, err := reader.ReadString('\n')
+	if err != nil {
+		t.Fatalf("read error: %v", err)
+	}
+	if !strings.Contains(line, "Not connected") {
+		t.Fatalf("expected Not connected error, got: %s", line)
+	}
+
+	client.Close()
+	select {
+	case <-done:
+	case <-time.After(3 * time.Second):
+		t.Error("HandleConnection did not finish")
+	}
+}
+
+func TestHandlePubMissingSubject(t *testing.T) {
+	b, cleanup := newNATSTestBroker(t, false)
+	defer cleanup()
+	srv := NewServer(b)
+
+	server, client := net.Pipe()
+	defer server.Close()
+	defer client.Close()
+
+	done := make(chan struct{})
+	go func() {
+		srv.HandleConnection(server, nil)
+		close(done)
+	}()
+
+	reader := bufio.NewReader(client)
+	_, _ = reader.ReadString('\n') // INFO
+
+	_, _ = client.Write([]byte(`CONNECT {"name":"test"}` + "\r\n"))
+	_, _ = client.Write([]byte("PUB\r\n"))
+
+	client.SetReadDeadline(time.Now().Add(2 * time.Second))
+	line, err := reader.ReadString('\n')
+	if err != nil {
+		t.Fatalf("read error: %v", err)
+	}
+	if !strings.Contains(line, "PUB requires subject") {
+		t.Fatalf("expected PUB requires subject error, got: %s", line)
+	}
+
+	client.Close()
+	select {
+	case <-done:
+	case <-time.After(3 * time.Second):
+		t.Error("HandleConnection did not finish")
+	}
+}
+
+func TestHandleSubMissingArgs(t *testing.T) {
+	b, cleanup := newNATSTestBroker(t, false)
+	defer cleanup()
+	srv := NewServer(b)
+
+	server, client := net.Pipe()
+	defer server.Close()
+	defer client.Close()
+
+	done := make(chan struct{})
+	go func() {
+		srv.HandleConnection(server, nil)
+		close(done)
+	}()
+
+	reader := bufio.NewReader(client)
+	_, _ = reader.ReadString('\n') // INFO
+
+	_, _ = client.Write([]byte(`CONNECT {"name":"test"}` + "\r\n"))
+	_, _ = client.Write([]byte("SUB\r\n"))
+
+	client.SetReadDeadline(time.Now().Add(2 * time.Second))
+	line, err := reader.ReadString('\n')
+	if err != nil {
+		t.Fatalf("read error: %v", err)
+	}
+	if !strings.Contains(line, "SUB requires subject and sid") {
+		t.Fatalf("expected SUB requires error, got: %s", line)
+	}
+
+	client.Close()
+	select {
+	case <-done:
+	case <-time.After(3 * time.Second):
+		t.Error("HandleConnection did not finish")
+	}
+}
+
+func TestHandleUnsubMissingSID(t *testing.T) {
+	b, cleanup := newNATSTestBroker(t, false)
+	defer cleanup()
+	srv := NewServer(b)
+
+	server, client := net.Pipe()
+	defer server.Close()
+	defer client.Close()
+
+	done := make(chan struct{})
+	go func() {
+		srv.HandleConnection(server, nil)
+		close(done)
+	}()
+
+	reader := bufio.NewReader(client)
+	_, _ = reader.ReadString('\n') // INFO
+
+	_, _ = client.Write([]byte(`CONNECT {"name":"test"}` + "\r\n"))
+	_, _ = client.Write([]byte("UNSUB\r\n"))
+
+	client.SetReadDeadline(time.Now().Add(2 * time.Second))
+	line, err := reader.ReadString('\n')
+	if err != nil {
+		t.Fatalf("read error: %v", err)
+	}
+	if !strings.Contains(line, "UNSUB requires sid") {
+		t.Fatalf("expected UNSUB requires error, got: %s", line)
+	}
+
+	client.Close()
+	select {
+	case <-done:
+	case <-time.After(3 * time.Second):
+		t.Error("HandleConnection did not finish")
+	}
+}
+
+func TestHandlePingPong(t *testing.T) {
+	b, cleanup := newNATSTestBroker(t, false)
+	defer cleanup()
+	srv := NewServer(b)
+
+	server, client := net.Pipe()
+	defer server.Close()
+	defer client.Close()
+
+	done := make(chan struct{})
+	go func() {
+		srv.HandleConnection(server, nil)
+		close(done)
+	}()
+
+	reader := bufio.NewReader(client)
+	_, _ = reader.ReadString('\n') // INFO
+
+	_, _ = client.Write([]byte(`CONNECT {"name":"test"}` + "\r\n"))
+	_, _ = client.Write([]byte("PING\r\n"))
+
+	client.SetReadDeadline(time.Now().Add(2 * time.Second))
+	line, err := reader.ReadString('\n')
+	if err != nil {
+		t.Fatalf("read error: %v", err)
+	}
+	if !strings.HasPrefix(line, "PONG") {
+		t.Fatalf("expected PONG, got: %s", line)
+	}
+
+	client.Close()
+	client.Close()
+	select {
+	case <-done:
+	case <-time.After(3 * time.Second):
+		t.Error("HandleConnection did not finish")
+	}
+}
+
+func TestHandleUnknownCommand(t *testing.T) {
+	b, cleanup := newNATSTestBroker(t, false)
+	defer cleanup()
+	srv := NewServer(b)
+
+	server, client := net.Pipe()
+	defer server.Close()
+	defer client.Close()
+
+	done := make(chan struct{})
+	go func() {
+		srv.HandleConnection(server, nil)
+		close(done)
+	}()
+
+	reader := bufio.NewReader(client)
+	_, _ = reader.ReadString('\n') // INFO
+
+	_, _ = client.Write([]byte(`CONNECT {"name":"test"}` + "\r\n"))
+	_, _ = client.Write([]byte("FOOBAR\r\n"))
+
+	client.SetReadDeadline(time.Now().Add(2 * time.Second))
+	line, err := reader.ReadString('\n')
+	if err != nil {
+		t.Fatalf("read error: %v", err)
+	}
+	if !strings.Contains(line, "Unknown command") {
+		t.Fatalf("expected unknown command error, got: %s", line)
+	}
+
+	client.Close()
+	select {
+	case <-done:
+	case <-time.After(3 * time.Second):
+		t.Error("HandleConnection did not finish")
+	}
+}
+
+func TestHandleHPUB(t *testing.T) {
+	b, cleanup := newNATSTestBroker(t, false)
+	defer cleanup()
+	b.Topics().CreateTopic(broker.TopicConfig{Name: "orders", Mode: broker.ModeUnified, Partitions: 1})
+	srv := NewServer(b)
+
+	server, client := net.Pipe()
+	defer server.Close()
+	defer client.Close()
+
+	done := make(chan struct{})
+	go func() {
+		srv.HandleConnection(server, nil)
+		close(done)
+	}()
+
+	reader := bufio.NewReader(client)
+	_, _ = reader.ReadString('\n') // INFO
+
+	_, _ = client.Write([]byte(`CONNECT {"name":"test"}` + "\r\n"))
+	// HPUB subject headers_len total_len
+	_, _ = client.Write([]byte("HPUB orders 0 5\r\nhello\r\n"))
+
+	client.SetReadDeadline(time.Now().Add(2 * time.Second))
+	line, err := reader.ReadString('\n')
+	if err != nil {
+		t.Fatalf("read error: %v", err)
+	}
+	if !strings.HasPrefix(line, "+OK") {
+		t.Fatalf("expected +OK, got: %s", line)
+	}
+
+	client.Close()
+	client.Close()
+	select {
+	case <-done:
+	case <-time.After(3 * time.Second):
+		t.Error("HandleConnection did not finish")
+	}
+}
+
+func TestHandleSubAndUnsub(t *testing.T) {
+	b, cleanup := newNATSTestBroker(t, false)
+	defer cleanup()
+	srv := NewServer(b)
+
+	server, client := net.Pipe()
+	defer server.Close()
+	defer client.Close()
+
+	done := make(chan struct{})
+	go func() {
+		srv.HandleConnection(server, nil)
+		close(done)
+	}()
+
+	reader := bufio.NewReader(client)
+	_, _ = reader.ReadString('\n') // INFO
+
+	_, _ = client.Write([]byte(`CONNECT {"name":"test"}` + "\r\n"))
+	_, _ = client.Write([]byte("SUB orders 1\r\n"))
+	time.Sleep(100 * time.Millisecond)
+	_, _ = client.Write([]byte("UNSUB 1\r\n"))
+
+	client.Close()
+	client.Close()
+	select {
+	case <-done:
+	case <-time.After(3 * time.Second):
+		t.Error("HandleConnection did not finish")
+	}
+}
+
+func TestHandlePubWithReplyTo(t *testing.T) {
+	b, cleanup := newNATSTestBroker(t, false)
+	defer cleanup()
+	b.Topics().CreateTopic(broker.TopicConfig{Name: "orders", Mode: broker.ModeUnified, Partitions: 1})
+	srv := NewServer(b)
+
+	server, client := net.Pipe()
+	defer server.Close()
+	defer client.Close()
+
+	done := make(chan struct{})
+	go func() {
+		srv.HandleConnection(server, nil)
+		close(done)
+	}()
+
+	reader := bufio.NewReader(client)
+	_, _ = reader.ReadString('\n') // INFO
+
+	_, _ = client.Write([]byte(`CONNECT {"name":"test"}` + "\r\n"))
+	// PUB subject reply-to payload_len
+	_, _ = client.Write([]byte("PUB orders reply.me 5\r\nhello\r\n"))
+
+	client.SetReadDeadline(time.Now().Add(2 * time.Second))
+	line, err := reader.ReadString('\n')
+	if err != nil {
+		t.Fatalf("read error: %v", err)
+	}
+	if !strings.HasPrefix(line, "+OK") {
+		t.Fatalf("expected +OK, got: %s", line)
+	}
+
+	client.Close()
+	client.Close()
+	select {
+	case <-done:
+	case <-time.After(3 * time.Second):
+		t.Error("HandleConnection did not finish")
+	}
+}
+
+func TestSendInfo(t *testing.T) {
+	b, cleanup := newNATSTestBroker(t, false)
+	defer cleanup()
+	srv := NewServer(b)
+
+	server, client := net.Pipe()
+	defer server.Close()
+	defer client.Close()
+
+	done := make(chan struct{})
+	go func() {
+		srv.HandleConnection(server, nil)
+		close(done)
+	}()
+
+	reader := bufio.NewReader(client)
+	line, err := reader.ReadString('\n')
+	if err != nil {
+		t.Fatalf("read INFO: %v", err)
+	}
+	if !strings.HasPrefix(line, "INFO ") {
+		t.Fatalf("expected INFO, got: %s", line)
+	}
+	if !strings.Contains(line, `"server_id"`) {
+		t.Fatalf("expected server_id in INFO, got: %s", line)
+	}
+
+	client.Close()
+	client.Close()
+	select {
+	case <-done:
+	case <-time.After(3 * time.Second):
+		t.Error("HandleConnection did not finish")
+	}
+}
+
+func TestWriteStringClosedSession(t *testing.T) {
+	sess := &Session{
+		id:     "test",
+		conn:   &mockConn{},
+		writer: bufio.NewWriter(&bytes.Buffer{}),
+	}
+	sess.close()
+	if err := sess.writeString("hello"); err == nil {
+		t.Error("expected error for closed session")
+	}
+}
+
+func TestSendOkClosedSession(t *testing.T) {
+	sess := &Session{
+		id:     "test",
+		conn:   &mockConn{},
+		writer: bufio.NewWriter(&bytes.Buffer{}),
+	}
+	sess.close()
+	if err := sess.sendOk(); err == nil {
+		t.Error("expected error for closed session")
+	}
+}
+
+func TestSendErrorClosedSession(t *testing.T) {
+	sess := &Session{
+		id:     "test",
+		conn:   &mockConn{},
+		writer: bufio.NewWriter(&bytes.Buffer{}),
+	}
+	sess.close()
+	if err := sess.sendError("boom"); err == nil {
+		t.Error("expected error for closed session")
+	}
+}
+
+func TestSendInfoClosedSession(t *testing.T) {
+	b, cleanup := newNATSTestBroker(t, false)
+	defer cleanup()
+	sess := &Session{
+		id:     "test",
+		b:      b,
+		conn:   &mockConn{},
+		writer: bufio.NewWriter(&bytes.Buffer{}),
+	}
+	sess.close()
+	if err := sess.sendInfo(); err == nil {
+		t.Error("expected error for closed session")
 	}
 }
