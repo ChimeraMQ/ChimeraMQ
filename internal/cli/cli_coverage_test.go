@@ -516,22 +516,6 @@ func TestRunTopicCLIDeleteNoNameSubprocess(t *testing.T) {
 
 // --- Produce / Consume error paths ---
 
-func TestRunProduceCLINoTopicSubprocess(t *testing.T) {
-	if os.Getenv("TEST_PRODUCE_NOTOPIC_SUB") == "1" {
-		RunProduceCLI([]string{"-message", "hello"})
-		return
-	}
-	cmd := exec.Command(os.Args[0], "-test.run=TestRunProduceCLINoTopicSubprocess", "-test.v")
-	cmd.Env = append(os.Environ(), "TEST_PRODUCE_NOTOPIC_SUB=1")
-	err := cmd.Run()
-	if err == nil {
-		t.Fatal("expected exit error for missing topic")
-	}
-	if exitErr, ok := err.(*exec.ExitError); ok && exitErr.ExitCode() != 1 {
-		t.Fatalf("expected exit code 1, got %d", exitErr.ExitCode())
-	}
-}
-
 func TestRunProduceCLIHTTPErrorSubprocess(t *testing.T) {
 	if os.Getenv("TEST_PRODUCE_HTTP_SUB") == "1" {
 		RunProduceCLI([]string{"-topic", "test", "-message", "hello"})
@@ -809,6 +793,102 @@ func TestRunServerInvalidPortSubprocess(t *testing.T) {
 	err := cmd.Run()
 	if err == nil {
 		t.Fatal("expected exit error for invalid port")
+	}
+	if exitErr, ok := err.(*exec.ExitError); ok && exitErr.ExitCode() != 1 {
+		t.Fatalf("expected exit code 1, got %d", exitErr.ExitCode())
+	}
+}
+
+func TestRunServerStartErrorSubprocess(t *testing.T) {
+	if os.Getenv("TEST_SERVER_START_ERR_SUB") == "1" {
+		cfgPath := os.Getenv("TEST_SERVER_CONFIG_PATH")
+		RunServer([]string{"-config", cfgPath})
+		return
+	}
+
+	// Create a config that passes validation but fails during Start():
+	// enable file auth with a non-existent auth file
+	dir := t.TempDir()
+	cfgPath := filepath.Join(dir, "chimera.yaml")
+	cfgContent := `auth:
+  enabled: true
+  type: file
+  auth_file: /nonexistent/auth.json
+node:
+  data_dir: ` + dir + `
+`
+	os.WriteFile(cfgPath, []byte(cfgContent), 0644)
+
+	cmd := exec.Command(os.Args[0], "-test.run=TestRunServerStartErrorSubprocess", "-test.v")
+	cmd.Env = append(os.Environ(), "TEST_SERVER_START_ERR_SUB=1", "TEST_SERVER_CONFIG_PATH="+cfgPath)
+	err := cmd.Run()
+	if err == nil {
+		t.Fatal("expected exit error for start failure")
+	}
+	if exitErr, ok := err.(*exec.ExitError); ok && exitErr.ExitCode() != 1 {
+		t.Fatalf("expected exit code 1, got %d", exitErr.ExitCode())
+	}
+}
+
+// --- Cluster CLI error paths ---
+
+func TestRunClusterCLIStatusHTTPErrorSubprocess(t *testing.T) {
+	if os.Getenv("TEST_CLUSTER_STATUS_HTTP_SUB") == "1" {
+		RunClusterCLI([]string{"status"})
+		return
+	}
+
+	cmd := exec.Command(os.Args[0], "-test.run=TestRunClusterCLIStatusHTTPErrorSubprocess", "-test.v")
+	cmd.Env = append(os.Environ(), "TEST_CLUSTER_STATUS_HTTP_SUB=1", "CHIMERA_ADMIN_ADDR=http://127.0.0.1:1")
+	err := cmd.Run()
+	if err == nil {
+		t.Fatal("expected exit error for HTTP failure")
+	}
+	if exitErr, ok := err.(*exec.ExitError); ok && exitErr.ExitCode() != 1 {
+		t.Fatalf("expected exit code 1, got %d", exitErr.ExitCode())
+	}
+}
+
+func TestRunClusterCLIMembersHTTPErrorSubprocess(t *testing.T) {
+	if os.Getenv("TEST_CLUSTER_MEMBERS_HTTP_SUB") == "1" {
+		RunClusterCLI([]string{"members"})
+		return
+	}
+
+	cmd := exec.Command(os.Args[0], "-test.run=TestRunClusterCLIMembersHTTPErrorSubprocess", "-test.v")
+	cmd.Env = append(os.Environ(), "TEST_CLUSTER_MEMBERS_HTTP_SUB=1", "CHIMERA_ADMIN_ADDR=http://127.0.0.1:1")
+	err := cmd.Run()
+	if err == nil {
+		t.Fatal("expected exit error for HTTP failure")
+	}
+	if exitErr, ok := err.(*exec.ExitError); ok && exitErr.ExitCode() != 1 {
+		t.Fatalf("expected exit code 1, got %d", exitErr.ExitCode())
+	}
+}
+
+func TestRunMCPServerStartErrorSubprocess(t *testing.T) {
+	if os.Getenv("TEST_MCP_START_ERR_SUB") == "1" {
+		cfgPath := os.Getenv("TEST_MCP_CONFIG_PATH")
+		RunMCPServer([]string{"--config", cfgPath})
+		return
+	}
+
+	dir := t.TempDir()
+	cfgPath := filepath.Join(dir, "chimera.yaml")
+	cfgContent := `auth:
+  enabled: true
+  type: file
+  auth_file: /nonexistent/auth.json
+node:
+  data_dir: ` + dir + `
+`
+	os.WriteFile(cfgPath, []byte(cfgContent), 0644)
+
+	cmd := exec.Command(os.Args[0], "-test.run=TestRunMCPServerStartErrorSubprocess", "-test.v")
+	cmd.Env = append(os.Environ(), "TEST_MCP_START_ERR_SUB=1", "TEST_MCP_CONFIG_PATH="+cfgPath)
+	err := cmd.Run()
+	if err == nil {
+		t.Fatal("expected exit error for start failure")
 	}
 	if exitErr, ok := err.(*exec.ExitError); ok && exitErr.ExitCode() != 1 {
 		t.Fatalf("expected exit code 1, got %d", exitErr.ExitCode())
