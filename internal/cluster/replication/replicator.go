@@ -115,7 +115,7 @@ func (r *Replicator) ReplicateWrite(data []byte, offset uint64) error {
 		}
 		return fmt.Errorf("quorum not reached for %s:%d offset=%d", r.topic, r.partition, offset)
 	case AckAll:
-		if r.isr.ISRSize()+1 == len(isrMembers) {
+		if len(errCh) == 0 {
 			return nil
 		}
 		return fmt.Errorf("not all ISR confirmed for %s:%d", r.topic, r.partition)

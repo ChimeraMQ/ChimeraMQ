@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/chimeramq/chimera/internal/cluster/raft"
+	"github.com/chimeramq/chimera/internal/cluster/replication"
 )
 
 func TestManagerMembersWithSWIM(t *testing.T) {
@@ -140,3 +141,27 @@ func mustMarshal(v interface{}) []byte {
 	data, _ := json.Marshal(v)
 	return data
 }
+
+func TestReplicationTransportAdapterReplicate(t *testing.T) {
+	m, _ := newFSMOnlyManager(t)
+	adapter := &replicationTransportAdapter{raftNode: m.raftNode}
+
+	err := adapter.Replicate("node-2", &replication.ReplicateRequest{Data: []byte("test")})
+	if err == nil {
+		t.Error("expected error when replicating through non-leader raft node")
+	}
+}
+
+func TestReplicationTransportAdapterFetchEntries(t *testing.T) {
+	m, _ := newFSMOnlyManager(t)
+	adapter := &replicationTransportAdapter{raftNode: m.raftNode}
+
+	resp, err := adapter.FetchEntries("node-2", &replication.FetchRequest{})
+	if err != nil {
+		t.Fatalf("FetchEntries error: %v", err)
+	}
+	if resp == nil {
+		t.Fatal("expected non-nil response")
+	}
+}
+
