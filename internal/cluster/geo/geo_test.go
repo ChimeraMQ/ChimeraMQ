@@ -238,3 +238,41 @@ func TestCreateReplicaBufferSizes(t *testing.T) {
 		}
 	}
 }
+
+func TestManagerReplicateStopped(t *testing.T) {
+	m := NewManager(Config{Enabled: true})
+	m.replicas["dc1"] = &Replica{
+		cfg:     RemoteDCConfig{ID: "dc1"},
+		client:  &Client{},
+		buffer:  make(chan *ReplicationEvent, 0), // size 0 so send blocks
+		stopCh:  make(chan struct{}),
+		lagInfo: make(map[string]*LagInfo),
+	}
+	close(m.stopCh)
+
+	env := &message.Envelope{Topic: "test", Payload: []byte("data")}
+	err := m.Replicate(env)
+	if err == nil || err.Error() != "manager stopped" {
+		t.Fatalf("expected 'manager stopped' error, got: %v", err)
+	}
+}
+
+func TestReplicateFlushOnStop(t *testing.T) {
+	cfg := RemoteDCConfig{ID: "dc1", Address: "localhost:9091"}
+	client := &Client{address: cfg.Address}
+	replica := &Replica{
+		cfg:     cfg,
+		client:  client,
+		buffer:  make(chan *ReplicationEvent, 100),
+		stopCh:  make(chan struct{}),
+		lagInfo: make(map[string]*LagInfo),
+	}
+
+	if err := replica.Start(); err != nil {
+		t.Fatal(err)
+	}
+
+	replica.buffer <- &ReplicationEvent{Topic: "t1", Partition: 0, Offset: 1}
+	// Stop immediately to trigger flush of pending batch
+	replica.Stop()
+}
