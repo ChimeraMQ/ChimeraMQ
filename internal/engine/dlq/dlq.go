@@ -6,12 +6,41 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"regexp"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
 
 	"github.com/chimeramq/chimera/internal/message"
 )
+
+// validTopicName validates topic names to prevent path traversal.
+// Topic names must contain only alphanumeric characters, hyphens, and underscores.
+var validTopicName = regexp.MustCompile(`^[a-zA-Z0-9_-]+$`)
+
+// validateTopicName returns an error if the topic name contains invalid characters.
+func validateTopicName(topic string) error {
+	if topic == "" {
+		return fmt.Errorf("topic name cannot be empty")
+	}
+	if len(topic) > 256 {
+		return fmt.Errorf("topic name too long (max 256 characters)")
+	}
+	// Reject path traversal attempts
+	if strings.Contains(topic, "..") {
+		return fmt.Errorf("topic name contains invalid sequence: '..'")
+	}
+	// Reject path separators
+	if strings.Contains(topic, "/") || strings.Contains(topic, "\\") {
+		return fmt.Errorf("topic name cannot contain path separators")
+	}
+	// Only allow alphanumeric, hyphens, and underscores
+	if !validTopicName.MatchString(topic) {
+		return fmt.Errorf("invalid topic name %q: must contain only alphanumeric characters, hyphens, and underscores", topic)
+	}
+	return nil
+}
 
 // DLQ handles dead letter queue operations for failed messages.
 type DLQ struct {
@@ -48,7 +77,7 @@ type Config struct {
 }
 
 // NewDLQ creates a new dead letter queue handler.
-func NewDLQ(cfg Config) *DLQ {
+func NewDLQ(cfg Config) (*DLQ, error) {
 	prefix := cfg.TopicPrefix
 	if prefix == "" {
 		prefix = "__dlq_"
@@ -67,10 +96,12 @@ func NewDLQ(cfg Config) *DLQ {
 		d.enabled.Store(true)
 	}
 	if d.dataDir != "" {
-		_ = os.MkdirAll(d.dataDir, 0750)
+		if err := os.MkdirAll(d.dataDir, 0750); err != nil {
+			return nil, fmt.Errorf("create dlq data dir: %w", err)
+		}
 		d.loadAll()
 	}
-	return d
+	return d, nil
 }
 
 // Enabled returns whether DLQ is active.
@@ -89,6 +120,11 @@ func (d *DLQ) Push(msg *message.Envelope, topic string, partition uint32, reason
 	if !d.enabled.Load() {
 		return
 	}
+	// Validate topic name to prevent path traversal
+	if err := validateTopicName(topic); err != nil {
+		return
+	}
+
 	d.mu.Lock()
 	defer d.mu.Unlock()
 
@@ -230,6 +266,10 @@ func (d *DLQ) loadAll() {
 			continue
 		}
 		topic := e.Name()[:len(e.Name())-6] // strip .jsonl
+		// Skip directories with invalid names (path traversal protection)
+		if err := validateTopicName(topic); err != nil {
+			continue
+		}
 		d.loadTopic(topic)
 	}
 }

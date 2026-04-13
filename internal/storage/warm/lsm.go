@@ -19,6 +19,7 @@ type LSMConfig struct {
 	CompactionInterval time.Duration
 	MaxLevel           int
 	LevelSizeRatio     int // size ratio between levels (default 10)
+	MaxSSTables        int // maximum total SSTables before blocking writes (default 100)
 }
 
 // DefaultLSMConfig returns sensible defaults.
@@ -31,6 +32,7 @@ func DefaultLSMConfig() LSMConfig {
 		CompactionInterval: 5 * time.Minute,
 		MaxLevel:           7,
 		LevelSizeRatio:     10,
+		MaxSSTables:        100,
 	}
 }
 
@@ -77,6 +79,11 @@ type Level struct {
 func NewLSMTree(dir string, config LSMConfig) (*LSMTree, error) {
 	if err := os.MkdirAll(dir, 0755); err != nil {
 		return nil, fmt.Errorf("create LSM dir: %w", err)
+	}
+
+	// Ensure reasonable defaults
+	if config.MaxSSTables <= 0 {
+		config.MaxSSTables = 100
 	}
 
 	manifest, err := NewManifest(dir)
@@ -251,6 +258,18 @@ func (lsm *LSMTree) flushImmutable() {
 		lsm.mu.Unlock()
 		return
 	}
+
+	// Check if we've reached the maximum SSTable limit
+	totalSSTables := 0
+	for _, level := range lsm.levels {
+		totalSSTables += len(level.sstables)
+	}
+	if totalSSTables >= lsm.config.MaxSSTables {
+		lsm.mu.Unlock()
+		slog.Warn("LSMTree: max SSTables reached, delaying flush", "max", lsm.config.MaxSSTables)
+		return
+	}
+
 	mt := lsm.immutables[0]
 	lsm.immutables = lsm.immutables[1:]
 	lsm.mu.Unlock()

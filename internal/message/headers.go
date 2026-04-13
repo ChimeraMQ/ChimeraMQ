@@ -59,12 +59,3 @@ func unmarshalHeaders(data []byte) map[string][]byte {
 	}
 	return headers
 }
-
-// headersSize returns the binary size of the headers map.
-func headersSize(headers map[string][]byte) int {
-	size := 0
-	for k, v := range headers {
-		size += 2 + len(k) + 4 + len(v)
-	}
-	return size
-}

@@ -170,8 +170,10 @@ func (r *Runtime) Transform(ctx context.Context, moduleName string, input []byte
 
 	// Get instance from pool
 	var inst *ModuleInstance
+	var pooled bool
 	select {
 	case inst = <-cm.pool:
+		pooled = true
 	default:
 		// Pool exhausted, create temporary instance
 		var err error
@@ -179,15 +181,8 @@ func (r *Runtime) Transform(ctx context.Context, moduleName string, input []byte
 		if err != nil {
 			return nil, err
 		}
-		defer func() {
-			inst.Mod.Close(ctx)
-		}()
+		pooled = false
 	}
-
-	// Return instance to pool when done
-	defer func() {
-		cm.pool <- inst
-	}()
 
 	// Set execution timeout
 	if cm.config.ExecutionTimeout > 0 {
@@ -196,7 +191,22 @@ func (r *Runtime) Transform(ctx context.Context, moduleName string, input []byte
 		defer cancel()
 	}
 
-	return cm.execute(ctx, inst, input)
+	result, err := cm.execute(ctx, inst, input)
+
+	// Return instance to pool only if it was from pool and execution succeeded
+	if pooled {
+		if err == nil {
+			cm.pool <- inst
+		} else {
+			// Close the instance on error to prevent pool contamination
+			inst.Mod.Close(r.ctx)
+		}
+	} else {
+		// Temporary instance, always close
+		inst.Mod.Close(r.ctx)
+	}
+
+	return result, err
 }
 
 // ListModules returns all compiled module names.

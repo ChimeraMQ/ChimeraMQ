@@ -54,14 +54,20 @@ func validateJSONSchema(schemaStr string, payload []byte) (*ValidationResult, er
 		return &ValidationResult{Valid: false, Errors: []string{"payload is not valid JSON"}}, nil
 	}
 
-	errors := validateNode(schema, data, "")
+	errors := validateNode(schema, data, "", 0)
 	if len(errors) == 0 {
 		return &ValidationResult{Valid: true}, nil
 	}
 	return &ValidationResult{Valid: false, Errors: errors}, nil
 }
 
-func validateNode(schema map[string]interface{}, data interface{}, path string) []string {
+const maxValidationDepth = 100
+
+func validateNode(schema map[string]interface{}, data interface{}, path string, depth int) []string {
+	if depth > maxValidationDepth {
+		return []string{fmt.Sprintf("%s: validation depth exceeded (max %d)", path, maxValidationDepth)}
+	}
+
 	var errors []string
 
 	// Type check
@@ -96,7 +102,7 @@ func validateNode(schema map[string]interface{}, data interface{}, path string) 
 					if len(path) == 0 {
 						subPath = name
 					}
-					errors = append(errors, validateNode(propSchema, val, subPath)...)
+					errors = append(errors, validateNode(propSchema, val, subPath, depth+1)...)
 				}
 			}
 		}
@@ -118,7 +124,7 @@ func validateNode(schema map[string]interface{}, data interface{}, path string) 
 		if items, ok := schema["items"].(map[string]interface{}); ok {
 			for i, item := range arr {
 				subPath := fmt.Sprintf("%s[%d]", path, i)
-				errors = append(errors, validateNode(items, item, subPath)...)
+				errors = append(errors, validateNode(items, item, subPath, depth+1)...)
 			}
 		}
 	}

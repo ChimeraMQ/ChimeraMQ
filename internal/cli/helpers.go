@@ -8,7 +8,13 @@ import (
 	"net/http"
 	"os"
 	"strings"
+	"time"
 )
+
+// httpClient is a configured HTTP client with timeouts
+var httpClient = &http.Client{
+	Timeout: 30 * time.Second,
+}
 
 func getAdminAddr() string {
 	if addr := os.Getenv("CHIMERA_ADMIN_ADDR"); addr != "" {
@@ -22,11 +28,11 @@ func getAdminAddr() string {
 }
 
 func httpGet(url string) (*http.Response, error) {
-	return http.Get(url)
+	return httpClient.Get(url)
 }
 
 func httpPost(url string, body []byte) (*http.Response, error) {
-	return http.Post(url, "application/json", bytes.NewReader(body))
+	return httpClient.Post(url, "application/json", bytes.NewReader(body))
 }
 
 func httpDelete(url string) (*http.Response, error) {
@@ -34,7 +40,7 @@ func httpDelete(url string) (*http.Response, error) {
 	if err != nil {
 		return nil, err
 	}
-	return http.DefaultClient.Do(req)
+	return httpClient.Do(req)
 }
 
 func printResponse(resp *http.Response) {
@@ -53,7 +59,7 @@ func readStdin() []byte {
 func RunReloadCLI(args []string) {
 	adminAddr := getAdminAddr()
 
-	resp, err := http.Post(adminAddr+"/v1/config/reload", "application/json", nil)
+	resp, err := httpClient.Post(adminAddr+"/v1/config/reload", "application/json", nil)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
 		os.Exit(1)
@@ -61,7 +67,7 @@ func RunReloadCLI(args []string) {
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusOK {
-		body, _ := io.ReadAll(resp.Body)
+		body, _ := io.ReadAll(io.LimitReader(resp.Body, 64*1024))
 		fmt.Fprintf(os.Stderr, "Error: %s\n", string(body))
 		os.Exit(1)
 	}

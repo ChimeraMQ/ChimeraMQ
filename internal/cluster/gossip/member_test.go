@@ -1,6 +1,7 @@
 package gossip
 
 import (
+	"math/rand"
 	"testing"
 	"time"
 )
@@ -159,4 +160,12 @@ func TestRandomIndex(t *testing.T) {
 			t.Fatalf("randomIndex(10) = %d, out of range", idx)
 		}
 	}
+}
+
+// randomIndex returns a random index in [0, n).
+func randomIndex(n int) int {
+	if n <= 0 {
+		return 0
+	}
+	return rand.Intn(n)
 }

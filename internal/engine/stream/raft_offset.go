@@ -19,11 +19,15 @@ type RaftOffsetStore struct {
 
 // NewRaftOffsetStore creates an offset store that can optionally replicate
 // through Raft. If raftNode is nil, it uses local JSON persistence only.
-func NewRaftOffsetStore(dataDir string, raftNode *raft.RaftNode) *RaftOffsetStore {
-	return &RaftOffsetStore{
-		local:    NewOffsetStore(dataDir),
-		raftNode: raftNode,
+func NewRaftOffsetStore(dataDir string, raftNode *raft.RaftNode) (*RaftOffsetStore, error) {
+	local, err := NewOffsetStore(dataDir)
+	if err != nil {
+		return nil, err
 	}
+	return &RaftOffsetStore{
+		local:    local,
+		raftNode: raftNode,
+	}, nil
 }
 
 // offsetCommand is the Raft command payload for offset commits.
@@ -37,21 +41,32 @@ type offsetCommand struct {
 // through Raft consensus. Otherwise it writes to local JSON.
 func (s *RaftOffsetStore) Save(group string, partitionID uint32, offset uint64) error {
 	if s.raftNode != nil && s.raftNode.IsLeader() {
+		cmdData, err := marshalOffset(offsetCommand{
+			Group:       group,
+			PartitionID: partitionID,
+			Offset:      offset,
+		})
+		if err != nil {
+			return s.local.Save(group, partitionID, offset)
+		}
 		cmd := raft.Command{
 			Type: raft.CmdCommitOffset,
-			Data: mustMarshalOffset(offsetCommand{
-				Group:       group,
-				PartitionID: partitionID,
-				Offset:      offset,
-			}),
+			Data: cmdData,
 		}
-		_, err := s.raftNode.Propose(mustMarshalOffset(cmd))
+		cmdBytes, err := marshalOffset(cmd)
+		if err != nil {
+			return s.local.Save(group, partitionID, offset)
+		}
+		_, err = s.raftNode.Propose(cmdBytes)
 		if err != nil {
 			// Fall back to local on proposal failure
 			return s.local.Save(group, partitionID, offset)
 		}
 		// Also update local cache immediately for fast reads
 		s.mu.Lock()
+		if s.local.cache[group] == nil {
+			s.local.cache[group] = make(map[uint32]uint64)
+		}
 		s.local.cache[group][partitionID] = offset
 		s.mu.Unlock()
 		return nil
@@ -71,10 +86,10 @@ func (s *RaftOffsetStore) ApplyOffset(group string, partitionID uint32, offset u
 	return s.local.Save(group, partitionID, offset)
 }
 
-func mustMarshalOffset(v interface{}) []byte {
+func marshalOffset(v interface{}) ([]byte, error) {
 	data, err := json.Marshal(v)
 	if err != nil {
-		panic(fmt.Sprintf("failed to marshal offset command: %v", err))
+		return nil, fmt.Errorf("failed to marshal offset command: %w", err)
 	}
-	return data
+	return data, nil
 }

@@ -11,6 +11,10 @@ import (
 	"github.com/chimeramq/chimera/internal/message"
 )
 
+// MaxCompactionKeys limits the number of unique keys during compaction
+// to prevent unbounded memory growth. Default 1 million keys.
+const MaxCompactionKeys = 1_000_000
+
 // CompactionMode controls how log compaction works.
 type CompactionMode int
 
@@ -78,6 +82,7 @@ func (lc *LogCompactor) Compact(p *Partition) error {
 	latest := make(map[string][]byte) // routingKey → raw data
 	var keyless [][]byte              // messages without routing key
 	totalRead := 0
+	keysExceeded := false
 
 	for _, seg := range frozen {
 		records, err := lc.readAllRecords(seg)
@@ -93,7 +98,18 @@ func (lc *LogCompactor) Compact(p *Partition) error {
 			if env.RoutingKey == "" {
 				keyless = append(keyless, data)
 			} else {
-				latest[env.RoutingKey] = data
+				// Check if we've exceeded the maximum keys limit
+				if !keysExceeded {
+					if len(latest) >= MaxCompactionKeys {
+						keysExceeded = true
+						slog.Warn("compaction key limit exceeded, skipping new unique keys",
+							"limit", MaxCompactionKeys,
+							"routing_key", env.RoutingKey)
+					}
+				}
+				if !keysExceeded {
+					latest[env.RoutingKey] = data
+				}
 			}
 		}
 	}

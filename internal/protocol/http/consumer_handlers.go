@@ -10,6 +10,11 @@ import (
 )
 
 func (s *AdminServer) handleConsumerJoin(w http.ResponseWriter, r *http.Request) {
+	if s.broker.StreamEngine() == nil {
+		writeError(w, http.StatusServiceUnavailable, "stream engine not available")
+		return
+	}
+
 	group := r.PathValue("group")
 	if group == "" || len(group) > 255 {
 		writeError(w, http.StatusBadRequest, "invalid group name")
@@ -60,6 +65,11 @@ func (s *AdminServer) handleConsumerJoin(w http.ResponseWriter, r *http.Request)
 }
 
 func (s *AdminServer) handleConsumerLeave(w http.ResponseWriter, r *http.Request) {
+	if s.broker.StreamEngine() == nil {
+		writeError(w, http.StatusServiceUnavailable, "stream engine not available")
+		return
+	}
+
 	group := r.PathValue("group")
 	var req struct {
 		MemberID string `json:"member_id"`
@@ -82,6 +92,11 @@ func (s *AdminServer) handleConsumerLeave(w http.ResponseWriter, r *http.Request
 }
 
 func (s *AdminServer) handleConsumerHeartbeat(w http.ResponseWriter, r *http.Request) {
+	if s.broker.StreamEngine() == nil {
+		writeError(w, http.StatusServiceUnavailable, "stream engine not available")
+		return
+	}
+
 	group := r.PathValue("group")
 	var req struct {
 		MemberID string `json:"member_id"`
@@ -103,6 +118,11 @@ func (s *AdminServer) handleConsumerHeartbeat(w http.ResponseWriter, r *http.Req
 }
 
 func (s *AdminServer) handleConsumerOffsets(w http.ResponseWriter, r *http.Request) {
+	if s.broker.StreamEngine() == nil {
+		writeError(w, http.StatusServiceUnavailable, "stream engine not available")
+		return
+	}
+
 	group := r.PathValue("group")
 	cg := s.broker.StreamEngine().GetGroup(group)
 	if cg == nil {
@@ -123,6 +143,11 @@ func (s *AdminServer) handleConsumerOffsets(w http.ResponseWriter, r *http.Reque
 }
 
 func (s *AdminServer) handleConsumerCommitOffsets(w http.ResponseWriter, r *http.Request) {
+	if s.broker.StreamEngine() == nil {
+		writeError(w, http.StatusServiceUnavailable, "stream engine not available")
+		return
+	}
+
 	group := r.PathValue("group")
 	var req struct {
 		Offsets map[string]uint64 `json:"offsets"`

@@ -332,12 +332,6 @@ func (s *AdminServer) auth(next http.HandlerFunc) http.HandlerFunc {
 // identityKey is the context key for storing auth identity.
 type identityKey struct{}
 
-// getIdentity extracts the identity from the request context.
-func getIdentity(r *http.Request) *auth.Identity {
-	id, _ := r.Context().Value(identityKey{}).(*auth.Identity)
-	return id
-}
-
 // methodToOp maps HTTP methods to auth operations.
 func methodToOp(method string) auth.Operation {
 	switch method {
@@ -411,6 +405,11 @@ func (s *AdminServer) Stop() {
 }
 
 func (s *AdminServer) handleCreateTopic(w http.ResponseWriter, r *http.Request) {
+	if s.broker.Topics() == nil {
+		writeError(w, http.StatusServiceUnavailable, "topic manager not available")
+		return
+	}
+
 	var req struct {
 		Name          string `json:"name"`
 		Mode          string `json:"mode"`
@@ -467,6 +466,11 @@ func (s *AdminServer) handleCreateTopic(w http.ResponseWriter, r *http.Request) 
 }
 
 func (s *AdminServer) handleListTopics(w http.ResponseWriter, r *http.Request) {
+	if s.broker.Topics() == nil {
+		writeError(w, http.StatusServiceUnavailable, "topic manager not available")
+		return
+	}
+
 	topics := s.broker.Topics().ListTopics()
 
 	type topicInfo struct {
@@ -497,6 +501,15 @@ func (s *AdminServer) handleListTopics(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *AdminServer) handleGetTopic(w http.ResponseWriter, r *http.Request) {
+	if s.broker.Topics() == nil {
+		writeError(w, http.StatusServiceUnavailable, "topic manager not available")
+		return
+	}
+	if s.broker.Storage() == nil {
+		writeError(w, http.StatusServiceUnavailable, "storage not available")
+		return
+	}
+
 	name := r.PathValue("name")
 	topic, ok := s.broker.Topics().GetTopic(name)
 	if !ok {
@@ -529,6 +542,11 @@ func (s *AdminServer) handleGetTopic(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *AdminServer) handleDeleteTopic(w http.ResponseWriter, r *http.Request) {
+	if s.broker.Topics() == nil {
+		writeError(w, http.StatusServiceUnavailable, "topic manager not available")
+		return
+	}
+
 	name := r.PathValue("name")
 	if err := s.broker.Topics().DeleteTopic(name); err != nil {
 		writeError(w, http.StatusNotFound, err.Error())
@@ -596,6 +614,11 @@ func (s *AdminServer) handleClusterMembers(w http.ResponseWriter, r *http.Reques
 	}
 
 	mgr := s.broker.Cluster()
+	if mgr == nil {
+		writeError(w, http.StatusServiceUnavailable, "cluster manager not available")
+		return
+	}
+
 	members := mgr.Members()
 
 	type memberInfo struct {
@@ -627,6 +650,15 @@ func (s *AdminServer) handleClusterMembers(w http.ResponseWriter, r *http.Reques
 }
 
 func (s *AdminServer) handleFetch(w http.ResponseWriter, r *http.Request) {
+	if s.broker.Topics() == nil {
+		writeError(w, http.StatusServiceUnavailable, "topic manager not available")
+		return
+	}
+	if s.broker.Storage() == nil {
+		writeError(w, http.StatusServiceUnavailable, "storage not available")
+		return
+	}
+
 	topic := r.PathValue("topic")
 	partitionStr := r.URL.Query().Get("partition")
 	offsetStr := r.URL.Query().Get("offset")
@@ -730,6 +762,11 @@ func (s *AdminServer) handleFetch(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *AdminServer) handleAck(w http.ResponseWriter, r *http.Request) {
+	if s.broker.QueueEngine() == nil {
+		writeError(w, http.StatusServiceUnavailable, "queue engine not available")
+		return
+	}
+
 	topic := r.PathValue("topic")
 	var req struct {
 		Offsets []uint64 `json:"offsets"`
@@ -753,6 +790,11 @@ func (s *AdminServer) handleAck(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *AdminServer) handleNack(w http.ResponseWriter, r *http.Request) {
+	if s.broker.QueueEngine() == nil {
+		writeError(w, http.StatusServiceUnavailable, "queue engine not available")
+		return
+	}
+
 	topic := r.PathValue("topic")
 	var req struct {
 		Offsets []uint64 `json:"offsets"`
@@ -780,6 +822,11 @@ func (s *AdminServer) handleNack(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *AdminServer) handleListConsumers(w http.ResponseWriter, r *http.Request) {
+	if s.broker.StreamEngine() == nil {
+		writeError(w, http.StatusServiceUnavailable, "stream engine not available")
+		return
+	}
+
 	groups := s.broker.StreamEngine().ListGroups()
 	writeJSON(w, http.StatusOK, map[string]interface{}{
 		"groups": groups,
@@ -788,6 +835,11 @@ func (s *AdminServer) handleListConsumers(w http.ResponseWriter, r *http.Request
 }
 
 func (s *AdminServer) handleGetConsumer(w http.ResponseWriter, r *http.Request) {
+	if s.broker.StreamEngine() == nil {
+		writeError(w, http.StatusServiceUnavailable, "stream engine not available")
+		return
+	}
+
 	group := r.PathValue("group")
 	cg := s.broker.StreamEngine().GetGroup(group)
 	if cg == nil {

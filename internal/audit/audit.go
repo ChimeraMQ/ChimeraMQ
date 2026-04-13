@@ -135,6 +135,11 @@ func (l *Logger) Log(event Event) {
 		event.Timestamp = time.Now().UTC()
 	}
 
+	// Guard against nil encoder (e.g., after failed rotation)
+	if l.encoder == nil {
+		return
+	}
+
 	_ = l.encoder.Encode(event)
 
 	// Check rotation
@@ -278,8 +283,17 @@ func (l *Logger) rotate() {
 		// Try to reopen old file
 		file, _ = os.OpenFile(backupPath, os.O_APPEND|os.O_WRONLY, 0640)
 	}
-	l.file = file
-	l.encoder = json.NewEncoder(file)
+
+	// Update both atomically to maintain consistency
+	if file != nil {
+		l.file = file
+		l.encoder = json.NewEncoder(file)
+	} else {
+		// If we can't open any file, disable logging to prevent panics
+		l.file = nil
+		l.encoder = nil
+		l.enabled = false
+	}
 
 	// Clean up old logs
 	l.cleanupOldLogs()

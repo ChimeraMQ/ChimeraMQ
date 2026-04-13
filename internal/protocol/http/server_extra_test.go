@@ -72,13 +72,6 @@ func TestMethodToOpMapping(t *testing.T) {
 	}
 }
 
-func TestGetIdentityNil(t *testing.T) {
-	req := httptest.NewRequest("GET", "/", nil)
-	if id := getIdentity(req); id != nil {
-		t.Error("expected nil identity")
-	}
-}
-
 func TestRegisterWebSocket(t *testing.T) {
 	srv, _, cleanup := setupTestServer(t)
 	defer cleanup()

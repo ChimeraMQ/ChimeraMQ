@@ -7,18 +7,11 @@ import (
 )
 
 // MTLSProvider authenticates clients using mutual TLS client certificates.
-type MTLSProvider struct {
-	allowEmpty bool // if true, connections without client certs are allowed (passthrough)
-}
+type MTLSProvider struct{}
 
 // NewMTLSProvider creates a new mTLS authentication provider.
 func NewMTLSProvider() *MTLSProvider {
 	return &MTLSProvider{}
-}
-
-// SetAllowEmpty controls whether to allow connections without client certificates.
-func (p *MTLSProvider) SetAllowEmpty(allow bool) {
-	p.allowEmpty = allow
 }
 
 // Authenticate extracts identity from client certificates stored in context.
@@ -26,9 +19,6 @@ func (p *MTLSProvider) SetAllowEmpty(allow bool) {
 func (p *MTLSProvider) Authenticate(ctx context.Context, creds Credentials) (*Identity, error) {
 	certs := PeerCertsFromContext(ctx)
 	if len(certs) == 0 {
-		if p.allowEmpty {
-			return &Identity{UserID: "anonymous", Source: "mtls"}, nil
-		}
 		return nil, ErrInvalidCredentials
 	}
 

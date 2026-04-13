@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync"
 	"time"
 
@@ -69,6 +70,37 @@ type Registry struct {
 	compat     map[string]CompatibilityMode // subject -> compatibility mode
 }
 
+// validateSubjectName checks if a subject name is safe for use as a directory name.
+// Rejects empty names, names containing path separators, or path traversal attempts.
+func validateSubjectName(subject string) error {
+	if subject == "" {
+		return fmt.Errorf("subject name cannot be empty")
+	}
+	if len(subject) > 255 {
+		return fmt.Errorf("subject name too long (max 255 characters)")
+	}
+	// Reject path traversal attempts
+	if strings.Contains(subject, "..") {
+		return fmt.Errorf("subject name contains invalid sequence: '..'")
+	}
+	// Reject path separators
+	if strings.Contains(subject, "/") || strings.Contains(subject, "\\") {
+		return fmt.Errorf("subject name cannot contain path separators")
+	}
+	// Reject names starting with . or -
+	if subject[0] == '.' || subject[0] == '-' {
+		return fmt.Errorf("subject name cannot start with '.' or '-'")
+	}
+	// Only allow alphanumeric, hyphens, underscores, and dots (but not at start)
+	for _, c := range subject {
+		if !((c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') ||
+			(c >= '0' && c <= '9') || c == '.' || c == '-' || c == '_') {
+			return fmt.Errorf("subject name contains invalid character: %c", c)
+		}
+	}
+	return nil
+}
+
 // NewRegistry creates or loads a schema registry.
 func NewRegistry(schemasDir string) (*Registry, error) {
 	if err := os.MkdirAll(schemasDir, 0750); err != nil {
@@ -89,6 +121,10 @@ func NewRegistry(schemasDir string) (*Registry, error) {
 // Register adds a new schema version. If an identical schema (same fingerprint)
 // already exists under this subject, it returns the existing version.
 func (r *Registry) Register(subject string, schemaType SchemaType, schemaText string) (*SchemaVersion, error) {
+	if err := validateSubjectName(subject); err != nil {
+		return nil, err
+	}
+
 	fp := fingerprint(schemaText)
 
 	r.mu.Lock()
@@ -146,6 +182,10 @@ func (r *Registry) Register(subject string, schemaType SchemaType, schemaText st
 
 // Get returns a specific schema version.
 func (r *Registry) Get(subject string, version int) (*SchemaVersion, error) {
+	if err := validateSubjectName(subject); err != nil {
+		return nil, err
+	}
+
 	r.mu.RLock()
 	defer r.mu.RUnlock()
 
@@ -158,6 +198,10 @@ func (r *Registry) Get(subject string, version int) (*SchemaVersion, error) {
 
 // GetLatest returns the latest schema version for a subject.
 func (r *Registry) GetLatest(subject string) (*SchemaVersion, error) {
+	if err := validateSubjectName(subject); err != nil {
+		return nil, err
+	}
+
 	r.mu.RLock()
 	defer r.mu.RUnlock()
 
@@ -182,6 +226,10 @@ func (r *Registry) GetByID(id uint32) (*SchemaVersion, error) {
 
 // List returns all versions for a subject.
 func (r *Registry) List(subject string) ([]*SchemaVersion, error) {
+	if err := validateSubjectName(subject); err != nil {
+		return nil, err
+	}
+
 	r.mu.RLock()
 	defer r.mu.RUnlock()
 
@@ -207,6 +255,10 @@ func (r *Registry) ListSubjects() []string {
 
 // Delete removes a specific version from a subject.
 func (r *Registry) Delete(subject string, version int) error {
+	if err := validateSubjectName(subject); err != nil {
+		return err
+	}
+
 	r.mu.Lock()
 	defer r.mu.Unlock()
 
@@ -229,6 +281,10 @@ func (r *Registry) Delete(subject string, version int) error {
 
 // DeleteSubject removes all versions for a subject.
 func (r *Registry) DeleteSubject(subject string) error {
+	if err := validateSubjectName(subject); err != nil {
+		return err
+	}
+
 	r.mu.Lock()
 	defer r.mu.Unlock()
 
@@ -247,6 +303,10 @@ func (r *Registry) DeleteSubject(subject string) error {
 
 // SetCompatibility sets the compatibility mode for a subject.
 func (r *Registry) SetCompatibility(subject string, mode CompatibilityMode) error {
+	if err := validateSubjectName(subject); err != nil {
+		return err
+	}
+
 	r.mu.Lock()
 	defer r.mu.Unlock()
 
@@ -256,6 +316,10 @@ func (r *Registry) SetCompatibility(subject string, mode CompatibilityMode) erro
 
 // GetCompatibility returns the compatibility mode for a subject.
 func (r *Registry) GetCompatibility(subject string) CompatibilityMode {
+	if err := validateSubjectName(subject); err != nil {
+		return CompatNone
+	}
+
 	r.mu.RLock()
 	defer r.mu.RUnlock()
 	return r.compat[subject]

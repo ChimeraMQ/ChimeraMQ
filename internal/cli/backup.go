@@ -8,6 +8,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"strings"
 	"time"
 )
 
@@ -164,7 +165,27 @@ func restoreBackup(input, dataDir string) error {
 			return fmt.Errorf("read tar header: %w", err)
 		}
 
-		targetPath := filepath.Join(dataDir, header.Name)
+		// Security: prevent path traversal attacks
+		// Clean the path and ensure it doesn't escape the data directory
+		cleanName := filepath.Clean(header.Name)
+		if strings.Contains(cleanName, "..") {
+			return fmt.Errorf("invalid path in archive: %s", header.Name)
+		}
+
+		targetPath := filepath.Join(dataDir, cleanName)
+
+		// Verify the target path is within data directory
+		absTarget, err := filepath.Abs(targetPath)
+		if err != nil {
+			return fmt.Errorf("resolve target path: %w", err)
+		}
+		absDataDir, err := filepath.Abs(dataDir)
+		if err != nil {
+			return fmt.Errorf("resolve data directory: %w", err)
+		}
+		if !strings.HasPrefix(absTarget, absDataDir+string(filepath.Separator)) && absTarget != absDataDir {
+			return fmt.Errorf("path escapes data directory: %s", header.Name)
+		}
 
 		switch header.Typeflag {
 		case tar.TypeDir:

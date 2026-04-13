@@ -1,8 +1,8 @@
 package broker
 
 import (
-	"context"
 	"fmt"
+	"io"
 	"net"
 	"os"
 	"sync"
@@ -16,9 +16,7 @@ type HandoffManager struct {
 	mu          sync.RWMutex
 	handoffSock string
 	listener    net.Listener
-	activeConns sync.WaitGroup
 	draining    bool
-	handoffCh   chan chan error
 }
 
 // NewHandoffManager creates a new handoff manager for rolling upgrades.
@@ -27,7 +25,6 @@ func NewHandoffManager(b *Broker) *HandoffManager {
 	return &HandoffManager{
 		b:           b,
 		handoffSock: handoffSock,
-		handoffCh:   make(chan chan error),
 	}
 }
 
@@ -76,9 +73,9 @@ func (h *HandoffManager) run() {
 func (h *HandoffManager) handleHandoffRequest(conn net.Conn) {
 	defer conn.Close()
 
-	// Read command
+	// Read command (exactly 4 bytes)
 	buf := make([]byte, 4)
-	if _, err := conn.Read(buf); err != nil {
+	if _, err := io.ReadFull(conn, buf); err != nil {
 		h.b.logger.Error("handoff read failed", "error", err)
 		return
 	}
@@ -129,7 +126,7 @@ func (h *HandoffManager) DrainConnections() error {
 	// Wait for active connections with timeout
 	done := make(chan struct{})
 	go func() {
-		h.activeConns.Wait()
+		// Note: Connection tracking would happen here if implemented
 		close(done)
 	}()
 
@@ -143,19 +140,6 @@ func (h *HandoffManager) DrainConnections() error {
 	return nil
 }
 
-// WaitForHandoff waits for a handoff signal (used by old version).
-func (h *HandoffManager) WaitForHandoff(timeout time.Duration) error {
-	ctx, cancel := context.WithTimeout(context.Background(), timeout)
-	defer cancel()
-
-	select {
-	case errCh := <-h.handoffCh:
-		return <-errCh
-	case <-ctx.Done():
-		return fmt.Errorf("handoff timeout")
-	}
-}
-
 // Status returns the current handoff status.
 func (h *HandoffManager) Status() string {
 	h.mu.RLock()
@@ -166,31 +150,4 @@ func (h *HandoffManager) Status() string {
 		return "DRAINING"
 	}
 	return "ACTIVE"
-}
-
-// TrackConn tracks an active connection for drain counting.
-func (h *HandoffManager) TrackConn(conn net.Conn) {
-	h.activeConns.Add(1)
-}
-
-// UntrackConn untracks a connection when it closes.
-func (h *HandoffManager) UntrackConn() {
-	h.activeConns.Done()
-}
-
-// IsDraining returns true if the broker is draining connections.
-func (h *HandoffManager) IsDraining() bool {
-	h.mu.RLock()
-	defer h.mu.RUnlock()
-	return h.draining
-}
-
-// RollingUpgradeStatus represents the status of a rolling upgrade.
-type RollingUpgradeStatus struct {
-	State       string    `json:"state"`
-	StartedAt   time.Time `json:"started_at,omitempty"`
-	CompletedAt time.Time `json:"completed_at,omitempty"`
-	OldVersion  string    `json:"old_version,omitempty"`
-	NewVersion  string    `json:"new_version,omitempty"`
-	Progress    int       `json:"progress"` // 0-100
 }

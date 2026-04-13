@@ -138,7 +138,11 @@ func newTestOffsetStore(t *testing.T) *OffsetStore {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { os.RemoveAll(dir) })
-	return NewOffsetStore(dir)
+	store, err := NewOffsetStore(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return store
 }
 
 func TestConsumerGroupLoadCommittedOffsetsOnCreate(t *testing.T) {
@@ -149,7 +153,10 @@ func TestConsumerGroupLoadCommittedOffsetsOnCreate(t *testing.T) {
 	defer os.RemoveAll(dir)
 
 	// Pre-populate offsets for group "preload"
-	store := NewOffsetStore(dir)
+	store, err := NewOffsetStore(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
 	store.Save("preload", 0, 100)
 	store.Save("preload", 2, 200)
 

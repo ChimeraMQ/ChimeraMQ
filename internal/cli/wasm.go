@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"net/url"
 	"os"
 )
 
@@ -61,15 +62,15 @@ func runWASMDeploy(args []string) {
 		os.Exit(1)
 	}
 
-	url := fmt.Sprintf("%s/v1/wasm/modules?name=%s", getAdminAddr(), name)
-	resp, err := http.Post(url, "application/wasm", bytes.NewReader(data))
+	url := fmt.Sprintf("%s/v1/wasm/modules?name=%s", getAdminAddr(), url.QueryEscape(name))
+	resp, err := httpClient.Post(url, "application/wasm", bytes.NewReader(data))
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
 		os.Exit(1)
 	}
 	defer resp.Body.Close()
 
-	body, _ := io.ReadAll(resp.Body)
+	body, _ := io.ReadAll(io.LimitReader(resp.Body, 64*1024))
 	if resp.StatusCode != http.StatusCreated {
 		fmt.Fprintf(os.Stderr, "Error (%d): %s\n", resp.StatusCode, body)
 		os.Exit(1)
@@ -82,14 +83,14 @@ func runWASMDeploy(args []string) {
 
 func runWASMList() {
 	url := fmt.Sprintf("%s/v1/wasm/modules", getAdminAddr())
-	resp, err := http.Get(url)
+	resp, err := httpClient.Get(url)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
 		os.Exit(1)
 	}
 	defer resp.Body.Close()
 
-	body, _ := io.ReadAll(resp.Body)
+	body, _ := io.ReadAll(io.LimitReader(resp.Body, 1024*1024))
 	var result map[string]interface{}
 	_ = json.Unmarshal(body, &result)
 
@@ -112,7 +113,7 @@ func runWASMRemove(args []string) {
 	}
 
 	name := args[0]
-	url := fmt.Sprintf("%s/v1/wasm/modules/%s", getAdminAddr(), name)
+	url := fmt.Sprintf("%s/v1/wasm/modules/%s", getAdminAddr(), url.PathEscape(name))
 	resp, err := httpDelete(url)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
@@ -123,7 +124,7 @@ func runWASMRemove(args []string) {
 	if resp.StatusCode == http.StatusNoContent {
 		fmt.Printf("Module %q removed\n", name)
 	} else {
-		body, _ := io.ReadAll(resp.Body)
+		body, _ := io.ReadAll(io.LimitReader(resp.Body, 64*1024))
 		fmt.Fprintf(os.Stderr, "Error: %s\n", body)
 		os.Exit(1)
 	}

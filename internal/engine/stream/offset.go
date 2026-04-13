@@ -5,8 +5,27 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"regexp"
 	"sync"
 )
+
+// validGroupName validates consumer group names to prevent path traversal.
+// Group names must contain only alphanumeric characters, hyphens, and underscores.
+var validGroupName = regexp.MustCompile(`^[a-zA-Z0-9_-]+$`)
+
+// ValidateGroupName returns an error if the group name contains invalid characters.
+func ValidateGroupName(group string) error {
+	if group == "" {
+		return fmt.Errorf("group name cannot be empty")
+	}
+	if len(group) > 256 {
+		return fmt.Errorf("group name too long (max 256 characters)")
+	}
+	if !validGroupName.MatchString(group) {
+		return fmt.Errorf("invalid group name %q: must contain only alphanumeric characters, hyphens, and underscores", group)
+	}
+	return nil
+}
 
 // OffsetStore persists consumer group offsets to disk.
 type OffsetStore struct {
@@ -16,20 +35,26 @@ type OffsetStore struct {
 }
 
 // NewOffsetStore creates a new offset store.
-func NewOffsetStore(dataDir string) *OffsetStore {
+func NewOffsetStore(dataDir string) (*OffsetStore, error) {
 	dir := filepath.Join(dataDir, "consumers")
-	_ = os.MkdirAll(dir, 0750)
+	if err := os.MkdirAll(dir, 0750); err != nil {
+		return nil, fmt.Errorf("create consumers dir: %w", err)
+	}
 
 	s := &OffsetStore{
 		dir:   dir,
 		cache: make(map[string]map[uint32]uint64),
 	}
 	s.loadAll()
-	return s
+	return s, nil
 }
 
 // Save persists an offset for a consumer group and partition.
 func (s *OffsetStore) Save(group string, partitionID uint32, offset uint64) error {
+	if err := ValidateGroupName(group); err != nil {
+		return err
+	}
+
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
@@ -53,7 +78,9 @@ func (s *OffsetStore) Get(group string, partitionID uint32) uint64 {
 
 func (s *OffsetStore) persist(group string) error {
 	path := filepath.Join(s.dir, group, "offsets.json")
-	_ = os.MkdirAll(filepath.Dir(path), 0750)
+	if err := os.MkdirAll(filepath.Dir(path), 0750); err != nil {
+		return fmt.Errorf("create group dir: %w", err)
+	}
 	data, err := json.Marshal(s.cache[group])
 	if err != nil {
 		return fmt.Errorf("marshal offsets: %w", err)
@@ -75,7 +102,12 @@ func (s *OffsetStore) loadAll() {
 		if !e.IsDir() {
 			continue
 		}
-		path := filepath.Join(s.dir, e.Name(), "offsets.json")
+		group := e.Name()
+		// Skip directories with invalid names (path traversal protection)
+		if err := ValidateGroupName(group); err != nil {
+			continue
+		}
+		path := filepath.Join(s.dir, group, "offsets.json")
 		data, err := os.ReadFile(path)
 		if err != nil {
 			continue
@@ -84,6 +116,6 @@ func (s *OffsetStore) loadAll() {
 		if err := json.Unmarshal(data, &offsets); err != nil {
 			continue
 		}
-		s.cache[e.Name()] = offsets
+		s.cache[group] = offsets
 	}
 }

@@ -306,7 +306,7 @@ func TestValidateNodeAdditionalProperties(t *testing.T) {
 		"properties":           map[string]interface{}{"name": map[string]interface{}{"type": "string"}},
 		"additionalProperties": false,
 	}
-	errors := validateNode(schema, map[string]interface{}{"name": "ok", "extra": 123}, "")
+	errors := validateNode(schema, map[string]interface{}{"name": "ok", "extra": 123}, "", 0)
 	if len(errors) == 0 {
 		t.Error("should reject additional properties")
 	}
@@ -317,7 +317,7 @@ func TestValidateNodeArrayItems(t *testing.T) {
 		"type":  "array",
 		"items": map[string]interface{}{"type": "string"},
 	}
-	errors := validateNode(schema, []interface{}{"ok", 123}, "")
+	errors := validateNode(schema, []interface{}{"ok", 123}, "", 0)
 	if len(errors) == 0 {
 		t.Error("should reject non-string array item")
 	}
@@ -327,10 +327,10 @@ func TestValidateNodeEnum(t *testing.T) {
 	schema := map[string]interface{}{
 		"enum": []interface{}{"a", "b", "c"},
 	}
-	if len(validateNode(schema, "d", "")) == 0 {
+	if len(validateNode(schema, "d", "", 0)) == 0 {
 		t.Error("should reject value not in enum")
 	}
-	if len(validateNode(schema, "a", "")) != 0 {
+	if len(validateNode(schema, "a", "", 0)) != 0 {
 		t.Error("should accept value in enum")
 	}
 }
@@ -341,13 +341,13 @@ func TestValidateNodeNumberRange(t *testing.T) {
 		"minimum": float64(10),
 		"maximum": float64(20),
 	}
-	if len(validateNode(schema, float64(5), "")) == 0 {
+	if len(validateNode(schema, float64(5), "", 0)) == 0 {
 		t.Error("should reject below minimum")
 	}
-	if len(validateNode(schema, float64(25), "")) == 0 {
+	if len(validateNode(schema, float64(25), "", 0)) == 0 {
 		t.Error("should reject above maximum")
 	}
-	if len(validateNode(schema, float64(15), "")) != 0 {
+	if len(validateNode(schema, float64(15), "", 0)) != 0 {
 		t.Error("should accept in range")
 	}
 }
@@ -358,13 +358,13 @@ func TestValidateNodeStringLength(t *testing.T) {
 		"minLength": float64(2),
 		"maxLength": float64(5),
 	}
-	if len(validateNode(schema, "a", "")) == 0 {
+	if len(validateNode(schema, "a", "", 0)) == 0 {
 		t.Error("should reject too short")
 	}
-	if len(validateNode(schema, "abcdef", "")) == 0 {
+	if len(validateNode(schema, "abcdef", "", 0)) == 0 {
 		t.Error("should reject too long")
 	}
-	if len(validateNode(schema, "abc", "")) != 0 {
+	if len(validateNode(schema, "abc", "", 0)) != 0 {
 		t.Error("should accept in range")
 	}
 }

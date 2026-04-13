@@ -4,7 +4,6 @@ import (
 	"fmt"
 	"os"
 	"strconv"
-	"sync"
 	"time"
 
 	"gopkg.in/yaml.v3"
@@ -12,7 +11,6 @@ import (
 
 // Config holds all ChimeraMQ broker configuration.
 type Config struct {
-	mu             sync.RWMutex
 	Node           NodeConfig           `yaml:"node"`
 	Listener       ListenerConfig       `yaml:"listener"`
 	Storage        StorageConfig        `yaml:"storage"`
@@ -38,18 +36,6 @@ type Config struct {
 	GeoReplication GeoReplicationConfig `yaml:"geo_replication"`
 	FIPS           FIPSConfig           `yaml:"fips"`
 }
-
-// Lock acquires write lock for config updates.
-func (c *Config) Lock() { c.mu.Lock() }
-
-// Unlock releases write lock.
-func (c *Config) Unlock() { c.mu.Unlock() }
-
-// RLock acquires read lock.
-func (c *Config) RLock() { c.mu.RLock() }
-
-// RUnlock releases read lock.
-func (c *Config) RUnlock() { c.mu.RUnlock() }
 
 // ClusterConfig controls clustering behavior.
 type ClusterConfig struct {
@@ -366,7 +352,6 @@ type FlowControlConfig struct {
 	Enabled         bool    `yaml:"enabled"`
 	MaxMemoryBytes  int64   `yaml:"max_memory_bytes"`  // 0 = no limit
 	HighWatermark   float64 `yaml:"high_watermark"`    // 0.0-1.0, default 0.85
-	LowWatermark    float64 `yaml:"low_watermark"`     // 0.0-1.0, default 0.70
 	MaxConnections  int64   `yaml:"max_connections"`   // 0 = no limit
 	GlobalRateLimit int64   `yaml:"global_rate_limit"` // msgs/sec, 0 = unlimited
 	SlowConsumerTTL string  `yaml:"slow_consumer_ttl"` // default: "30s"
@@ -457,10 +442,12 @@ type TopicDefaults struct {
 
 // LoggingConfig controls structured logging.
 type LoggingConfig struct {
-	Level  string `yaml:"level"`
-	Format string `yaml:"format"`
-	Output string `yaml:"output"`
-	File   string `yaml:"file"`
+	Level   string `yaml:"level"`
+	Format  string `yaml:"format"`
+	Output  string `yaml:"output"`
+	File    string `yaml:"file"`
+	MaxSize int64  `yaml:"max_size"` // bytes, 0 = no rotation
+	MaxAge  int    `yaml:"max_age"`  // days, 0 = no age limit
 }
 
 // CLIFlags holds overrides from command-line flags.

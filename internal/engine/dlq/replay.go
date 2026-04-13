@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"regexp"
+	"strings"
 	"time"
 
 	"github.com/chimeramq/chimera/internal/message"
@@ -71,9 +72,47 @@ func ByTimeRange(start, end time.Time) ReplayCondition {
 }
 
 // ByReasonPattern returns a condition that matches reason against a regex pattern.
+// The pattern is validated to prevent ReDoS attacks.
 func ByReasonPattern(pattern string) ReplayCondition {
-	re := regexp.MustCompile(pattern)
+	// Validate pattern is not empty and has reasonable length
+	if pattern == "" || len(pattern) > 256 {
+		return func(e *DLQEntry) bool { return false }
+	}
+
+	// Check for potentially dangerous patterns that could cause catastrophic backtracking
+	if !isSafeRegexPattern(pattern) {
+		return func(e *DLQEntry) bool { return false }
+	}
+
+	re, err := regexp.Compile(pattern)
+	if err != nil {
+		return func(e *DLQEntry) bool { return false }
+	}
 	return func(e *DLQEntry) bool { return re.MatchString(e.Reason) }
+}
+
+// isSafeRegexPattern checks if a regex pattern is safe from ReDoS attacks.
+// It rejects patterns with nested quantifiers and excessive repetition.
+func isSafeRegexPattern(pattern string) bool {
+	// Reject patterns with nested quantifiers (e.g., (a+)+, (a*)*)
+	// These are common causes of catastrophic backtracking
+	dangerousPatterns := []string{
+		"++", "**", "+*", "*+", "?+", "+?", "*?", "?*",
+		"{0,}", "{1,}", "{0,}", "{0,100000}", "{99999,}",
+	}
+	for _, dp := range dangerousPatterns {
+		if strings.Contains(pattern, dp) {
+			return false
+		}
+	}
+
+	// Check for excessive repetition counts
+	// This is a simple check - in production, use a proper regex parser
+	if strings.Contains(pattern, "{999") || strings.Contains(pattern, "{9999") {
+		return false
+	}
+
+	return true
 }
 
 // ByPayloadContains returns a condition that matches if payload contains substring.

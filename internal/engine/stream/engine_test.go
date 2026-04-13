@@ -16,7 +16,10 @@ func setupEngine(t *testing.T) (*Engine, func()) {
 		t.Fatal(err)
 	}
 	storage := hot.NewEngine(dir, hot.HotConfig{SegmentSize: 1024 * 1024})
-	offsets := NewOffsetStore(dir)
+	offsets, err := NewOffsetStore(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
 	engine := NewEngine(storage, offsets)
 
 	cleanup := func() {

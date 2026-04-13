@@ -56,19 +56,3 @@ func TestLDAPProviderClose(t *testing.T) {
 		t.Errorf("Close() = %v, want nil", err)
 	}
 }
-
-func TestLDAPSetRoleAttr(t *testing.T) {
-	p := NewLDAPProvider("ldap://localhost:389", "", "", "", "", false)
-	p.SetRoleAttr("title")
-	if p.roleAttr != "title" {
-		t.Errorf("roleAttr = %q, want %q", p.roleAttr, "title")
-	}
-}
-
-func TestLDAPSetGroupAttr(t *testing.T) {
-	p := NewLDAPProvider("ldap://localhost:389", "", "", "", "", false)
-	p.SetGroupAttr("department")
-	if p.groupAttr != "department" {
-		t.Errorf("groupAttr = %q, want %q", p.groupAttr, "department")
-	}
-}

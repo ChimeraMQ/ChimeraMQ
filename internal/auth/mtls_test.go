@@ -95,21 +95,6 @@ func TestMTLSProviderNoCNNoSAN(t *testing.T) {
 	}
 }
 
-func TestMTLSProviderAllowEmpty(t *testing.T) {
-	p := NewMTLSProvider()
-	p.SetAllowEmpty(true)
-	defer p.Close()
-
-	ctx := context.Background()
-	id, err := p.Authenticate(ctx, Credentials{})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if id.UserID != "anonymous" {
-		t.Errorf("UserID = %q, want %q", id.UserID, "anonymous")
-	}
-}
-
 func TestMTLSProviderMultipleRoles(t *testing.T) {
 	p := NewMTLSProvider()
 	defer p.Close()

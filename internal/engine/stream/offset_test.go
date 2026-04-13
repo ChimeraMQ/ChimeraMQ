@@ -13,7 +13,10 @@ func TestOffsetStoreSaveAndGet(t *testing.T) {
 	}
 	defer os.RemoveAll(dir)
 
-	store := NewOffsetStore(dir)
+	store, err := NewOffsetStore(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
 
 	store.Save("group1", 0, 100)
 	store.Save("group1", 1, 200)
@@ -30,7 +33,10 @@ func TestOffsetStoreMissingGroup(t *testing.T) {
 	dir, _ := os.MkdirTemp("", "offset-test-*")
 	defer os.RemoveAll(dir)
 
-	store := NewOffsetStore(dir)
+	store, err := NewOffsetStore(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
 	if store.Get("nonexistent", 0) != 0 {
 		t.Errorf("expected 0 for missing group")
 	}
@@ -40,12 +46,18 @@ func TestOffsetStorePersistence(t *testing.T) {
 	dir, _ := os.MkdirTemp("", "offset-test-*")
 	defer os.RemoveAll(dir)
 
-	store1 := NewOffsetStore(dir)
+	store1, err := NewOffsetStore(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
 	store1.Save("g1", 0, 42)
 	store1.Save("g1", 1, 99)
 
 	// Reload
-	store2 := NewOffsetStore(dir)
+	store2, err := NewOffsetStore(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
 	if store2.Get("g1", 0) != 42 {
 		t.Errorf("expected 42 after reload, got %d", store2.Get("g1", 0))
 	}
@@ -58,7 +70,10 @@ func TestOffsetStoreMultipleGroups(t *testing.T) {
 	dir, _ := os.MkdirTemp("", "offset-mg-*")
 	defer os.RemoveAll(dir)
 
-	store := NewOffsetStore(dir)
+	store, err := NewOffsetStore(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
 	store.Save("group-a", 0, 100)
 	store.Save("group-b", 0, 200)
 
@@ -74,7 +89,10 @@ func TestOffsetStoreOverwrite(t *testing.T) {
 	dir, _ := os.MkdirTemp("", "offset-overwrite-*")
 	defer os.RemoveAll(dir)
 
-	store := NewOffsetStore(dir)
+	store, err := NewOffsetStore(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
 	store.Save("g1", 0, 10)
 	store.Save("g1", 0, 20)
 
@@ -93,7 +111,10 @@ func TestOffsetStoreLoadAllCorruptJSON(t *testing.T) {
 	os.WriteFile(groupDir+"/offsets.json", []byte("not-json"), 0640)
 
 	// Should not panic — loadAll skips unparseable files
-	store := NewOffsetStore(dir)
+	store, err := NewOffsetStore(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
 	if store.Get("corrupt-group", 0) != 0 {
 		t.Errorf("corrupt group offset = %d, want 0", store.Get("corrupt-group", 0))
 	}
@@ -108,7 +129,10 @@ func TestOffsetStoreLoadAllSkipsFiles(t *testing.T) {
 	os.MkdirAll(consDir, 0750)
 	os.WriteFile(consDir+"/plain-file", []byte("data"), 0640)
 
-	store := NewOffsetStore(dir)
+	store, err := NewOffsetStore(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
 	// Should not panic
 	if store.Get("any", 0) != 0 {
 		t.Errorf("expected 0")
@@ -119,12 +143,18 @@ func TestOffsetStorePersistenceReloadMultipleGroups(t *testing.T) {
 	dir, _ := os.MkdirTemp("", "offset-multi-reload-*")
 	defer os.RemoveAll(dir)
 
-	s1 := NewOffsetStore(dir)
+	s1, err := NewOffsetStore(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
 	s1.Save("ga", 0, 10)
 	s1.Save("gb", 0, 20)
 	s1.Save("gc", 2, 30)
 
-	s2 := NewOffsetStore(dir)
+	s2, err := NewOffsetStore(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
 	if s2.Get("ga", 0) != 10 {
 		t.Errorf("ga/0 = %d, want 10", s2.Get("ga", 0))
 	}
@@ -145,7 +175,10 @@ func TestOffsetStoreLoadAllDirWithoutOffsetsFile(t *testing.T) {
 	os.MkdirAll(consDir+"/empty-group", 0750)
 
 	// loadAll should skip the dir without offsets.json (ReadFile error → continue)
-	store := NewOffsetStore(dir)
+	store, err := NewOffsetStore(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
 	if store.Get("empty-group", 0) != 0 {
 		t.Errorf("expected 0 for group with missing offsets file")
 	}
@@ -184,12 +217,18 @@ func TestOffsetStoreSaveAndPersistExplicit(t *testing.T) {
 	dir, _ := os.MkdirTemp("", "offset-explicit-*")
 	defer os.RemoveAll(dir)
 
-	store := NewOffsetStore(dir)
+	store, err := NewOffsetStore(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
 	store.Save("explicit-group", 0, 42)
 	store.Save("explicit-group", 1, 84)
 
 	// Verify persisted
-	store2 := NewOffsetStore(dir)
+	store2, err := NewOffsetStore(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
 	if store2.Get("explicit-group", 0) != 42 {
 		t.Errorf("got %d, want 42", store2.Get("explicit-group", 0))
 	}
@@ -215,7 +254,10 @@ func TestOffsetStoreSaveCreatesGroupDir(t *testing.T) {
 	dir, _ := os.MkdirTemp("", "offset-mkdir-*")
 	defer os.RemoveAll(dir)
 
-	store := NewOffsetStore(dir)
+	store, err := NewOffsetStore(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
 	store.Save("new-group", 0, 100)
 
 	// Verify the group directory was created (under consumers/)
@@ -253,7 +295,10 @@ func TestOffsetStoreLoadAllSkipsNonJSON(t *testing.T) {
 	os.MkdirAll(filepath.Join(consumersDir, "bad-group"), 0750)
 	os.WriteFile(filepath.Join(consumersDir, "bad-group", "offsets.json"), []byte("not-json"), 0640)
 
-	store := NewOffsetStore(dir)
+	store, err := NewOffsetStore(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
 	if store.Get("good-group", 0) != 50 {
 		t.Errorf("good-group = %d, want 50", store.Get("good-group", 0))
 	}
@@ -270,9 +315,12 @@ func TestOffsetStorePersistReadonlyDir(t *testing.T) {
 	consDir := filepath.Join(dir, "consumers")
 	os.MkdirAll(consDir, 0750)
 
-	store := NewOffsetStore(dir)
+	store, err := NewOffsetStore(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
 	// First save works (creates group dir + file)
-	err := store.Save("group1", 0, 10)
+	err = store.Save("group1", 0, 10)
 	if err != nil {
 		t.Fatalf("first save: %v", err)
 	}
@@ -306,7 +354,10 @@ func TestOffsetStoreLoadAllValidData(t *testing.T) {
 	os.MkdirAll(g2Dir, 0750)
 	os.WriteFile(filepath.Join(g2Dir, "offsets.json"), []byte(`{"3":999}`), 0640)
 
-	store := NewOffsetStore(dir)
+	store, err := NewOffsetStore(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
 
 	if store.Get("alpha", 0) != 100 {
 		t.Errorf("alpha/0 = %d, want 100", store.Get("alpha", 0))
@@ -328,7 +379,10 @@ func TestOffsetStoreNewOffsetStoreCreatesDir(t *testing.T) {
 	defer os.RemoveAll(dir)
 
 	// consumers/ subdirectory should be created
-	store := NewOffsetStore(dir)
+	store, err := NewOffsetStore(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
 
 	info, err := os.Stat(filepath.Join(dir, "consumers"))
 	if err != nil {
@@ -344,7 +398,10 @@ func TestOffsetStorePersistWriteFilePermError(t *testing.T) {
 	dir, _ := os.MkdirTemp("", "offset-perm-*")
 	defer os.RemoveAll(dir)
 
-	store := NewOffsetStore(dir)
+	store, err := NewOffsetStore(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
 	store.Save("perm-group", 0, 10)
 
 	// Make the group dir read-only so WriteFile fails on overwrite
@@ -364,7 +421,10 @@ func TestOffsetStoreSaveMultiplePartitions(t *testing.T) {
 	dir, _ := os.MkdirTemp("", "offset-multi-part-*")
 	defer os.RemoveAll(dir)
 
-	store := NewOffsetStore(dir)
+	store, err := NewOffsetStore(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
 
 	// Save multiple partitions for same group
 	store.Save("multi-part-group", 0, 100)
@@ -387,7 +447,10 @@ func TestOffsetStoreSaveMultiplePartitions(t *testing.T) {
 	}
 
 	// Reload and verify persistence
-	store2 := NewOffsetStore(dir)
+	store2, err := NewOffsetStore(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
 	if store2.Get("multi-part-group", 0) != 100 {
 		t.Errorf("after reload p0 = %d, want 100", store2.Get("multi-part-group", 0))
 	}

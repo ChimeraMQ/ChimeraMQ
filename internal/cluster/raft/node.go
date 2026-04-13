@@ -45,8 +45,9 @@ type RaftNode struct {
 	peers []NodeID
 
 	// Shutdown
-	stopCh chan struct{}
-	done   chan struct{}
+	stopCh   chan struct{}
+	done     chan struct{}
+	stopOnce sync.Once
 }
 
 // NewRaftNode creates a new Raft node.
@@ -124,20 +125,22 @@ func (n *RaftNode) Start() error {
 
 // Stop stops the Raft node.
 func (n *RaftNode) Stop() {
-	n.mu.Lock()
-	n.state = Shutdown
-	n.mu.Unlock()
+	n.stopOnce.Do(func() {
+		n.mu.Lock()
+		n.state = Shutdown
+		n.mu.Unlock()
 
-	close(n.stopCh)
+		close(n.stopCh)
 
-	if n.electionTimer != nil {
-		n.electionTimer.Stop()
-	}
-	if n.heartbeatTick != nil {
-		n.heartbeatTick.Stop()
-	}
+		if n.electionTimer != nil {
+			n.electionTimer.Stop()
+		}
+		if n.heartbeatTick != nil {
+			n.heartbeatTick.Stop()
+		}
 
-	<-n.done
+		<-n.done
+	})
 }
 
 // Propose submits a command to the Raft log.
@@ -647,7 +650,10 @@ func (n *RaftNode) loadState() {
 // saveState persists term and votedFor to disk.
 func (n *RaftNode) saveState() {
 	path := filepath.Join(n.cfg.DataDir, "raft", "state.json")
-	_ = os.MkdirAll(filepath.Dir(path), 0755)
+	if err := os.MkdirAll(filepath.Dir(path), 0755); err != nil {
+		slog.Error("raft state mkdir", "err", err)
+		return
+	}
 	state := struct {
 		CurrentTerm Term   `json:"current_term"`
 		VotedFor    NodeID `json:"voted_for"`

@@ -33,16 +33,6 @@ func NewLDAPProvider(url, bindDN, bindPass, baseDN, filter string, useTLS bool) 
 	}
 }
 
-// SetRoleAttr sets the LDAP attribute used for roles.
-func (p *LDAPProvider) SetRoleAttr(attr string) {
-	p.roleAttr = attr
-}
-
-// SetGroupAttr sets the LDAP attribute used for groups.
-func (p *LDAPProvider) SetGroupAttr(attr string) {
-	p.groupAttr = attr
-}
-
 // Authenticate binds to LDAP as the service account, searches for the user,
 // then rebinds as the user to verify the password.
 func (p *LDAPProvider) Authenticate(ctx context.Context, creds Credentials) (*Identity, error) {

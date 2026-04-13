@@ -35,7 +35,10 @@ func TestEngineFetchLongPoll(t *testing.T) {
 
 	storage := hot.NewEngine(dir, hot.HotConfig{SegmentSize: 1024 * 1024})
 	defer storage.Close()
-	offsets := NewOffsetStore(dir)
+	offsets, err := NewOffsetStore(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
 	se := NewEngine(storage, offsets)
 	defer se.Close()
 
@@ -87,7 +90,10 @@ func TestEngineFetchLongPollTimeoutExpires(t *testing.T) {
 
 	storage := hot.NewEngine(dir, hot.HotConfig{SegmentSize: 1024 * 1024})
 	defer storage.Close()
-	offsets := NewOffsetStore(dir)
+	offsets, err := NewOffsetStore(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
 	se := NewEngine(storage, offsets)
 	defer se.Close()
 
@@ -120,7 +126,10 @@ func TestEngineFetchNotifyWaiterChannel(t *testing.T) {
 
 	storage := hot.NewEngine(dir, hot.HotConfig{SegmentSize: 1024 * 1024})
 	defer storage.Close()
-	offsets := NewOffsetStore(dir)
+	offsets, err := NewOffsetStore(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
 	se := NewEngine(storage, offsets)
 	defer se.Close()
 
@@ -163,7 +172,10 @@ func TestHeartbeatExpiresMember(t *testing.T) {
 
 	storage := hot.NewEngine(dir, hot.HotConfig{SegmentSize: 1024 * 1024})
 	defer storage.Close()
-	offsets := NewOffsetStore(dir)
+	offsets, err := NewOffsetStore(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
 	se := NewEngine(storage, offsets)
 	defer se.Close()
 

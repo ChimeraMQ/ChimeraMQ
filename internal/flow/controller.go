@@ -6,6 +6,13 @@ import (
 	"time"
 )
 
+// rateLimitState holds the mutable state for rate limiting.
+// All fields are protected by the mutex in rateLimit.
+type rateLimitState struct {
+	tokens     int64
+	lastRefill int64 // unix nanoseconds
+}
+
 // Controller manages backpressure and flow control.
 type Controller struct {
 	mu sync.RWMutex
@@ -18,7 +25,6 @@ type Controller struct {
 	maxMemoryBytes  int64
 	usedMemoryBytes atomic.Int64
 	highWatermark   float64 // 0.0–1.0, default 0.85
-	lowWatermark    float64 // 0.0–1.0, default 0.70
 
 	// Slow consumer tracking
 	slowThreshold time.Duration
@@ -33,11 +39,10 @@ type Controller struct {
 }
 
 type rateLimit struct {
-	tokens     atomic.Int64
-	maxTokens  int64
-	refillRate int64        // tokens per second
-	lastRefill atomic.Int64 // unix nanoseconds
 	mu         sync.Mutex
+	state      rateLimitState
+	maxTokens  int64
+	refillRate int64 // tokens per second
 }
 
 type slowEntry struct {
@@ -50,7 +55,6 @@ type Config struct {
 	Enabled         bool
 	MaxMemoryBytes  int64
 	HighWatermark   float64
-	LowWatermark    float64
 	MaxConnections  int64
 	SlowConsumerTTL time.Duration
 	MaxSlowTicks    int
@@ -62,10 +66,6 @@ func NewController(cfg Config) *Controller {
 	hw := cfg.HighWatermark
 	if hw <= 0 || hw > 1 {
 		hw = 0.85
-	}
-	lw := cfg.LowWatermark
-	if lw <= 0 || lw > 1 {
-		lw = 0.70
 	}
 	maxSlow := cfg.MaxSlowTicks
 	if maxSlow <= 0 {
@@ -79,7 +79,6 @@ func NewController(cfg Config) *Controller {
 	c := &Controller{
 		topicLimits:    make(map[string]*rateLimit),
 		highWatermark:  hw,
-		lowWatermark:   lw,
 		maxMemoryBytes: cfg.MaxMemoryBytes,
 		maxConnections: cfg.MaxConnections,
 		slowThreshold:  slowTTL,
@@ -117,15 +116,6 @@ func (c *Controller) IsOverHighWatermark() bool {
 	}
 	used := c.usedMemoryBytes.Load()
 	return float64(used) > float64(c.maxMemoryBytes)*c.highWatermark
-}
-
-// IsOverLowWatermark returns true if memory usage exceeds the low watermark.
-func (c *Controller) IsOverLowWatermark() bool {
-	if !c.enabled.Load() || c.maxMemoryBytes <= 0 {
-		return false
-	}
-	used := c.usedMemoryBytes.Load()
-	return float64(used) > float64(c.maxMemoryBytes)*c.lowWatermark
 }
 
 // MemoryUsage returns current memory usage in bytes.
@@ -271,13 +261,14 @@ func (c *Controller) RemoveConsumer(consumerID string) {
 // --- rateLimit internals ---
 
 func newRateLimit(perSec int64) *rateLimit {
-	rl := &rateLimit{
+	return &rateLimit{
 		maxTokens:  perSec,
 		refillRate: perSec,
+		state: rateLimitState{
+			tokens:     perSec,
+			lastRefill: time.Now().UnixNano(),
+		},
 	}
-	rl.tokens.Store(perSec)
-	rl.lastRefill.Store(time.Now().UnixNano())
-	return rl
 }
 
 func (rl *rateLimit) allow() bool {
@@ -285,25 +276,24 @@ func (rl *rateLimit) allow() bool {
 	defer rl.mu.Unlock()
 
 	now := time.Now().UnixNano()
-	last := rl.lastRefill.Load()
+	last := rl.state.lastRefill
 	elapsed := now - last
 
 	if elapsed >= int64(time.Second) {
 		secs := elapsed / int64(time.Second)
-		current := rl.tokens.Load()
+		current := rl.state.tokens
 		refill := secs * rl.refillRate
 		newTokens := current + refill
 		if newTokens > rl.maxTokens {
 			newTokens = rl.maxTokens
 		}
-		rl.tokens.Store(newTokens)
-		rl.lastRefill.Store(now)
+		rl.state.tokens = newTokens
+		rl.state.lastRefill = now
 	}
 
-	current := rl.tokens.Load()
-	if current <= 0 {
+	if rl.state.tokens <= 0 {
 		return false
 	}
-	rl.tokens.Store(current - 1)
+	rl.state.tokens--
 	return true
 }

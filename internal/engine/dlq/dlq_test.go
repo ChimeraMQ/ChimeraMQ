@@ -6,8 +6,17 @@ import (
 	"github.com/chimeramq/chimera/internal/message"
 )
 
+func newTestDLQ(t *testing.T, cfg Config) *DLQ {
+	t.Helper()
+	d, err := NewDLQ(cfg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return d
+}
+
 func TestNewDLQ(t *testing.T) {
-	d := NewDLQ(Config{Enabled: true})
+	d := newTestDLQ(t, Config{Enabled: true})
 	if !d.Enabled() {
 		t.Error("should be enabled")
 	}
@@ -17,35 +26,35 @@ func TestNewDLQ(t *testing.T) {
 }
 
 func TestNewDLQDefaults(t *testing.T) {
-	d := NewDLQ(Config{})
+	d := newTestDLQ(t, Config{})
 	if d.Enabled() {
 		t.Error("should be disabled by default")
 	}
 }
 
 func TestNewDLQCustomRetries(t *testing.T) {
-	d := NewDLQ(Config{Enabled: true, MaxRetries: 5})
+	d := newTestDLQ(t, Config{Enabled: true, MaxRetries: 5})
 	if d.MaxRetries() != 5 {
 		t.Errorf("max retries = %d, want 5", d.MaxRetries())
 	}
 }
 
 func TestDLQTopic(t *testing.T) {
-	d := NewDLQ(Config{Enabled: true})
+	d := newTestDLQ(t, Config{Enabled: true})
 	if d.DLQTopic("orders") != "__dlq_orders" {
 		t.Errorf("DLQTopic = %q, want %q", d.DLQTopic("orders"), "__dlq_orders")
 	}
 }
 
 func TestDLQTopicCustomPrefix(t *testing.T) {
-	d := NewDLQ(Config{Enabled: true, TopicPrefix: "dead."})
+	d := newTestDLQ(t, Config{Enabled: true, TopicPrefix: "dead."})
 	if d.DLQTopic("orders") != "dead.orders" {
 		t.Errorf("DLQTopic = %q", d.DLQTopic("orders"))
 	}
 }
 
 func TestDLQPush(t *testing.T) {
-	d := NewDLQ(Config{Enabled: true, MaxRetries: 3})
+	d := newTestDLQ(t, Config{Enabled: true, MaxRetries: 3})
 	msg := &message.Envelope{Topic: "orders", Payload: []byte("test")}
 	d.Push(msg, "orders", 0, "processing error", 3)
 
@@ -55,7 +64,7 @@ func TestDLQPush(t *testing.T) {
 }
 
 func TestDLQPushWhenDisabled(t *testing.T) {
-	d := NewDLQ(Config{Enabled: false})
+	d := newTestDLQ(t, Config{Enabled: false})
 	msg := &message.Envelope{Topic: "orders", Payload: []byte("test")}
 	d.Push(msg, "orders", 0, "error", 1)
 
@@ -65,7 +74,7 @@ func TestDLQPushWhenDisabled(t *testing.T) {
 }
 
 func TestDLQPushMultiple(t *testing.T) {
-	d := NewDLQ(Config{Enabled: true})
+	d := newTestDLQ(t, Config{Enabled: true})
 	for i := 0; i < 5; i++ {
 		msg := &message.Envelope{Topic: "orders", Payload: []byte("test")}
 		d.Push(msg, "orders", 0, "error", i)
@@ -76,7 +85,7 @@ func TestDLQPushMultiple(t *testing.T) {
 }
 
 func TestDLQPushMultipleTopics(t *testing.T) {
-	d := NewDLQ(Config{Enabled: true})
+	d := newTestDLQ(t, Config{Enabled: true})
 	d.Push(&message.Envelope{Topic: "a"}, "topic-a", 0, "err", 1)
 	d.Push(&message.Envelope{Topic: "b"}, "topic-b", 0, "err", 1)
 
@@ -92,7 +101,7 @@ func TestDLQPushMultipleTopics(t *testing.T) {
 }
 
 func TestDLQShouldDLQ(t *testing.T) {
-	d := NewDLQ(Config{Enabled: true, MaxRetries: 3})
+	d := newTestDLQ(t, Config{Enabled: true, MaxRetries: 3})
 
 	if d.ShouldDLQ(0) {
 		t.Error("retry 0 should not DLQ")
@@ -109,14 +118,14 @@ func TestDLQShouldDLQ(t *testing.T) {
 }
 
 func TestDLQShouldDLQDisabled(t *testing.T) {
-	d := NewDLQ(Config{Enabled: false})
+	d := newTestDLQ(t, Config{Enabled: false})
 	if d.ShouldDLQ(100) {
 		t.Error("should not DLQ when disabled")
 	}
 }
 
 func TestDLQPeek(t *testing.T) {
-	d := NewDLQ(Config{Enabled: true})
+	d := newTestDLQ(t, Config{Enabled: true})
 	d.Push(&message.Envelope{Topic: "orders", Payload: []byte("a")}, "orders", 0, "err", 3)
 	d.Push(&message.Envelope{Topic: "orders", Payload: []byte("b")}, "orders", 1, "err", 3)
 
@@ -130,7 +139,7 @@ func TestDLQPeek(t *testing.T) {
 }
 
 func TestDLQPeekWithLimit(t *testing.T) {
-	d := NewDLQ(Config{Enabled: true})
+	d := newTestDLQ(t, Config{Enabled: true})
 	for i := 0; i < 5; i++ {
 		d.Push(&message.Envelope{Topic: "orders"}, "orders", 0, "err", 3)
 	}
@@ -141,14 +150,14 @@ func TestDLQPeekWithLimit(t *testing.T) {
 }
 
 func TestDLQPeekEmpty(t *testing.T) {
-	d := NewDLQ(Config{Enabled: true})
+	d := newTestDLQ(t, Config{Enabled: true})
 	if entries := d.Peek("nonexistent", 0); entries != nil {
 		t.Error("peek on empty should be nil")
 	}
 }
 
 func TestDLQPop(t *testing.T) {
-	d := NewDLQ(Config{Enabled: true})
+	d := newTestDLQ(t, Config{Enabled: true})
 	d.Push(&message.Envelope{Topic: "orders", Payload: []byte("first")}, "orders", 0, "err", 3)
 	d.Push(&message.Envelope{Topic: "orders", Payload: []byte("second")}, "orders", 0, "err", 3)
 
@@ -165,14 +174,14 @@ func TestDLQPop(t *testing.T) {
 }
 
 func TestDLQPopEmpty(t *testing.T) {
-	d := NewDLQ(Config{Enabled: true})
+	d := newTestDLQ(t, Config{Enabled: true})
 	if entry := d.Pop("nonexistent"); entry != nil {
 		t.Error("pop on empty should be nil")
 	}
 }
 
 func TestDLQTopics(t *testing.T) {
-	d := NewDLQ(Config{Enabled: true})
+	d := newTestDLQ(t, Config{Enabled: true})
 	d.Push(&message.Envelope{}, "a", 0, "err", 1)
 	d.Push(&message.Envelope{}, "b", 0, "err", 1)
 
@@ -183,7 +192,7 @@ func TestDLQTopics(t *testing.T) {
 }
 
 func TestDLQClear(t *testing.T) {
-	d := NewDLQ(Config{Enabled: true})
+	d := newTestDLQ(t, Config{Enabled: true})
 	d.Push(&message.Envelope{}, "orders", 0, "err", 3)
 	d.Clear("orders")
 	if d.Size("orders") != 0 {
@@ -192,7 +201,7 @@ func TestDLQClear(t *testing.T) {
 }
 
 func TestDLQEntryIDs(t *testing.T) {
-	d := NewDLQ(Config{Enabled: true})
+	d := newTestDLQ(t, Config{Enabled: true})
 	d.Push(&message.Envelope{}, "orders", 0, "err", 3)
 	d.Push(&message.Envelope{}, "orders", 0, "err", 3)
 	d.Push(&message.Envelope{}, "orders", 0, "err", 3)
@@ -224,7 +233,7 @@ func TestDLQEntryString(t *testing.T) {
 }
 
 func TestDLQEntryMetadata(t *testing.T) {
-	d := NewDLQ(Config{Enabled: true})
+	d := newTestDLQ(t, Config{Enabled: true})
 	msg := &message.Envelope{Topic: "orders", Payload: []byte("data")}
 	d.Push(msg, "orders", 3, "deserialization failed", 3)
 
@@ -251,7 +260,7 @@ func TestDLQEntryMetadata(t *testing.T) {
 }
 
 func TestDLQTotalSizeEmpty(t *testing.T) {
-	d := NewDLQ(Config{Enabled: true})
+	d := newTestDLQ(t, Config{Enabled: true})
 	if d.TotalSize() != 0 {
 		t.Error("total size should be 0 for empty DLQ")
 	}

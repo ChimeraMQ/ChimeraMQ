@@ -98,7 +98,20 @@ func (s *Segment) Append(data []byte) (offset uint64, position int64, err error)
 	offset = s.nextOff
 
 	// Single write: length prefix + data combined to reduce syscalls
-	bp := recordPool.Get().(*[]byte)
+	item := recordPool.Get()
+	bp, ok := item.(*[]byte)
+	if !ok {
+		// Should never happen, but handle gracefully
+		buf := make([]byte, 4+len(data))
+		binary.BigEndian.PutUint32(buf[:4], uint32(len(data)))
+		copy(buf[4:], data)
+		if _, err := s.file.WriteAt(buf, position); err != nil {
+			return 0, 0, err
+		}
+		s.size += int64(recordSize)
+		s.nextOff++
+		return offset, position, nil
+	}
 	buf := *bp
 	if cap(buf) < 4+len(data) {
 		buf = make([]byte, 4+len(data))
@@ -114,7 +127,6 @@ func (s *Segment) Append(data []byte) (offset uint64, position int64, err error)
 	}
 	*bp = buf
 	recordPool.Put(bp)
-
 	s.size += int64(recordSize)
 	s.nextOff++
 

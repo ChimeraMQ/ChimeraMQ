@@ -68,23 +68,6 @@ func TestMarshalUnmarshalHeadersBinaryValue(t *testing.T) {
 	}
 }
 
-func TestHeadersSize(t *testing.T) {
-	headers := map[string][]byte{
-		"key1": []byte("val1"),
-		"ab":   []byte("cd"),
-	}
-	expected := (2 + 4 + 4 + 4) + (2 + 2 + 4 + 2) // key1+val1 + ab+cd
-	actual := headersSize(headers)
-	if actual != expected {
-		t.Errorf("headersSize = %d, want %d", actual, expected)
-	}
-
-	encoded := marshalHeaders(headers)
-	if len(encoded) != actual {
-		t.Errorf("encoded len %d != headersSize %d", len(encoded), actual)
-	}
-}
-
 func TestUnmarshalHeadersTruncatedKeyLen(t *testing.T) {
 	// Only 1 byte — can't read uint16 key length
 	data := []byte{0x00}
@@ -147,14 +130,5 @@ func TestUnmarshalHeadersPartialThenValid(t *testing.T) {
 	}
 	if string(result["a"]) != "b" {
 		t.Errorf("header a = %q, want b", result["a"])
-	}
-}
-
-func TestHeadersSizeEmpty(t *testing.T) {
-	if headersSize(nil) != 0 {
-		t.Error("headersSize(nil) should be 0")
-	}
-	if headersSize(map[string][]byte{}) != 0 {
-		t.Error("headersSize(empty) should be 0")
 	}
 }

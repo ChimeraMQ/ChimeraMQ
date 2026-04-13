@@ -31,7 +31,6 @@ func TestMemoryBackpressure(t *testing.T) {
 		Enabled:        true,
 		MaxMemoryBytes: 1000,
 		HighWatermark:  0.8,
-		LowWatermark:   0.5,
 	})
 
 	if c.IsOverHighWatermark() {
@@ -242,7 +241,6 @@ func TestWatermarkDefaults(t *testing.T) {
 		Enabled:        true,
 		MaxMemoryBytes: 1000,
 		HighWatermark:  0,
-		LowWatermark:   0,
 	})
 	// Should use defaults
 	c.Alloc(860)

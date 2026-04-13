@@ -91,7 +91,6 @@ func TestFlowControlPublish(t *testing.T) {
 		cfg.FlowControl.Enabled = true
 		cfg.FlowControl.MaxMemoryBytes = 1024 * 1024 // 1MB
 		cfg.FlowControl.HighWatermark = 0.80
-		cfg.FlowControl.LowWatermark = 0.60
 	})
 	defer tb.close()
 

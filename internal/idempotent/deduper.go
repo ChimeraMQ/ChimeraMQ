@@ -5,6 +5,12 @@ import (
 	"time"
 )
 
+// MaxProducers limits the number of tracked producers to prevent unbounded growth.
+const MaxProducers = 100_000
+
+// ProducerTTL is the time after which an inactive producer is evicted.
+const ProducerTTL = 24 * time.Hour
+
 // Deduper tracks recent message IDs per producer to enable idempotent publishing.
 type Deduper struct {
 	mu         sync.RWMutex
@@ -15,8 +21,9 @@ type Deduper struct {
 }
 
 type dedupWindow struct {
-	seen    map[string]time.Time // messageKey → seen time
-	lastSeq uint64
+	seen         map[string]time.Time // messageKey → seen time
+	lastSeq      uint64
+	lastActivity time.Time // for producer-level TTL eviction
 }
 
 // Config holds deduplication configuration.
@@ -57,13 +64,27 @@ func (d *Deduper) Check(producerID string, seq uint64, key string) bool {
 	d.mu.Lock()
 	defer d.mu.Unlock()
 
+	now := time.Now()
+
 	w, ok := d.windows[producerID]
 	if !ok {
-		w = &dedupWindow{seen: make(map[string]time.Time)}
+		// Check if we're at the producer limit
+		if len(d.windows) >= MaxProducers {
+			// Evict oldest inactive producer
+			d.evictOldestProducer(now)
+			// If still at limit, reject new producer
+			if len(d.windows) >= MaxProducers {
+				return false // accept but don't track (degraded mode)
+			}
+		}
+		w = &dedupWindow{
+			seen:         make(map[string]time.Time),
+			lastActivity: now,
+		}
 		d.windows[producerID] = w
 	}
 
-	now := time.Now()
+	w.lastActivity = now
 
 	// Check if we've seen this exact key
 	if seenAt, exists := w.seen[key]; exists {
@@ -124,10 +145,20 @@ func (d *Deduper) ProducerCount() int {
 }
 
 // EvictExpired cleans up expired entries across all producers.
+// Also removes producers that have been inactive for longer than ProducerTTL.
 func (d *Deduper) EvictExpired() {
 	d.mu.Lock()
 	defer d.mu.Unlock()
 	now := time.Now()
+
+	// Evict inactive producers
+	for id, w := range d.windows {
+		if now.Sub(w.lastActivity) > ProducerTTL {
+			delete(d.windows, id)
+		}
+	}
+
+	// Evict expired entries from remaining producers
 	for _, w := range d.windows {
 		d.evictExpired(w, now)
 	}
@@ -177,4 +208,21 @@ func seqToKey(seq uint64) string {
 		buf[i], buf[j] = buf[j], buf[i]
 	}
 	return string(buf)
+}
+
+// evictOldestProducer removes the producer that has been inactive the longest.
+func (d *Deduper) evictOldestProducer(now time.Time) {
+	var oldestID string
+	var oldestTime time.Time
+
+	for id, w := range d.windows {
+		if oldestTime.IsZero() || w.lastActivity.Before(oldestTime) {
+			oldestTime = w.lastActivity
+			oldestID = id
+		}
+	}
+
+	if oldestID != "" {
+		delete(d.windows, oldestID)
+	}
 }

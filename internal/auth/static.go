@@ -3,7 +3,9 @@ package auth
 import (
 	"context"
 	"crypto/subtle"
+	"encoding/json"
 	"fmt"
+	"os"
 	"strings"
 	"sync"
 
@@ -127,7 +129,7 @@ func (fp *FileProvider) load() error {
 	//   "users": {"admin": {"password": "$2a$10$...", "roles": ["admin"]}},
 	//   "tokens": {"my-key": "service-name"}
 	// }
-	data, err := readFile(fp.path)
+	data, err := os.ReadFile(fp.path)
 	if err != nil {
 		return err
 	}
@@ -137,7 +139,7 @@ func (fp *FileProvider) load() error {
 		Tokens map[string]string   `json:"tokens"`
 	}
 
-	if err := parseJSON(data, &file); err != nil {
+	if err := json.Unmarshal(data, &file); err != nil {
 		return err
 	}
 

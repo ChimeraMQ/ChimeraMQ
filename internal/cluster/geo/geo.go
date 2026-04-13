@@ -147,14 +147,12 @@ type Manager struct {
 
 // Replica represents a replication connection to a remote DC.
 type Replica struct {
-	cfg         RemoteDCConfig
-	client      *Client
-	buffer      chan *ReplicationEvent
-	stopCh      chan struct{}
-	lagInfo     map[string]*LagInfo // key: topic/partition
-	mu          sync.RWMutex
-	lastErr     error
-	lastErrTime time.Time
+	cfg     RemoteDCConfig
+	client  *Client
+	buffer  chan *ReplicationEvent
+	stopCh  chan struct{}
+	lagInfo map[string]*LagInfo // key: topic/partition
+	mu      sync.RWMutex
 }
 
 // Client represents a connection client to a remote DC.
@@ -249,36 +247,6 @@ func (m *Manager) Replicate(env *message.Envelope) error {
 	return nil
 }
 
-// GetLag returns replication lag for all replicas.
-func (m *Manager) GetLag() []LagInfo {
-	m.mu.RLock()
-	defer m.mu.RUnlock()
-
-	var lagInfos []LagInfo
-	for _, replica := range m.replicas {
-		replica.mu.RLock()
-		for _, lag := range replica.lagInfo {
-			lagInfos = append(lagInfos, *lag)
-		}
-		replica.mu.RUnlock()
-	}
-
-	return lagInfos
-}
-
-// IsHealthy returns true if all replicas are healthy.
-func (m *Manager) IsHealthy() bool {
-	m.mu.RLock()
-	defer m.mu.RUnlock()
-
-	for _, replica := range m.replicas {
-		if !replica.IsHealthy() {
-			return false
-		}
-	}
-	return true
-}
-
 // createReplica creates a new replica.
 func (m *Manager) createReplica(cfg RemoteDCConfig) (*Replica, error) {
 	client := &Client{
@@ -287,7 +255,15 @@ func (m *Manager) createReplica(cfg RemoteDCConfig) (*Replica, error) {
 		auth:    cfg.Auth,
 	}
 
+	// Calculate buffer size with a reasonable maximum
 	bufferSize := m.cfg.BatchSize * 10
+	const maxBufferSize = 100_000
+	if bufferSize > maxBufferSize {
+		bufferSize = maxBufferSize
+	}
+	if bufferSize < 100 {
+		bufferSize = 100 // minimum buffer size
+	}
 
 	return &Replica{
 		cfg:     cfg,
@@ -315,19 +291,6 @@ func (r *Replica) Start() error {
 func (r *Replica) Stop() {
 	close(r.stopCh)
 	r.client.Close()
-}
-
-// IsHealthy returns true if the replica is healthy.
-func (r *Replica) IsHealthy() bool {
-	r.mu.RLock()
-	defer r.mu.RUnlock()
-
-	// Check if last error was recent
-	if r.lastErr != nil && time.Since(r.lastErrTime) < time.Minute {
-		return false
-	}
-
-	return true
 }
 
 // replicate is the main replication loop.
@@ -371,13 +334,11 @@ func (r *Replica) sendBatch(batch []*ReplicationEvent) {
 	// Serialize batch
 	data, err := json.Marshal(batch)
 	if err != nil {
-		r.recordError(fmt.Errorf("marshal batch: %w", err))
 		return
 	}
 
 	// Send to remote DC
 	if err := r.client.Send(data); err != nil {
-		r.recordError(fmt.Errorf("send batch: %w", err))
 		return
 	}
 
@@ -407,14 +368,6 @@ func (r *Replica) updateLagInfo(batch []*ReplicationEvent) {
 		lag.LastUpdate = now
 		lag.LagTime = now.Sub(event.Timestamp)
 	}
-}
-
-// recordError records an error.
-func (r *Replica) recordError(err error) {
-	r.mu.Lock()
-	defer r.mu.Unlock()
-	r.lastErr = err
-	r.lastErrTime = time.Now()
 }
 
 // Connect connects to the remote DC.

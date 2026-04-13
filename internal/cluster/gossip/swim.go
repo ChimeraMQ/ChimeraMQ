@@ -2,7 +2,6 @@ package gossip
 
 import (
 	"fmt"
-	"math/rand"
 	"net"
 	"sync"
 	"time"
@@ -248,10 +247,16 @@ func (s *SWIM) markDead(id NodeID) {
 	})
 	s.mu.Unlock()
 
-	// Remove dead members after a delay
+	// Remove dead members after a delay, but respect stop signal
 	go func() {
-		time.Sleep(30 * time.Second)
-		s.members.Remove(id)
+		timer := time.NewTimer(30 * time.Second)
+		defer timer.Stop()
+		select {
+		case <-timer.C:
+			s.members.Remove(id)
+		case <-s.stopCh:
+			// Node stopped, don't remove (cleanup will happen in Stop)
+		}
 	}()
 }
 
@@ -458,12 +463,4 @@ func (s *SWIM) BroadcastState() {
 		addr := fmt.Sprintf("%s:%d", m.Addr, m.Port)
 		_ = s.transport.Send(addr, syncMsg)
 	}
-}
-
-// randomIndex returns a random index in [0, n).
-func randomIndex(n int) int {
-	if n <= 0 {
-		return 0
-	}
-	return rand.Intn(n)
 }

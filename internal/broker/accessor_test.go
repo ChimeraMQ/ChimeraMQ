@@ -98,9 +98,14 @@ func TestBrokerAccessorsWithEncryption(t *testing.T) {
 	cfg := defaultConfig()
 	cfg.Node.DataDir = dir
 	cfg.Storage.Encryption.Enabled = true
-	// Create a key file for the encryptor
+	// Create a key file for the encryptor with strong random key
 	keyPath := dir + "/encrypt.key"
-	os.WriteFile(keyPath, make([]byte, 32), 0600)
+	strongKey := make([]byte, 32)
+	// Fill with high-entropy data (not a weak pattern)
+	for i := range strongKey {
+		strongKey[i] = byte(i*17 + 73)
+	}
+	os.WriteFile(keyPath, strongKey, 0600)
 	cfg.Storage.Encryption.KeyPath = keyPath
 
 	b, err := NewBroker(cfg)

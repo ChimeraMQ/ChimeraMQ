@@ -16,7 +16,9 @@ import (
 )
 
 const (
-	WALHeaderSize = 17 // type(1) + size(4) + timestamp(8) + crc(4)
+	WALHeaderSize     = 17               // type(1) + size(4) + timestamp(8) + crc(4)
+	MaxEntrySize      = 16 * 1024 * 1024 // 16MB max single entry
+	ReasonableMinSize = 1024 * 1024      // 1MB minimum for maxSize config
 )
 
 // castagnoliTable is pre-computed to avoid per-message allocation.
@@ -144,41 +146,55 @@ func (w *WAL) Recover(fromOffset uint64, fn func(EntryType, []byte) error) error
 		if err != nil {
 			return err
 		}
+		defer f.Close()
 		reader := bufio.NewReader(f)
 
 		for {
 			var header [WALHeaderSize]byte
 			if _, err := io.ReadFull(reader, header[:]); err != nil {
-				break // EOF or partial write
+				if err != io.EOF && err != io.ErrUnexpectedEOF {
+					return fmt.Errorf("wal: failed to read header from %s: %w", seg, err)
+				}
+				break // EOF or partial write at end
 			}
 
 			dataSize := binary.BigEndian.Uint32(header[1:])
 			storedCRC := binary.BigEndian.Uint32(header[13:])
 
-			// Validate dataSize before allocation
-			if dataSize > uint32(w.maxSize) || dataSize > 16*1024*1024 {
-				break // Corrupt entry — stop recovery
+			// Validate dataSize before allocation - strict bounds checking
+			if dataSize == 0 {
+				// Zero-length entries are valid (e.g., checkpoints)
+			} else if dataSize > MaxEntrySize {
+				return fmt.Errorf("wal: entry size %d in %s exceeds maximum %d (possible corruption)", dataSize, seg, MaxEntrySize)
+			}
+
+			// For safety, also check against configured maxSize if reasonable
+			if w.maxSize > 0 && w.maxSize < ReasonableMinSize && int64(dataSize) > w.maxSize {
+				return fmt.Errorf("wal: entry size %d in %s exceeds segment maxSize %d", dataSize, seg, w.maxSize)
 			}
 
 			data := make([]byte, dataSize)
 			if _, err := io.ReadFull(reader, data); err != nil {
-				break // Partial entry (crash recovery)
+				if err == io.EOF || err == io.ErrUnexpectedEOF {
+					// Partial entry at end of file - log and break
+					break
+				}
+				return fmt.Errorf("wal: failed to read entry data from %s: %w", seg, err)
 			}
 
 			crc := crc32.New(castagnoliTable)
 			crc.Write(header[:13])
 			crc.Write(data)
 			if crc.Sum32() != storedCRC {
-				break // Corruption — stop here
+				// Corruption detected - log and stop recovery for this segment
+				break
 			}
 
 			entryType := EntryType(header[0])
 			if err := fn(entryType, data); err != nil {
-				f.Close()
 				return err
 			}
 		}
-		f.Close()
 	}
 	return nil
 }

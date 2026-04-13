@@ -6,6 +6,7 @@ import (
 	"net"
 	"os"
 	"path/filepath"
+	"sync"
 	"sync/atomic"
 	"syscall"
 	"time"
@@ -39,6 +40,7 @@ import (
 
 // Broker is the central orchestrator for all ChimeraMQ components.
 type Broker struct {
+	mu            sync.Mutex // guards config updates
 	config        *Config
 	logger        *Logger
 	wal           *wal.WAL
@@ -248,7 +250,10 @@ func (b *Broker) Start() error {
 		b.queueEngine.SetPriorityEnabled(true)
 	}
 	// Step 9: Stream Engine
-	offsetStore := stream.NewOffsetStore(b.config.Node.DataDir)
+	offsetStore, err := stream.NewOffsetStore(b.config.Node.DataDir)
+	if err != nil {
+		return fmt.Errorf("offset store init: %w", err)
+	}
 	b.streamEngine = stream.NewEngine(b.storage, offsetStore)
 
 	// Step 10: Encryption (if enabled)
@@ -411,11 +416,16 @@ func (b *Broker) Start() error {
 
 	// Step 17: DLQ (if enabled)
 	if b.config.DLQ.Enabled {
-		b.dlqH = dlq.NewDLQ(dlq.Config{
+		var err error
+		b.dlqH, err = dlq.NewDLQ(dlq.Config{
 			Enabled:     true,
 			TopicPrefix: b.config.DLQ.TopicPrefix,
 			MaxRetries:  b.config.DLQ.MaxRetries,
+			DataDir:     filepath.Join(b.config.Node.DataDir, "dlq"),
 		})
+		if err != nil {
+			return fmt.Errorf("DLQ init: %w", err)
+		}
 		b.logger.Info("DLQ enabled", "prefix", b.config.DLQ.TopicPrefix, "max_retries", b.config.DLQ.MaxRetries)
 	}
 
@@ -425,7 +435,6 @@ func (b *Broker) Start() error {
 			Enabled:         true,
 			MaxMemoryBytes:  b.config.FlowControl.MaxMemoryBytes,
 			HighWatermark:   b.config.FlowControl.HighWatermark,
-			LowWatermark:    b.config.FlowControl.LowWatermark,
 			MaxConnections:  b.config.FlowControl.MaxConnections,
 			GlobalRateLimit: b.config.FlowControl.GlobalRateLimit,
 			SlowConsumerTTL: ParseDuration(b.config.FlowControl.SlowConsumerTTL, 30*time.Second),
@@ -736,8 +745,8 @@ func (b *Broker) ReloadConfig(configPath string) error {
 
 // applyDynamicConfig applies configuration changes that don't require restart.
 func (b *Broker) applyDynamicConfig(newCfg *Config) {
-	b.config.Lock()
-	defer b.config.Unlock()
+	b.mu.Lock()
+	defer b.mu.Unlock()
 
 	// Update logging level dynamically
 	if b.logger != nil && newCfg.Logging.Level != b.config.Logging.Level {

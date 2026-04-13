@@ -48,7 +48,7 @@ func RunUpgradeCLI(args []string) {
 			fmt.Printf("Waiting for handoff signal (timeout: %v)...\n", *timeout)
 		}
 		// Connect to handoff socket and wait for drain signal
-		conn, err := net.Dial("unix", handoffSock)
+		conn, err := net.DialTimeout("unix", handoffSock, *timeout)
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "Cannot connect to handoff socket: %v\n", err)
 			os.Exit(1)
@@ -86,7 +86,7 @@ func RunUpgradeCLI(args []string) {
 
 // getHandoffStatus queries the handoff status from the running broker.
 func getHandoffStatus(handoffSock string) (string, error) {
-	conn, err := net.Dial("unix", handoffSock)
+	conn, err := net.DialTimeout("unix", handoffSock, 5*time.Second)
 	if err != nil {
 		return "", fmt.Errorf("connect to handoff socket: %w", err)
 	}
