@@ -3,11 +3,16 @@ package auth
 import (
 	"context"
 	"crypto/ecdsa"
+	"crypto/ed25519"
 	"crypto/elliptic"
 	"crypto/rand"
+	"crypto/rsa"
+	"encoding/base64"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"path/filepath"
 	"testing"
 	"time"
 )
@@ -205,5 +210,189 @@ func TestParseSCRAMAttributesShortField(t *testing.T) {
 	}
 	if attrs['p'] != "proof" {
 		t.Errorf("p = %q, want proof", attrs['p'])
+	}
+}
+
+// --- FileProvider missing paths ---
+
+func TestFileProviderTokenInvalid(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "auth.json")
+	os.WriteFile(path, []byte(`{"users":{},"tokens":{"tok":"user"}}`), 0600)
+	p, err := NewFileProvider(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer p.Close()
+
+	_, err = p.Authenticate(context.Background(), Credentials{Token: "wrong"})
+	if err != ErrInvalidCredentials {
+		t.Errorf("error = %v, want ErrInvalidCredentials", err)
+	}
+}
+
+func TestFileProviderUserNotFound(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "auth.json")
+	os.WriteFile(path, []byte(`{"users":{"admin":{"password":"$2a$04$30HxUYsoBvQUHavktOfcG.sVFvdBFj3f4WmdeirSqsOcm5kb4mmVa"}},"tokens":{}}`), 0600)
+	p, err := NewFileProvider(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer p.Close()
+
+	_, err = p.Authenticate(context.Background(), Credentials{Username: "nobody", Password: "secret"})
+	if err != ErrInvalidCredentials {
+		t.Errorf("error = %v, want ErrInvalidCredentials", err)
+	}
+}
+
+func TestFileProviderUserWrongPassword(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "auth.json")
+	os.WriteFile(path, []byte(`{"users":{"admin":{"password":"$2a$04$30HxUYsoBvQUHavktOfcG.sVFvdBFj3f4WmdeirSqsOcm5kb4mmVa"}},"tokens":{}}`), 0600)
+	p, err := NewFileProvider(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer p.Close()
+
+	_, err = p.Authenticate(context.Background(), Credentials{Username: "admin", Password: "wrong"})
+	if err != ErrInvalidCredentials {
+		t.Errorf("error = %v, want ErrInvalidCredentials", err)
+	}
+}
+
+func TestFileProviderUserPlaintextPassword(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "auth.json")
+	os.WriteFile(path, []byte(`{"users":{"admin":{"password":"plaintext"}},"tokens":{}}`), 0600)
+	p, err := NewFileProvider(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer p.Close()
+
+	_, err = p.Authenticate(context.Background(), Credentials{Username: "admin", Password: "plaintext"})
+	if err != ErrInvalidCredentials {
+		t.Errorf("error = %v, want ErrInvalidCredentials", err)
+	}
+}
+
+func TestFileProviderNoCredentials(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "auth.json")
+	os.WriteFile(path, []byte(`{"users":{},"tokens":{}}`), 0600)
+	p, err := NewFileProvider(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer p.Close()
+
+	_, err = p.Authenticate(context.Background(), Credentials{})
+	if err != ErrInvalidCredentials {
+		t.Errorf("error = %v, want ErrInvalidCredentials", err)
+	}
+}
+
+// --- OAuthProvider missing paths ---
+
+func TestOAuthArrayAudienceSuccess(t *testing.T) {
+	privKey, _ := rsa.GenerateKey(rand.Reader, 2048)
+	kid := "test-aud-arr"
+
+	p := testOAuthProvider(kid, &privKey.PublicKey)
+	defer p.Close()
+
+	header := makeJWTHeader(kid)
+	payloadMap := map[string]interface{}{
+		"iss": "https://test.example.com",
+		"sub": "user-arr",
+		"exp": 9999999999,
+		"aud": []interface{}{"other-aud", "test-audience"},
+	}
+	pb, _ := json.Marshal(payloadMap)
+	payload := base64.RawURLEncoding.EncodeToString(pb)
+	token := signJWT(header, payload, privKey)
+
+	id, err := p.Authenticate(context.Background(), Credentials{Token: token})
+	if err != nil {
+		t.Fatalf("authenticate: %v", err)
+	}
+	if id.UserID != "user-arr" {
+		t.Errorf("UserID = %q, want user-arr", id.UserID)
+	}
+}
+
+func TestOAuthInvalidBase64Header(t *testing.T) {
+	privKey, _ := rsa.GenerateKey(rand.Reader, 2048)
+	kid := "test-b64"
+
+	p := testOAuthProvider(kid, &privKey.PublicKey)
+	defer p.Close()
+
+	token := "!!!invalid!!!." + makeJWTPayload("https://test.example.com", "user1", "test-audience", 9999999999, nil, nil) + ".sig"
+
+	_, err := p.Authenticate(context.Background(), Credentials{Token: token})
+	if err == nil {
+		t.Error("expected error for invalid base64 header")
+	}
+}
+
+func TestOAuthInvalidBase64Signature(t *testing.T) {
+	privKey, _ := rsa.GenerateKey(rand.Reader, 2048)
+	kid := "test-sig"
+
+	p := testOAuthProvider(kid, &privKey.PublicKey)
+	defer p.Close()
+
+	header := makeJWTHeader(kid)
+	payload := makeJWTPayload("https://test.example.com", "user1", "test-audience", 9999999999, nil, nil)
+	token := header + "." + payload + ".!!!notbase64!!!"
+
+	_, err := p.Authenticate(context.Background(), Credentials{Token: token})
+	if err == nil {
+		t.Error("expected error for invalid base64 signature")
+	}
+}
+
+func TestOAuthRefreshLoopClose(t *testing.T) {
+	p := &OAuthProvider{
+		issuer:     "https://test.example.com",
+		keySet:     make(map[string]interface{}),
+		httpClient: &http.Client{Timeout: 5 * time.Second},
+		closeCh:    make(chan struct{}),
+	}
+	go p.refreshLoop()
+	p.Close()
+	// If we get here without deadlock, the close path works
+}
+
+func TestParseJWKInvalidBase64RSA(t *testing.T) {
+	_, err := parseJWK(jwkKey{Kty: "RSA", N: "!!!", E: "AQAB"})
+	if err == nil {
+		t.Error("expected error for invalid base64 N")
+	}
+	_, err = parseJWK(jwkKey{Kty: "RSA", N: "AQAB", E: "!!!"})
+	if err == nil {
+		t.Error("expected error for invalid base64 E")
+	}
+}
+
+func TestParseJWKInvalidBase64EC(t *testing.T) {
+	_, err := parseJWK(jwkKey{Kty: "EC", Crv: "P-256", X: "!!!", Y: "Ag"})
+	if err == nil {
+		t.Error("expected error for invalid base64 X")
+	}
+	_, err = parseJWK(jwkKey{Kty: "EC", Crv: "P-256", X: "Ag", Y: "!!!"})
+	if err == nil {
+		t.Error("expected error for invalid base64 Y")
+	}
+}
+
+func TestParseJWKEd25519(t *testing.T) {
+	pub, _, _ := ed25519.GenerateKey(rand.Reader)
+	x := base64.RawURLEncoding.EncodeToString(pub)
+	parsed, err := parseJWK(jwkKey{Kty: "OKP", X: x})
+	if err != nil {
+		t.Fatalf("parseJWK OKP: %v", err)
+	}
+	if _, ok := parsed.(ed25519.PublicKey); !ok {
+		t.Errorf("expected ed25519.PublicKey, got %T", parsed)
 	}
 }
