@@ -586,3 +586,208 @@ func TestCreateTopicMaxPartitionsExceeded(t *testing.T) {
 	}
 }
 
+// --- isProcessAlive coverage ---
+
+func TestIsProcessAliveExtra(t *testing.T) {
+	if !isProcessAlive(os.Getpid()) {
+		t.Error("expected current process to be alive")
+	}
+	if isProcessAlive(999999) {
+		t.Error("expected non-existent PID to be not alive")
+	}
+}
+
+// --- FetchMessages coverage ---
+
+func TestFetchMessagesCorruptData(t *testing.T) {
+	dir := t.TempDir()
+	cfg := defaultConfig()
+	cfg.Node.DataDir = dir
+	cfg.Listener.Port = 0
+	cfg.Listener.AdminPort = 0
+
+	b, err := NewBroker(cfg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := b.Start(); err != nil {
+		t.Fatal(err)
+	}
+	defer b.Stop()
+
+	b.Topics().CreateTopic(TopicConfig{Name: "fetch-topic", Mode: ModeStream, Partitions: 1})
+
+	// Write corrupt data directly to storage
+	part, _ := b.storage.GetOrCreatePartition("fetch-topic", 0)
+	part.Append([]byte("not-a-valid-envelope"))
+
+	adapter := &brokerAPIAdapter{broker: b}
+	msgs, err := adapter.FetchMessages("fetch-topic", 0, 0, 10)
+	if err != nil {
+		t.Fatalf("FetchMessages error: %v", err)
+	}
+	if len(msgs) != 0 {
+		t.Errorf("expected 0 messages from corrupt data, got %d", len(msgs))
+	}
+}
+
+// --- StartConfigWatcher coverage ---
+
+func TestStartConfigWatcherStop(t *testing.T) {
+	dir := t.TempDir()
+	cfg := defaultConfig()
+	cfg.Node.DataDir = dir
+	cfg.Listener.Port = 0
+	cfg.Listener.AdminPort = 0
+
+	b, err := NewBroker(cfg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := b.Start(); err != nil {
+		t.Fatal(err)
+	}
+
+	configPath := filepath.Join(dir, "watch.yaml")
+	os.WriteFile(configPath, []byte("logging:\n  level: info\n"), 0644)
+
+	b.StartConfigWatcher(configPath, 50*time.Millisecond)
+
+	// Let it run for a bit
+	time.Sleep(100 * time.Millisecond)
+
+	// Stop should cancel the watcher context
+	b.Stop()
+}
+
+// --- Broker.Start auth type coverage ---
+
+func TestBrokerStartWithMTLSAuth(t *testing.T) {
+	dir := t.TempDir()
+	cfg := defaultConfig()
+	cfg.Node.DataDir = dir
+	cfg.Listener.Port = 0
+	cfg.Listener.AdminPort = 0
+	cfg.Auth.Enabled = true
+	cfg.Auth.Type = "mtls"
+
+	b, err := NewBroker(cfg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := b.Start(); err != nil {
+		t.Fatalf("Start with mTLS auth: %v", err)
+	}
+	defer b.Stop()
+}
+
+func TestBrokerStartWithLDAPAuth(t *testing.T) {
+	dir := t.TempDir()
+	cfg := defaultConfig()
+	cfg.Node.DataDir = dir
+	cfg.Listener.Port = 0
+	cfg.Listener.AdminPort = 0
+	cfg.Auth.Enabled = true
+	cfg.Auth.Type = "ldap"
+
+	b, err := NewBroker(cfg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := b.Start(); err != nil {
+		t.Fatalf("Start with LDAP auth: %v", err)
+	}
+	defer b.Stop()
+}
+
+func TestBrokerStartWithUnknownAuth(t *testing.T) {
+	dir := t.TempDir()
+	cfg := defaultConfig()
+	cfg.Node.DataDir = dir
+	cfg.Listener.Port = 0
+	cfg.Listener.AdminPort = 0
+	cfg.Auth.Enabled = true
+	cfg.Auth.Type = "unknown"
+
+	b, err := NewBroker(cfg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := b.Start(); err != nil {
+		t.Fatalf("Start with unknown auth: %v", err)
+	}
+	defer b.Stop()
+}
+
+// --- Publish schema validation failure ---
+
+func TestPublishSchemaValidationFailure(t *testing.T) {
+	dir := t.TempDir()
+	cfg := defaultConfig()
+	cfg.Node.DataDir = dir
+	cfg.Listener.Bind = "127.0.0.1"
+	cfg.Listener.Port = 0
+	cfg.Listener.AdminPort = 0
+	cfg.Schema.Enabled = true
+
+	b, err := NewBroker(cfg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := b.Start(); err != nil {
+		t.Fatal(err)
+	}
+	defer b.Stop()
+
+	// Register a schema that requires "name" to be a string
+	_, err = b.schemaReg.Register("schema-topic", 2, `{"type":"object","properties":{"name":{"type":"string"}},"required":["name"]}`)
+	if err != nil {
+		t.Fatalf("register schema: %v", err)
+	}
+
+	b.Topics().CreateTopic(TopicConfig{
+		Name:              "schema-topic",
+		Mode:              ModeStream,
+		Partitions:        1,
+		SchemaEnforcement: true,
+	})
+
+	env := &message.Envelope{
+		Topic:   "schema-topic",
+		Payload: []byte(`{"name":123}`), // invalid: name should be string
+		Headers: map[string][]byte{
+			"x-chimera-schema-id": []byte("1"),
+		},
+	}
+	_, err = b.Publish(env)
+	if err == nil {
+		t.Error("expected schema validation failure")
+	}
+}
+
+// --- applyDynamicConfig format update ---
+
+func TestApplyDynamicConfigFormatUpdate(t *testing.T) {
+	dir := t.TempDir()
+	cfg := defaultConfig()
+	cfg.Node.DataDir = dir
+
+	b, err := NewBroker(cfg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := b.Start(); err != nil {
+		t.Fatal(err)
+	}
+	defer b.Stop()
+
+	newCfg := *b.Config()
+	newCfg.Logging.Format = "json"
+
+	b.applyDynamicConfig(&newCfg)
+
+	if b.Config().Logging.Format != "json" {
+		t.Errorf("format = %q, want json", b.Config().Logging.Format)
+	}
+}
+
