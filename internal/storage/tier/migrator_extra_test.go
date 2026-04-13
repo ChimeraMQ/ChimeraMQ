@@ -8,6 +8,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/chimeramq/chimera/internal/metrics"
 	"github.com/chimeramq/chimera/internal/storage/cold"
 	"github.com/chimeramq/chimera/internal/storage/hot"
 	"github.com/chimeramq/chimera/internal/storage/warm"
@@ -587,6 +588,79 @@ func TestPurgeExpiredColdWithColdArchive(t *testing.T) {
 	if n != 1 {
 		t.Errorf("expected 1 archive with ColdRetention=0, got %d", n)
 	}
+}
+
+func TestColdManagerTotalSize(t *testing.T) {
+	coldDir := filepath.Join(t.TempDir(), "cold")
+	cm, err := NewColdManager(coldDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer cm.Close()
+
+	if cm.TotalSize() != 0 {
+		t.Errorf("empty total size = %d, want 0", cm.TotalSize())
+	}
+
+	mt := warm.NewMemTable(4096)
+	for i := uint64(0); i < 3; i++ {
+		key := make([]byte, 8)
+		binary.BigEndian.PutUint64(key, i)
+		mt.Put(key, []byte("data"))
+	}
+	mt.Freeze()
+	sst, err := warm.FlushMemTable(mt, coldDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	archivePath := filepath.Join(coldDir, "size-test.dat")
+	ca, err := cold.CreateColdArchive(archivePath, []*warm.SSTable{sst})
+	if err != nil {
+		t.Fatal(err)
+	}
+	sst.Close()
+	cm.archives[archivePath] = ca
+
+	if cm.TotalSize() <= 0 {
+		t.Error("TotalSize should be positive after adding archive")
+	}
+}
+
+func TestUpdateStorageMetrics(t *testing.T) {
+	dir := t.TempDir()
+	hotDir := filepath.Join(dir, "hot")
+	warmDir := filepath.Join(dir, "warm")
+	coldDir := filepath.Join(dir, "cold")
+
+	he := hot.NewEngine(hotDir, hot.HotConfig{SegmentSize: 1024 * 1024})
+	defer he.Close()
+
+	we, err := warm.NewLSMTree(warmDir, warm.DefaultLSMConfig())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer we.Close()
+
+	cm, err := NewColdManager(coldDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer cm.Close()
+
+	mc := metrics.NewCollector()
+	m := NewMigrator(TierPolicy{}, he, we, cm, mc)
+
+	// Should not panic and should update all three tiers
+	m.updateStorageMetrics()
+}
+
+func TestUpdateStorageMetricsNilTiers(t *testing.T) {
+	mc := metrics.NewCollector()
+	m := NewMigrator(TierPolicy{}, nil, nil, nil, mc)
+
+	// Should not panic when all tiers are nil
+	m.updateStorageMetrics()
 }
 
 // TestMigrateWarmToColdCreateArchiveError tests error handling when archive
