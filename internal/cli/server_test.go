@@ -13,14 +13,6 @@ import (
 	"github.com/chimeramq/chimera/internal/protocol"
 )
 
-func TestRunClusterCLINoArgs(t *testing.T) {
-	// Should os.Exit(1) — test by running as subprocess
-	if os.Getenv("TEST_CLUSTER_NOARGS") == "1" {
-		RunClusterCLI([]string{})
-		return
-	}
-}
-
 func TestRunClusterCLIStatus(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path == "/v1/health" {
@@ -372,37 +364,6 @@ func TestRunWASMCLIDeploy(t *testing.T) {
 	output := string(buf[:n])
 	if !strings.Contains(output, "compiled successfully") {
 		t.Errorf("expected 'compiled successfully' in output, got: %s", output)
-	}
-}
-
-func TestRunWASMCLIUnknownCommand(t *testing.T) {
-	// Test that unknown command prints usage and exits
-	if os.Getenv("TEST_WASM_UNKNOWN") == "1" {
-		RunWASMCLI([]string{"unknown"})
-		return
-	}
-	// Just verify it doesn't panic when called with no args
-}
-
-func TestRunTopicCLIUnknownCommand(t *testing.T) {
-	// Verify no-args path doesn't panic
-	if os.Getenv("TEST_TOPIC_UNKNOWN") == "1" {
-		RunTopicCLI([]string{"unknown"})
-		return
-	}
-}
-
-func TestRunTopicCLIDescribeNoName(t *testing.T) {
-	if os.Getenv("TEST_TOPIC_DESCRIBE_NONAME") == "1" {
-		RunTopicCLI([]string{"describe"})
-		return
-	}
-}
-
-func TestRunTopicCLINoArgs(t *testing.T) {
-	if os.Getenv("TEST_TOPIC_NOARGS") == "1" {
-		RunTopicCLI([]string{})
-		return
 	}
 }
 

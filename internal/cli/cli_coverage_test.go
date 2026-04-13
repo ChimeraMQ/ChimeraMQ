@@ -5,6 +5,7 @@ import (
 	"bytes"
 	"compress/gzip"
 	"fmt"
+	"net"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -12,6 +13,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 )
 
 // --- Backup / Restore error paths ---
@@ -300,5 +302,515 @@ func TestRunRestoreCLISuccessSubprocess(t *testing.T) {
 	}
 	if !strings.Contains(string(output), "Restore complete") {
 		t.Errorf("expected success message, got: %s", string(output))
+	}
+}
+
+// --- RunReloadCLI error path ---
+
+func TestRunReloadCLIErrorSubprocess(t *testing.T) {
+	if os.Getenv("TEST_RELOAD_ERROR_SUB") == "1" {
+		RunReloadCLI([]string{})
+		return
+	}
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusInternalServerError)
+		fmt.Fprint(w, `{"error":"reload failed"}`)
+	}))
+	defer server.Close()
+
+	cmd := exec.Command(os.Args[0], "-test.run=TestRunReloadCLIErrorSubprocess", "-test.v")
+	cmd.Env = append(os.Environ(), "TEST_RELOAD_ERROR_SUB=1", "CHIMERA_ADMIN_ADDR="+server.URL)
+	err := cmd.Run()
+	if err == nil {
+		t.Fatal("expected exit error for reload failure")
+	}
+	if exitErr, ok := err.(*exec.ExitError); ok && exitErr.ExitCode() != 1 {
+		t.Fatalf("expected exit code 1, got %d", exitErr.ExitCode())
+	}
+}
+
+// --- WASM error paths ---
+
+func TestRunWASMRemoveNoArgsSubprocess(t *testing.T) {
+	if os.Getenv("TEST_WASM_REMOVE_NOARGS_SUB") == "1" {
+		RunWASMCLI([]string{"remove"})
+		return
+	}
+	cmd := exec.Command(os.Args[0], "-test.run=TestRunWASMRemoveNoArgsSubprocess", "-test.v")
+	cmd.Env = append(os.Environ(), "TEST_WASM_REMOVE_NOARGS_SUB=1")
+	err := cmd.Run()
+	if err == nil {
+		t.Fatal("expected exit error for missing args")
+	}
+	if exitErr, ok := err.(*exec.ExitError); ok && exitErr.ExitCode() != 1 {
+		t.Fatalf("expected exit code 1, got %d", exitErr.ExitCode())
+	}
+}
+
+func TestRunWASMRemoveHTTPErrorSubprocess(t *testing.T) {
+	if os.Getenv("TEST_WASM_REMOVE_HTTP_SUB") == "1" {
+		RunWASMCLI([]string{"remove", "mod1"})
+		return
+	}
+
+	cmd := exec.Command(os.Args[0], "-test.run=TestRunWASMRemoveHTTPErrorSubprocess", "-test.v")
+	cmd.Env = append(os.Environ(), "TEST_WASM_REMOVE_HTTP_SUB=1", "CHIMERA_ADMIN_ADDR=http://127.0.0.1:1")
+	err := cmd.Run()
+	if err == nil {
+		t.Fatal("expected exit error for HTTP failure")
+	}
+	if exitErr, ok := err.(*exec.ExitError); ok && exitErr.ExitCode() != 1 {
+		t.Fatalf("expected exit code 1, got %d", exitErr.ExitCode())
+	}
+}
+
+func TestRunWASMRemoveErrorResponseSubprocess(t *testing.T) {
+	if os.Getenv("TEST_WASM_REMOVE_ERR_SUB") == "1" {
+		RunWASMCLI([]string{"remove", "mod1"})
+		return
+	}
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusInternalServerError)
+		fmt.Fprint(w, `{"error":"server error"}`)
+	}))
+	defer server.Close()
+
+	cmd := exec.Command(os.Args[0], "-test.run=TestRunWASMRemoveErrorResponseSubprocess", "-test.v")
+	cmd.Env = append(os.Environ(), "TEST_WASM_REMOVE_ERR_SUB=1", "CHIMERA_ADMIN_ADDR="+server.URL)
+	err := cmd.Run()
+	if err == nil {
+		t.Fatal("expected exit error for error response")
+	}
+	if exitErr, ok := err.(*exec.ExitError); ok && exitErr.ExitCode() != 1 {
+		t.Fatalf("expected exit code 1, got %d", exitErr.ExitCode())
+	}
+}
+
+func TestRunWASMDeployNoArgsSubprocess(t *testing.T) {
+	if os.Getenv("TEST_WASM_DEPLOY_NOARGS_SUB") == "1" {
+		RunWASMCLI([]string{"deploy"})
+		return
+	}
+	cmd := exec.Command(os.Args[0], "-test.run=TestRunWASMDeployNoArgsSubprocess", "-test.v")
+	cmd.Env = append(os.Environ(), "TEST_WASM_DEPLOY_NOARGS_SUB=1")
+	err := cmd.Run()
+	if err == nil {
+		t.Fatal("expected exit error for missing args")
+	}
+	if exitErr, ok := err.(*exec.ExitError); ok && exitErr.ExitCode() != 1 {
+		t.Fatalf("expected exit code 1, got %d", exitErr.ExitCode())
+	}
+}
+
+func TestRunWASMDeployFileNotFoundSubprocess(t *testing.T) {
+	if os.Getenv("TEST_WASM_DEPLOY_MISSING_SUB") == "1" {
+		RunWASMCLI([]string{"deploy", "/nonexistent/path/file.wasm"})
+		return
+	}
+
+	cmd := exec.Command(os.Args[0], "-test.run=TestRunWASMDeployFileNotFoundSubprocess", "-test.v")
+	cmd.Env = append(os.Environ(), "TEST_WASM_DEPLOY_MISSING_SUB=1")
+	err := cmd.Run()
+	if err == nil {
+		t.Fatal("expected exit error for missing file")
+	}
+	if exitErr, ok := err.(*exec.ExitError); ok && exitErr.ExitCode() != 1 {
+		t.Fatalf("expected exit code 1, got %d", exitErr.ExitCode())
+	}
+}
+
+func TestRunWASMDeployErrorResponseSubprocess(t *testing.T) {
+	if os.Getenv("TEST_WASM_DEPLOY_ERR_SUB") == "1" {
+		tmpFile, _ := os.CreateTemp("", "test-*.wasm")
+		tmpFile.Write([]byte("\x00asm"))
+		tmpFile.Close()
+		defer os.Remove(tmpFile.Name())
+		RunWASMCLI([]string{"deploy", tmpFile.Name()})
+		return
+	}
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusBadRequest)
+		fmt.Fprint(w, `{"error":"invalid wasm"}`)
+	}))
+	defer server.Close()
+
+	cmd := exec.Command(os.Args[0], "-test.run=TestRunWASMDeployErrorResponseSubprocess", "-test.v")
+	cmd.Env = append(os.Environ(), "TEST_WASM_DEPLOY_ERR_SUB=1", "CHIMERA_ADMIN_ADDR="+server.URL)
+	err := cmd.Run()
+	if err == nil {
+		t.Fatal("expected exit error for bad response")
+	}
+	if exitErr, ok := err.(*exec.ExitError); ok && exitErr.ExitCode() != 1 {
+		t.Fatalf("expected exit code 1, got %d", exitErr.ExitCode())
+	}
+}
+
+func TestRunWASMCLINoArgsSubprocess(t *testing.T) {
+	if os.Getenv("TEST_WASM_NOARGS_SUB") == "1" {
+		RunWASMCLI([]string{})
+		return
+	}
+	cmd := exec.Command(os.Args[0], "-test.run=TestRunWASMCLINoArgsSubprocess", "-test.v")
+	cmd.Env = append(os.Environ(), "TEST_WASM_NOARGS_SUB=1")
+	err := cmd.Run()
+	if err == nil {
+		t.Fatal("expected exit error for no args")
+	}
+	if exitErr, ok := err.(*exec.ExitError); ok && exitErr.ExitCode() != 1 {
+		t.Fatalf("expected exit code 1, got %d", exitErr.ExitCode())
+	}
+}
+
+// --- Topic CLI error paths ---
+
+func TestRunTopicCLINoArgsSubprocess(t *testing.T) {
+	if os.Getenv("TEST_TOPIC_NOARGS_SUB") == "1" {
+		RunTopicCLI([]string{})
+		return
+	}
+	cmd := exec.Command(os.Args[0], "-test.run=TestRunTopicCLINoArgsSubprocess", "-test.v")
+	cmd.Env = append(os.Environ(), "TEST_TOPIC_NOARGS_SUB=1")
+	err := cmd.Run()
+	if err == nil {
+		t.Fatal("expected exit error for no args")
+	}
+	if exitErr, ok := err.(*exec.ExitError); ok && exitErr.ExitCode() != 1 {
+		t.Fatalf("expected exit code 1, got %d", exitErr.ExitCode())
+	}
+}
+
+func TestRunTopicCLIDescribeNoNameSubprocess(t *testing.T) {
+	if os.Getenv("TEST_TOPIC_DESCRIBE_NONAME_SUB") == "1" {
+		RunTopicCLI([]string{"describe"})
+		return
+	}
+	cmd := exec.Command(os.Args[0], "-test.run=TestRunTopicCLIDescribeNoNameSubprocess", "-test.v")
+	cmd.Env = append(os.Environ(), "TEST_TOPIC_DESCRIBE_NONAME_SUB=1")
+	err := cmd.Run()
+	if err == nil {
+		t.Fatal("expected exit error for missing name")
+	}
+	if exitErr, ok := err.(*exec.ExitError); ok && exitErr.ExitCode() != 1 {
+		t.Fatalf("expected exit code 1, got %d", exitErr.ExitCode())
+	}
+}
+
+func TestRunTopicCLIDeleteNoNameSubprocess(t *testing.T) {
+	if os.Getenv("TEST_TOPIC_DELETE_NONAME_SUB") == "1" {
+		RunTopicCLI([]string{"delete"})
+		return
+	}
+	cmd := exec.Command(os.Args[0], "-test.run=TestRunTopicCLIDeleteNoNameSubprocess", "-test.v")
+	cmd.Env = append(os.Environ(), "TEST_TOPIC_DELETE_NONAME_SUB=1")
+	err := cmd.Run()
+	if err == nil {
+		t.Fatal("expected exit error for missing name")
+	}
+	if exitErr, ok := err.(*exec.ExitError); ok && exitErr.ExitCode() != 1 {
+		t.Fatalf("expected exit code 1, got %d", exitErr.ExitCode())
+	}
+}
+
+// --- Produce / Consume error paths ---
+
+func TestRunProduceCLINoTopicSubprocess(t *testing.T) {
+	if os.Getenv("TEST_PRODUCE_NOTOPIC_SUB") == "1" {
+		RunProduceCLI([]string{"-message", "hello"})
+		return
+	}
+	cmd := exec.Command(os.Args[0], "-test.run=TestRunProduceCLINoTopicSubprocess", "-test.v")
+	cmd.Env = append(os.Environ(), "TEST_PRODUCE_NOTOPIC_SUB=1")
+	err := cmd.Run()
+	if err == nil {
+		t.Fatal("expected exit error for missing topic")
+	}
+	if exitErr, ok := err.(*exec.ExitError); ok && exitErr.ExitCode() != 1 {
+		t.Fatalf("expected exit code 1, got %d", exitErr.ExitCode())
+	}
+}
+
+func TestRunProduceCLIHTTPErrorSubprocess(t *testing.T) {
+	if os.Getenv("TEST_PRODUCE_HTTP_SUB") == "1" {
+		RunProduceCLI([]string{"-topic", "test", "-message", "hello"})
+		return
+	}
+
+	cmd := exec.Command(os.Args[0], "-test.run=TestRunProduceCLIHTTPErrorSubprocess", "-test.v")
+	cmd.Env = append(os.Environ(), "TEST_PRODUCE_HTTP_SUB=1", "CHIMERA_ADMIN_ADDR=http://127.0.0.1:1")
+	err := cmd.Run()
+	if err == nil {
+		t.Fatal("expected exit error for HTTP failure")
+	}
+	if exitErr, ok := err.(*exec.ExitError); ok && exitErr.ExitCode() != 1 {
+		t.Fatalf("expected exit code 1, got %d", exitErr.ExitCode())
+	}
+}
+
+func TestRunConsumeCLITopicRequiredSubprocess(t *testing.T) {
+	if os.Getenv("TEST_CONSUME_NOTOPIC_SUB") == "1" {
+		RunConsumeCLI([]string{})
+		return
+	}
+	cmd := exec.Command(os.Args[0], "-test.run=TestRunConsumeCLITopicRequiredSubprocess", "-test.v")
+	cmd.Env = append(os.Environ(), "TEST_CONSUME_NOTOPIC_SUB=1")
+	err := cmd.Run()
+	if err == nil {
+		t.Fatal("expected exit error for missing topic")
+	}
+	if exitErr, ok := err.(*exec.ExitError); ok && exitErr.ExitCode() != 1 {
+		t.Fatalf("expected exit code 1, got %d", exitErr.ExitCode())
+	}
+}
+
+func TestRunConsumeCLIHTTPErrorSubprocess(t *testing.T) {
+	if os.Getenv("TEST_CONSUME_HTTP_SUB") == "1" {
+		RunConsumeCLI([]string{"-topic", "test", "-limit", "1"})
+		return
+	}
+
+	cmd := exec.Command(os.Args[0], "-test.run=TestRunConsumeCLIHTTPErrorSubprocess", "-test.v")
+	cmd.Env = append(os.Environ(), "TEST_CONSUME_HTTP_SUB=1", "CHIMERA_ADMIN_ADDR=http://127.0.0.1:1")
+	err := cmd.Run()
+	if err == nil {
+		t.Fatal("expected exit error for HTTP failure")
+	}
+	if exitErr, ok := err.(*exec.ExitError); ok && exitErr.ExitCode() != 1 {
+		t.Fatalf("expected exit code 1, got %d", exitErr.ExitCode())
+	}
+}
+
+// --- Upgrade helpers error paths ---
+
+func TestGetHandoffStatusConnectionError(t *testing.T) {
+	_, err := getHandoffStatus("/nonexistent/path/handoff.sock")
+	if err == nil {
+		t.Error("expected error for missing socket")
+	}
+}
+
+func TestGetHandoffStatusReadError(t *testing.T) {
+	sockDir := t.TempDir()
+	sockPath := filepath.Join(sockDir, "handoff.sock")
+
+	ln, err := net.Listen("unix", sockPath)
+	if err != nil {
+		t.Skipf("unix sockets not supported: %v", err)
+	}
+	defer ln.Close()
+
+	go func() {
+		conn, err := ln.Accept()
+		if err != nil {
+			return
+		}
+		// Read STAT then close without writing
+		buf := make([]byte, 4)
+		conn.Read(buf)
+		conn.Close()
+	}()
+
+	_, err = getHandoffStatus(sockPath)
+	if err == nil {
+		t.Error("expected error when server closes connection")
+	}
+}
+
+func TestSendHandoffCommandConnectionError(t *testing.T) {
+	err := sendHandoffCommand("/nonexistent/path/handoff.sock", "DRAI", 1*time.Second)
+	if err == nil {
+		t.Error("expected error for missing socket")
+	}
+}
+
+func TestSendHandoffCommandShortResponse(t *testing.T) {
+	sockDir := t.TempDir()
+	sockPath := filepath.Join(sockDir, "handoff.sock")
+
+	ln, err := net.Listen("unix", sockPath)
+	if err != nil {
+		t.Skipf("unix sockets not supported: %v", err)
+	}
+	defer ln.Close()
+
+	go func() {
+		conn, err := ln.Accept()
+		if err != nil {
+			return
+		}
+		defer conn.Close()
+		buf := make([]byte, 4)
+		conn.Read(buf)
+		conn.Write([]byte("OK")) // shorter than 4 bytes
+	}()
+
+	err = sendHandoffCommand(sockPath, "DRAI", 5*time.Second)
+	if err == nil {
+		t.Error("expected error for short response")
+	}
+}
+
+// --- Upgrade CLI error paths ---
+
+func TestRunUpgradeCLIStatusErrorSubprocess(t *testing.T) {
+	if os.Getenv("TEST_UPGRADE_STATUS_ERR_SUB") == "1" {
+		RunUpgradeCLI([]string{"-action", "status", "-data-dir", t.TempDir()})
+		return
+	}
+
+	cmd := exec.Command(os.Args[0], "-test.run=TestRunUpgradeCLIStatusErrorSubprocess", "-test.v")
+	cmd.Env = append(os.Environ(), "TEST_UPGRADE_STATUS_ERR_SUB=1")
+	err := cmd.Run()
+	if err == nil {
+		t.Fatal("expected exit error for status failure")
+	}
+	if exitErr, ok := err.(*exec.ExitError); ok && exitErr.ExitCode() != 1 {
+		t.Fatalf("expected exit code 1, got %d", exitErr.ExitCode())
+	}
+}
+
+func TestRunUpgradeCLIDrainErrorSubprocess(t *testing.T) {
+	if os.Getenv("TEST_UPGRADE_DRAIN_ERR_SUB") == "1" {
+		RunUpgradeCLI([]string{"-action", "drain", "-data-dir", t.TempDir()})
+		return
+	}
+
+	cmd := exec.Command(os.Args[0], "-test.run=TestRunUpgradeCLIDrainErrorSubprocess", "-test.v")
+	cmd.Env = append(os.Environ(), "TEST_UPGRADE_DRAIN_ERR_SUB=1")
+	err := cmd.Run()
+	if err == nil {
+		t.Fatal("expected exit error for drain failure")
+	}
+	if exitErr, ok := err.(*exec.ExitError); ok && exitErr.ExitCode() != 1 {
+		t.Fatalf("expected exit code 1, got %d", exitErr.ExitCode())
+	}
+}
+
+func TestRunUpgradeCLIWaitConnectErrorSubprocess(t *testing.T) {
+	if os.Getenv("TEST_UPGRADE_WAIT_ERR_SUB") == "1" {
+		RunUpgradeCLI([]string{"-action", "wait", "-data-dir", t.TempDir(), "-timeout", "1s"})
+		return
+	}
+
+	cmd := exec.Command(os.Args[0], "-test.run=TestRunUpgradeCLIWaitConnectErrorSubprocess", "-test.v")
+	cmd.Env = append(os.Environ(), "TEST_UPGRADE_WAIT_ERR_SUB=1")
+	err := cmd.Run()
+	if err == nil {
+		t.Fatal("expected exit error for wait failure")
+	}
+	if exitErr, ok := err.(*exec.ExitError); ok && exitErr.ExitCode() != 1 {
+		t.Fatalf("expected exit code 1, got %d", exitErr.ExitCode())
+	}
+}
+
+func TestRunUpgradeCLIWaitUnexpectedSignalSubprocess(t *testing.T) {
+	if os.Getenv("TEST_UPGRADE_WAIT_UNEXPECTED_SUB") == "1" {
+		sockDir := os.Getenv("TEST_HANDOFF_DIR")
+		RunUpgradeCLI([]string{"-action", "wait", "-data-dir", sockDir, "-timeout", "5s"})
+		return
+	}
+
+	sockDir := t.TempDir()
+	sockPath := filepath.Join(sockDir, "handoff.sock")
+
+	ln, err := net.Listen("unix", sockPath)
+	if err != nil {
+		t.Skipf("unix sockets not supported: %v", err)
+	}
+	defer ln.Close()
+
+	go func() {
+		for {
+			conn, err := ln.Accept()
+			if err != nil {
+				return
+			}
+			conn.Write([]byte("PING"))
+			conn.Close()
+		}
+	}()
+
+	cmd := exec.Command(os.Args[0], "-test.run=TestRunUpgradeCLIWaitUnexpectedSignalSubprocess", "-test.v")
+	cmd.Env = append(os.Environ(), "TEST_UPGRADE_WAIT_UNEXPECTED_SUB=1", "TEST_HANDOFF_DIR="+sockDir)
+	err = cmd.Run()
+	if err == nil {
+		t.Fatal("expected exit error for unexpected signal")
+	}
+	if exitErr, ok := err.(*exec.ExitError); ok && exitErr.ExitCode() != 1 {
+		t.Fatalf("expected exit code 1, got %d", exitErr.ExitCode())
+	}
+}
+
+// --- WASM list error path ---
+
+func TestRunWASMListHTTPErrorSubprocess(t *testing.T) {
+	if os.Getenv("TEST_WASM_LIST_HTTP_SUB") == "1" {
+		RunWASMCLI([]string{"list"})
+		return
+	}
+
+	cmd := exec.Command(os.Args[0], "-test.run=TestRunWASMListHTTPErrorSubprocess", "-test.v")
+	cmd.Env = append(os.Environ(), "TEST_WASM_LIST_HTTP_SUB=1", "CHIMERA_ADMIN_ADDR=http://127.0.0.1:1")
+	err := cmd.Run()
+	if err == nil {
+		t.Fatal("expected exit error for HTTP failure")
+	}
+	if exitErr, ok := err.(*exec.ExitError); ok && exitErr.ExitCode() != 1 {
+		t.Fatalf("expected exit code 1, got %d", exitErr.ExitCode())
+	}
+}
+
+// --- MCP / Server error paths ---
+
+func TestRunMCPServerConfigErrorSubprocess(t *testing.T) {
+	if os.Getenv("TEST_MCP_CONFIG_ERR_SUB") == "1" {
+		RunMCPServer([]string{"--config", "/nonexistent/config.yaml"})
+		return
+	}
+
+	cmd := exec.Command(os.Args[0], "-test.run=TestRunMCPServerConfigErrorSubprocess", "-test.v")
+	cmd.Env = append(os.Environ(), "TEST_MCP_CONFIG_ERR_SUB=1")
+	err := cmd.Run()
+	if err == nil {
+		t.Fatal("expected exit error for bad config")
+	}
+	if exitErr, ok := err.(*exec.ExitError); ok && exitErr.ExitCode() != 1 {
+		t.Fatalf("expected exit code 1, got %d", exitErr.ExitCode())
+	}
+}
+
+func TestRunServerConfigErrorSubprocess(t *testing.T) {
+	if os.Getenv("TEST_SERVER_CONFIG_ERR_SUB") == "1" {
+		RunServer([]string{"-config", "/nonexistent/config.yaml"})
+		return
+	}
+
+	cmd := exec.Command(os.Args[0], "-test.run=TestRunServerConfigErrorSubprocess", "-test.v")
+	cmd.Env = append(os.Environ(), "TEST_SERVER_CONFIG_ERR_SUB=1")
+	err := cmd.Run()
+	if err == nil {
+		t.Fatal("expected exit error for bad config")
+	}
+	if exitErr, ok := err.(*exec.ExitError); ok && exitErr.ExitCode() != 1 {
+		t.Fatalf("expected exit code 1, got %d", exitErr.ExitCode())
+	}
+}
+
+func TestRunServerInvalidPortSubprocess(t *testing.T) {
+	if os.Getenv("TEST_SERVER_PORT_ERR_SUB") == "1" {
+		RunServer([]string{"-port", "99999"})
+		return
+	}
+
+	cmd := exec.Command(os.Args[0], "-test.run=TestRunServerInvalidPortSubprocess", "-test.v")
+	cmd.Env = append(os.Environ(), "TEST_SERVER_PORT_ERR_SUB=1")
+	err := cmd.Run()
+	if err == nil {
+		t.Fatal("expected exit error for invalid port")
+	}
+	if exitErr, ok := err.(*exec.ExitError); ok && exitErr.ExitCode() != 1 {
+		t.Fatalf("expected exit code 1, got %d", exitErr.ExitCode())
 	}
 }
