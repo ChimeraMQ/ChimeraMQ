@@ -7,6 +7,8 @@ import (
 	"time"
 
 	"github.com/chimeramq/chimera/internal/message"
+	"github.com/chimeramq/chimera/internal/storage/hot"
+	"github.com/chimeramq/chimera/internal/storage/wal"
 )
 
 // --- Logger doRotate coverage ---
@@ -473,6 +475,114 @@ func TestPublishTenantQuotaExceeded(t *testing.T) {
 	_, err = b.Publish(&message.Envelope{Topic: "t1_test", Payload: []byte("second")})
 	if err == nil {
 		t.Error("expected tenant quota exceeded error")
+	}
+}
+
+// --- Logger rotation / cleanup coverage ---
+
+func TestLoggerRotateNilFile(t *testing.T) {
+	logger := NewLogger(LoggingConfig{Level: "info", Format: "text"})
+	defer logger.Close()
+
+	if err := logger.rotate(); err != nil {
+		t.Errorf("rotate with nil file should return nil, got %v", err)
+	}
+}
+
+func TestLoggerCleanupOldLogsNoMaxAge(t *testing.T) {
+	dir := t.TempDir()
+	logPath := filepath.Join(dir, "app.log")
+
+	logger := NewLogger(LoggingConfig{
+		Level:  "info",
+		Format: "text",
+		Output: "file",
+		File:   logPath,
+	})
+	defer logger.Close()
+
+	// MaxAge defaults to 0, so cleanup should be a no-op
+	logger.cleanupOldLogs()
+}
+
+func TestLoggerDoRotateRenameError(t *testing.T) {
+	dir := t.TempDir()
+	logPath := filepath.Join(dir, "app.log")
+
+	logger := NewLogger(LoggingConfig{
+		Level:  "info",
+		Format: "text",
+		Output: "file",
+		File:   logPath,
+	})
+	defer logger.Close()
+
+	logger.Info("before rotate")
+
+	// Create a directory with the backup name to cause Rename to fail
+	timestamp := time.Now().Format("20060102-150405")
+	backupPath := logPath + "." + timestamp
+	os.MkdirAll(backupPath, 0750)
+
+	if err := logger.doRotate(); err == nil {
+		t.Error("expected error when backup path is a directory")
+	}
+}
+
+// --- Broker adapter coverage ---
+
+func TestBrokerAPIAdapterPublishMessageError(t *testing.T) {
+	dir := t.TempDir()
+	cfg := defaultConfig()
+	cfg.Node.DataDir = dir
+
+	b, err := NewBroker(cfg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := b.Start(); err != nil {
+		t.Fatal(err)
+	}
+	defer b.Stop()
+
+	adapter := &brokerAPIAdapter{broker: b}
+
+	_, _, err = adapter.PublishMessage("nonexistent-topic", &message.Envelope{Payload: []byte("x")})
+	if err == nil {
+		t.Error("expected error publishing to nonexistent topic")
+	}
+}
+
+// --- Topic manager coverage ---
+
+func TestCreateTopicMaxTopicsReached(t *testing.T) {
+	dir := t.TempDir()
+	storage := hot.NewEngine(dir, hot.HotConfig{SegmentSize: 1024 * 1024})
+	w, _ := wal.NewWAL(filepath.Join(dir, "wal"), 4*1024*1024, wal.SyncOS, 0)
+	defer w.Close()
+	defer storage.Close()
+
+	tm, _ := NewTopicManager(dir, storage, w, LimitsConfig{MaxTopics: 1, MaxPartitionsPerTopic: 256})
+
+	if err := tm.CreateTopic(TopicConfig{Name: "first", Mode: ModeStream, Partitions: 1}); err != nil {
+		t.Fatalf("first topic: %v", err)
+	}
+	if err := tm.CreateTopic(TopicConfig{Name: "second", Mode: ModeStream, Partitions: 1}); err == nil {
+		t.Error("expected error when max topics reached")
+	}
+}
+
+func TestCreateTopicMaxPartitionsExceeded(t *testing.T) {
+	dir := t.TempDir()
+	storage := hot.NewEngine(dir, hot.HotConfig{SegmentSize: 1024 * 1024})
+	w, _ := wal.NewWAL(filepath.Join(dir, "wal"), 4*1024*1024, wal.SyncOS, 0)
+	defer w.Close()
+	defer storage.Close()
+
+	tm, _ := NewTopicManager(dir, storage, w, LimitsConfig{MaxTopics: 1000, MaxPartitionsPerTopic: 2})
+
+	if err := tm.CreateTopic(TopicConfig{Name: "too-many", Mode: ModeStream, Partitions: 4}); err == nil {
+		t.Error("expected error when partitions exceed maximum")
 	}
 }
 
