@@ -1,8 +1,12 @@
 package dlq
 
 import (
+	"fmt"
+	"os"
+	"path/filepath"
 	"regexp"
 	"testing"
+	"time"
 
 	"github.com/chimeramq/chimera/internal/message"
 )
@@ -331,5 +335,461 @@ func TestMatchWithTimeout(t *testing.T) {
 	}
 	if matchWithTimeout(re, "goodbye", 1) {
 		t.Error("should not match")
+	}
+}
+
+// --- Replay Conditions ---
+
+func TestAllMessages(t *testing.T) {
+	cond := AllMessages()
+	if !cond(&DLQEntry{}) {
+		t.Error("AllMessages should match everything")
+	}
+}
+
+func TestByReason(t *testing.T) {
+	cond := ByReason("timeout")
+	if !cond(&DLQEntry{Reason: "timeout"}) {
+		t.Error("should match exact reason")
+	}
+	if cond(&DLQEntry{Reason: "error"}) {
+		t.Error("should not match different reason")
+	}
+}
+
+func TestByRetryCount(t *testing.T) {
+	cond := ByRetryCount(3)
+	if !cond(&DLQEntry{Retries: 3}) {
+		t.Error("should match exact retry count")
+	}
+	if !cond(&DLQEntry{Retries: 5}) {
+		t.Error("should match higher retry count")
+	}
+	if cond(&DLQEntry{Retries: 2}) {
+		t.Error("should not match lower retry count")
+	}
+}
+
+func TestByTimeRange(t *testing.T) {
+	now := time.Now()
+	cond := ByTimeRange(now.Add(-1*time.Hour), now.Add(1*time.Hour))
+	if !cond(&DLQEntry{FailedAt: now}) {
+		t.Error("should match time in range")
+	}
+	if cond(&DLQEntry{FailedAt: now.Add(-2 * time.Hour)}) {
+		t.Error("should not match time before range")
+	}
+	if cond(&DLQEntry{FailedAt: now.Add(2 * time.Hour)}) {
+		t.Error("should not match time after range")
+	}
+}
+
+func TestByPayloadContains(t *testing.T) {
+	cond := ByPayloadContains("error")
+	if !cond(&DLQEntry{OriginalMsg: &message.Envelope{Payload: []byte("system error")}}) {
+		t.Error("should match payload containing substring")
+	}
+	if cond(&DLQEntry{OriginalMsg: &message.Envelope{Payload: []byte("success")}}) {
+		t.Error("should not match unrelated payload")
+	}
+	if cond(&DLQEntry{OriginalMsg: nil}) {
+		t.Error("should not match nil message")
+	}
+}
+
+func TestCompositeAND(t *testing.T) {
+	cond := CompositeAND(ByReason("timeout"), ByRetryCount(3))
+	if !cond(&DLQEntry{Reason: "timeout", Retries: 3}) {
+		t.Error("should match when all conditions true")
+	}
+	if cond(&DLQEntry{Reason: "timeout", Retries: 2}) {
+		t.Error("should not match when one condition false")
+	}
+}
+
+func TestCompositeOR(t *testing.T) {
+	cond := CompositeOR(ByReason("timeout"), ByReason("error"))
+	if !cond(&DLQEntry{Reason: "timeout"}) {
+		t.Error("should match first condition")
+	}
+	if !cond(&DLQEntry{Reason: "error"}) {
+		t.Error("should match second condition")
+	}
+	if cond(&DLQEntry{Reason: "success"}) {
+		t.Error("should not match when neither condition true")
+	}
+}
+
+// --- Replay Transforms ---
+
+func TestNoTransform(t *testing.T) {
+	msg := &message.Envelope{Payload: []byte("data")}
+	tf := NoTransform()
+	result := tf(&DLQEntry{OriginalMsg: msg})
+	if result != msg {
+		t.Error("NoTransform should return original message")
+	}
+	if tf(&DLQEntry{OriginalMsg: nil}) != nil {
+		t.Error("NoTransform should return nil for nil message")
+	}
+}
+
+func TestAddHeader(t *testing.T) {
+	tf := AddHeader("x-key", []byte("value"))
+	result := tf(&DLQEntry{OriginalMsg: &message.Envelope{Payload: []byte("data")}})
+	if string(result.Headers["x-key"]) != "value" {
+		t.Error("AddHeader should add header")
+	}
+}
+
+func TestRemoveHeader(t *testing.T) {
+	tf := RemoveHeader("x-key")
+	result := tf(&DLQEntry{OriginalMsg: &message.Envelope{
+		Payload: []byte("data"),
+		Headers: map[string][]byte{"x-key": []byte("value")},
+	}})
+	if _, ok := result.Headers["x-key"]; ok {
+		t.Error("RemoveHeader should remove header")
+	}
+}
+
+func TestUpdatePayload(t *testing.T) {
+	tf := UpdatePayload(func(b []byte) []byte { return append(b, []byte("-fixed")...) })
+	result := tf(&DLQEntry{OriginalMsg: &message.Envelope{Payload: []byte("data")}})
+	if string(result.Payload) != "data-fixed" {
+		t.Error("UpdatePayload should modify payload")
+	}
+}
+
+func TestSetRoutingKey(t *testing.T) {
+	tf := SetRoutingKey("orders")
+	result := tf(&DLQEntry{OriginalMsg: &message.Envelope{Payload: []byte("data")}})
+	if result.RoutingKey != "orders" {
+		t.Error("SetRoutingKey should set routing key")
+	}
+}
+
+func TestAddDLQMetadata(t *testing.T) {
+	now := time.Now()
+	tf := AddDLQMetadata()
+	result := tf(&DLQEntry{
+		OriginalMsg: &message.Envelope{Payload: []byte("data")},
+		Reason:      "timeout",
+		Retries:     3,
+		FailedAt:    now,
+	})
+	if string(result.Headers["x-dlq-original-failure"]) != "timeout" {
+		t.Error("should add failure reason header")
+	}
+	if string(result.Headers["x-dlq-retry-count"]) != "3" {
+		t.Error("should add retry count header")
+	}
+}
+
+func TestChainTransforms(t *testing.T) {
+	tf := ChainTransforms(
+		AddHeader("x-step", []byte("1")),
+		AddHeader("x-step", []byte("2")),
+	)
+	result := tf(&DLQEntry{OriginalMsg: &message.Envelope{Payload: []byte("data")}})
+	if string(result.Headers["x-step"]) != "2" {
+		t.Error("ChainTransforms should apply transforms in order")
+	}
+}
+
+func TestChainTransformsNilReturn(t *testing.T) {
+	tf := ChainTransforms(
+		NoTransform(),
+		func(e *DLQEntry) *message.Envelope { return nil },
+	)
+	result := tf(&DLQEntry{OriginalMsg: &message.Envelope{Payload: []byte("data")}})
+	if result != nil {
+		t.Error("ChainTransforms should return nil if any transform returns nil")
+	}
+}
+
+// --- Replay Operations ---
+
+func TestReplayWithOptionsBasic(t *testing.T) {
+	d := newTestDLQ(t, Config{Enabled: true})
+	d.Push(&message.Envelope{Payload: []byte("a")}, "orders", 0, "err", 3)
+
+	result, err := d.ReplayWithOptions("orders", DefaultReplayOptions(), func(m *message.Envelope, topic string) error {
+		return nil
+	})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if result.ReplayedCount != 1 {
+		t.Errorf("replayed = %d, want 1", result.ReplayedCount)
+	}
+	if d.Size("orders") != 1 {
+		t.Error("entry should remain when DeleteAfterReplay is false")
+	}
+}
+
+func TestReplayWithOptionsDryRun(t *testing.T) {
+	d := newTestDLQ(t, Config{Enabled: true})
+	d.Push(&message.Envelope{Payload: []byte("a")}, "orders", 0, "err", 3)
+
+	opts := DefaultReplayOptions()
+	opts.DryRun = true
+	result, err := d.ReplayWithOptions("orders", opts, func(m *message.Envelope, topic string) error {
+		t.Error("publisher should not be called in dry run")
+		return nil
+	})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if result.SkippedCount != 1 {
+		t.Errorf("skipped = %d, want 1", result.SkippedCount)
+	}
+	if d.Size("orders") != 1 {
+		t.Error("entries should not be removed in dry run")
+	}
+}
+
+func TestReplayWithOptionsDeleteAfterReplay(t *testing.T) {
+	d := newTestDLQ(t, Config{Enabled: true})
+	d.Push(&message.Envelope{Payload: []byte("a")}, "orders", 0, "err", 3)
+
+	opts := DefaultReplayOptions()
+	opts.DeleteAfterReplay = true
+	_, err := d.ReplayWithOptions("orders", opts, func(m *message.Envelope, topic string) error {
+		return nil
+	})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if d.Size("orders") != 0 {
+		t.Error("entry should be removed when DeleteAfterReplay is true")
+	}
+}
+
+func TestReplayWithOptionsMaxMessages(t *testing.T) {
+	d := newTestDLQ(t, Config{Enabled: true})
+	for i := 0; i < 5; i++ {
+		d.Push(&message.Envelope{Payload: []byte("a")}, "orders", 0, "err", 3)
+	}
+
+	opts := DefaultReplayOptions()
+	opts.MaxMessages = 2
+	result, _ := d.ReplayWithOptions("orders", opts, func(m *message.Envelope, topic string) error {
+		return nil
+	})
+	if result.ReplayedCount != 2 {
+		t.Errorf("replayed = %d, want 2", result.ReplayedCount)
+	}
+}
+
+func TestReplayWithOptionsTargetTopic(t *testing.T) {
+	d := newTestDLQ(t, Config{Enabled: true})
+	d.Push(&message.Envelope{Payload: []byte("a")}, "orders", 0, "err", 3)
+
+	opts := DefaultReplayOptions()
+	opts.TargetTopic = "fixed-orders"
+	var receivedTopic string
+	_, _ = d.ReplayWithOptions("orders", opts, func(m *message.Envelope, topic string) error {
+		receivedTopic = topic
+		return nil
+	})
+	if receivedTopic != "fixed-orders" {
+		t.Errorf("target topic = %q, want fixed-orders", receivedTopic)
+	}
+}
+
+func TestReplayWithOptionsCondition(t *testing.T) {
+	d := newTestDLQ(t, Config{Enabled: true})
+	d.Push(&message.Envelope{Payload: []byte("a")}, "orders", 0, "timeout", 3)
+	d.Push(&message.Envelope{Payload: []byte("b")}, "orders", 0, "error", 3)
+
+	opts := DefaultReplayOptions()
+	opts.Condition = ByReason("timeout")
+	result, _ := d.ReplayWithOptions("orders", opts, func(m *message.Envelope, topic string) error {
+		return nil
+	})
+	if result.ReplayedCount != 1 {
+		t.Errorf("replayed = %d, want 1", result.ReplayedCount)
+	}
+	if result.MatchedEntries != 1 {
+		t.Errorf("matched = %d, want 1", result.MatchedEntries)
+	}
+}
+
+func TestReplayWithOptionsPublishFailure(t *testing.T) {
+	d := newTestDLQ(t, Config{Enabled: true})
+	d.Push(&message.Envelope{Payload: []byte("a")}, "orders", 0, "err", 3)
+
+	result, _ := d.ReplayWithOptions("orders", DefaultReplayOptions(), func(m *message.Envelope, topic string) error {
+		return fmt.Errorf("publish failed")
+	})
+	if result.FailedCount != 1 {
+		t.Errorf("failed = %d, want 1", result.FailedCount)
+	}
+	if len(result.Errors) != 1 {
+		t.Errorf("errors = %d, want 1", len(result.Errors))
+	}
+	if d.Size("orders") != 1 {
+		t.Error("failed entry should remain in DLQ")
+	}
+}
+
+func TestReplayWithOptionsTransformFailure(t *testing.T) {
+	d := newTestDLQ(t, Config{Enabled: true})
+	d.Push(&message.Envelope{Payload: []byte("a")}, "orders", 0, "err", 3)
+
+	opts := DefaultReplayOptions()
+	opts.Transform = func(e *DLQEntry) *message.Envelope { return nil }
+	result, _ := d.ReplayWithOptions("orders", opts, func(m *message.Envelope, topic string) error {
+		return nil
+	})
+	if result.FailedCount != 1 {
+		t.Errorf("failed = %d, want 1", result.FailedCount)
+	}
+}
+
+func TestReplayWithOptionsNotEnabled(t *testing.T) {
+	d := newTestDLQ(t, Config{Enabled: false})
+	_, err := d.ReplayWithOptions("orders", DefaultReplayOptions(), func(m *message.Envelope, topic string) error {
+		return nil
+	})
+	if err == nil {
+		t.Error("expected error when DLQ is disabled")
+	}
+}
+
+func TestReplayWithOptionsEmptyQueue(t *testing.T) {
+	d := newTestDLQ(t, Config{Enabled: true})
+	result, err := d.ReplayWithOptions("orders", DefaultReplayOptions(), func(m *message.Envelope, topic string) error {
+		return nil
+	})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if result.TotalEntries != 0 {
+		t.Errorf("total = %d, want 0", result.TotalEntries)
+	}
+}
+
+func TestReplayPreview(t *testing.T) {
+	d := newTestDLQ(t, Config{Enabled: true})
+	d.Push(&message.Envelope{Payload: []byte("a")}, "orders", 0, "timeout", 3)
+	d.Push(&message.Envelope{Payload: []byte("b")}, "orders", 0, "error", 3)
+
+	opts := DefaultReplayOptions()
+	opts.Condition = ByReason("timeout")
+	entries, err := d.ReplayPreview("orders", opts)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(entries) != 1 {
+		t.Errorf("preview entries = %d, want 1", len(entries))
+	}
+	if d.Size("orders") != 2 {
+		t.Error("ReplayPreview should not modify DLQ")
+	}
+}
+
+func TestReplayPreviewNotEnabled(t *testing.T) {
+	d := newTestDLQ(t, Config{Enabled: false})
+	_, err := d.ReplayPreview("orders", DefaultReplayOptions())
+	if err == nil {
+		t.Error("expected error when DLQ is disabled")
+	}
+}
+
+func TestExportToJSON(t *testing.T) {
+	d := newTestDLQ(t, Config{Enabled: true})
+	d.Push(&message.Envelope{Payload: []byte("a")}, "orders", 0, "err", 3)
+
+	data, err := d.ExportToJSON("orders", DefaultReplayOptions())
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(data) == 0 {
+		t.Error("export should return non-empty JSON")
+	}
+}
+
+// --- Security / Path Traversal ---
+
+func TestDLQPushInvalidTopicName(t *testing.T) {
+	d := newTestDLQ(t, Config{Enabled: true})
+	d.Push(&message.Envelope{}, "../etc/passwd", 0, "err", 3)
+	if d.TotalSize() != 0 {
+		t.Error("should reject path traversal topic names")
+	}
+}
+
+func TestDLQPushEmptyTopicName(t *testing.T) {
+	d := newTestDLQ(t, Config{Enabled: true})
+	d.Push(&message.Envelope{}, "", 0, "err", 3)
+	if d.TotalSize() != 0 {
+		t.Error("should reject empty topic names")
+	}
+}
+
+func TestDLQPushTopicWithSlash(t *testing.T) {
+	d := newTestDLQ(t, Config{Enabled: true})
+	d.Push(&message.Envelope{}, "a/b", 0, "err", 3)
+	if d.TotalSize() != 0 {
+		t.Error("should reject topic names with slashes")
+	}
+}
+
+func TestDLQPushTopicTooLong(t *testing.T) {
+	d := newTestDLQ(t, Config{Enabled: true})
+	d.Push(&message.Envelope{}, string(make([]byte, 257)), 0, "err", 3)
+	if d.TotalSize() != 0 {
+		t.Error("should reject topic names longer than 256 chars")
+	}
+}
+
+// --- Persistence ---
+
+func TestDLQPersistence(t *testing.T) {
+	dir := t.TempDir()
+	d := newTestDLQ(t, Config{Enabled: true, DataDir: dir})
+	d.Push(&message.Envelope{Payload: []byte("persistent")}, "orders", 0, "err", 3)
+
+	// Create new DLQ pointing to same dir
+	d2 := newTestDLQ(t, Config{Enabled: true, DataDir: dir})
+	if d2.Size("orders") != 1 {
+		t.Errorf("loaded size = %d, want 1", d2.Size("orders"))
+	}
+	entries := d2.Peek("orders", 0)
+	if string(entries[0].OriginalMsg.Payload) != "persistent" {
+		t.Error("loaded entry payload mismatch")
+	}
+}
+
+func TestDLQClearRemovesFile(t *testing.T) {
+	dir := t.TempDir()
+	d := newTestDLQ(t, Config{Enabled: true, DataDir: dir})
+	d.Push(&message.Envelope{}, "orders", 0, "err", 3)
+
+	d.Clear("orders")
+	if d.Size("orders") != 0 {
+		t.Error("should be empty after clear")
+	}
+
+	// Verify file is removed on reload
+	d2 := newTestDLQ(t, Config{Enabled: true, DataDir: dir})
+	if d2.Size("orders") != 0 {
+		t.Error("file should be removed after clear")
+	}
+}
+
+func TestDLQLoadAllSkipsInvalidNames(t *testing.T) {
+	dir := t.TempDir()
+	// Create a file with invalid topic name
+	f, _ := os.Create(filepath.Join(dir, "../bad.jsonl"))
+	if f != nil {
+		f.Close()
+	}
+
+	d := newTestDLQ(t, Config{Enabled: true, DataDir: dir})
+	if d.TotalSize() != 0 {
+		t.Error("should skip files with invalid topic names")
 	}
 }
