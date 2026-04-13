@@ -1,6 +1,7 @@
 package mqtt
 
 import (
+	"bufio"
 	"bytes"
 	"encoding/binary"
 	"net"
@@ -414,4 +415,236 @@ func TestHandleConnectionWithWillOnClose(t *testing.T) {
 		t.Error("handleConnection did not finish")
 	}
 	server.Close()
+}
+
+func TestHandleAuthReauthWithAuthEnabled(t *testing.T) {
+	dir := t.TempDir()
+	cfg := &broker.Config{
+		Node:     broker.NodeConfig{ID: 1, Name: "test", DataDir: dir},
+		Listener: broker.ListenerConfig{Bind: "127.0.0.1", Port: 0, AdminPort: 0},
+		Storage: broker.StorageConfig{
+			Hot: broker.HotConfig{SegmentSize: 64 * 1024, SyncMode: "os"},
+			WAL: broker.WALConfig{MaxSize: 64 * 1024, SyncMode: "os"},
+		},
+		Defaults: broker.DefaultsConfig{Topic: broker.TopicDefaults{Partitions: 4}},
+		Logging:  broker.LoggingConfig{Level: "error", Format: "text", Output: "stdout"},
+		Auth:     broker.AuthConfig{Enabled: true, Type: "static", Users: map[string]string{"admin": "secret"}},
+	}
+	bkr, err := broker.NewBroker(cfg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := bkr.Start(); err != nil {
+		t.Fatal(err)
+	}
+	defer bkr.Stop()
+
+	srv := NewServer(bkr)
+	var buf bytes.Buffer
+	writer := bufio.NewWriter(&buf)
+	sess := NewSession("auth-test", true, 60, ProtocolLevel50)
+
+	authPkt := &Packet{Remaining: []byte{0x18}} // Re-authentication
+	srv.handleAuth(writer, sess, authPkt)
+	writer.Flush()
+
+	resp, err := ReadPacket(bufio.NewReader(&buf))
+	if err != nil {
+		t.Fatalf("read auth response: %v", err)
+	}
+	if resp.Type != PacketAuth {
+		t.Fatalf("expected AUTH, got %d", resp.Type)
+	}
+	if len(resp.Remaining) == 0 || resp.Remaining[0] != 0x00 {
+		t.Errorf("reason code = %v, want 0x00", resp.Remaining)
+	}
+}
+
+func TestHandleAuthReauthWithAuthDisabled(t *testing.T) {
+	b, cleanup := newMQTTTestBroker(t)
+	defer cleanup()
+	srv := NewServer(b)
+
+	var buf bytes.Buffer
+	writer := bufio.NewWriter(&buf)
+	sess := NewSession("auth-test", true, 60, ProtocolLevel50)
+
+	authPkt := &Packet{Remaining: []byte{0x18}} // Re-authentication
+	srv.handleAuth(writer, sess, authPkt)
+	writer.Flush()
+
+	resp, err := ReadPacket(bufio.NewReader(&buf))
+	if err != nil {
+		t.Fatalf("read auth response: %v", err)
+	}
+	if resp.Type != PacketAuth {
+		t.Fatalf("expected AUTH, got %d", resp.Type)
+	}
+	if len(resp.Remaining) == 0 || resp.Remaining[0] != 0x00 {
+		t.Errorf("reason code = %v, want 0x00", resp.Remaining)
+	}
+}
+
+func TestHandleAuthUnknownReasonCode(t *testing.T) {
+	b, cleanup := newMQTTTestBroker(t)
+	defer cleanup()
+	srv := NewServer(b)
+
+	var buf bytes.Buffer
+	writer := bufio.NewWriter(&buf)
+	sess := NewSession("auth-test", true, 60, ProtocolLevel50)
+
+	authPkt := &Packet{Remaining: []byte{0x99}} // Unknown reason code
+	srv.handleAuth(writer, sess, authPkt)
+	writer.Flush()
+
+	resp, err := ReadPacket(bufio.NewReader(&buf))
+	if err != nil {
+		t.Fatalf("read auth response: %v", err)
+	}
+	if resp.Type != PacketAuth {
+		t.Fatalf("expected AUTH, got %d", resp.Type)
+	}
+	if len(resp.Remaining) == 0 || resp.Remaining[0] != 0x80 {
+		t.Errorf("reason code = %v, want 0x80", resp.Remaining)
+	}
+}
+
+func TestHandleConnectionReconnectAuthFailure(t *testing.T) {
+	dir := t.TempDir()
+	cfg := &broker.Config{
+		Node:     broker.NodeConfig{ID: 1, Name: "test", DataDir: dir},
+		Listener: broker.ListenerConfig{Bind: "127.0.0.1", Port: 0, AdminPort: 0},
+		Storage: broker.StorageConfig{
+			Hot: broker.HotConfig{SegmentSize: 64 * 1024, SyncMode: "os"},
+			WAL: broker.WALConfig{MaxSize: 64 * 1024, SyncMode: "os"},
+		},
+		Defaults: broker.DefaultsConfig{Topic: broker.TopicDefaults{Partitions: 4}},
+		Logging:  broker.LoggingConfig{Level: "error", Format: "text", Output: "stdout"},
+		Auth:     broker.AuthConfig{Enabled: true, Type: "static", Users: map[string]string{"admin": "secret"}},
+	}
+	bkr, err := broker.NewBroker(cfg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := bkr.Start(); err != nil {
+		t.Fatal(err)
+	}
+	defer bkr.Stop()
+
+	srv := NewServer(bkr)
+
+	buildAuthConnect := func(password string) []byte {
+		var payload bytes.Buffer
+		binary.Write(&payload, binary.BigEndian, uint16(4))
+		payload.WriteString("MQTT")
+		payload.WriteByte(4)
+		payload.WriteByte(0xC2) // Clean session + Username + Password
+		binary.Write(&payload, binary.BigEndian, uint16(60))
+		binary.Write(&payload, binary.BigEndian, uint16(7))
+		payload.WriteString("re-auth")
+		binary.Write(&payload, binary.BigEndian, uint16(5))
+		payload.WriteString("admin")
+		binary.Write(&payload, binary.BigEndian, uint16(len(password)))
+		payload.WriteString(password)
+
+		var pkt bytes.Buffer
+		pkt.WriteByte(0x10)
+		writeRL(&pkt, payload.Len())
+		pkt.Write(payload.Bytes())
+		return pkt.Bytes()
+	}
+
+	server, client := mqttPipe(
+		buildAuthConnect("secret"),
+		buildAuthConnect("wrong"),
+	)
+	defer server.Close()
+	defer client.Close()
+
+	done := runHandler(srv, server)
+	readPacketFrom(t, client) // First CONNACK (success)
+
+	// On Windows the close may race with the read, so accept either outcome.
+	client.SetReadDeadline(time.Now().Add(500 * time.Millisecond))
+	resp, err := ReadPacket(bufio.NewReader(client))
+	if err != nil {
+		// Connection closed before/instead of CONNACK — valid behavior
+		select {
+		case <-done:
+		case <-time.After(3 * time.Second):
+			t.Error("handleConnection did not finish")
+		}
+		return
+	}
+	if resp.Type != PacketConnAck {
+		t.Fatalf("expected CONNACK, got %d", resp.Type)
+	}
+	if len(resp.Remaining) >= 2 && resp.Remaining[1] != ConnAckBadCredentials {
+		t.Errorf("reason = %d, want %d", resp.Remaining[1], ConnAckBadCredentials)
+	}
+
+	select {
+	case <-done:
+	case <-time.After(3 * time.Second):
+		t.Error("handleConnection did not finish")
+	}
+}
+
+func TestHandleConnectionKeepaliveClampLow(t *testing.T) {
+	b, cleanup := newMQTTTestBroker(t)
+	defer cleanup()
+	srv := NewServer(b)
+
+	server, client := net.Pipe()
+	go func() {
+		client.Write(buildConnect("ka-low", true, 1)) // 1s keepalive
+		time.Sleep(2 * time.Second)                   // Would timeout if not clamped to 5s
+		client.Write(buildMQTTPingReq())
+		time.Sleep(100 * time.Millisecond)
+		client.Write(buildMQTTDisconnect())
+		client.Close()
+	}()
+
+	done := runHandler(srv, server)
+
+	resp := readPacketFrom(t, client) // CONNACK
+	if resp.Type != PacketConnAck {
+		t.Fatalf("expected CONNACK, got %d", resp.Type)
+	}
+
+	resp = readPacketFrom(t, client) // PINGRESP
+	if resp.Type != PacketPingResp {
+		t.Errorf("got type %d, want PINGRESP", resp.Type)
+	}
+
+	select {
+	case <-done:
+	case <-time.After(5 * time.Second):
+		t.Error("handleConnection did not finish")
+	}
+	server.Close()
+}
+
+func TestHandleConnectionPubAck(t *testing.T) {
+	b, cleanup := newMQTTTestBroker(t)
+	defer cleanup()
+	srv := NewServer(b)
+
+	server, client := mqttPipe(
+		buildConnect("puback-client", true, 60),
+		[]byte{0x40, 0x02, 0x00, 0x01}, // PUBACK packet ID 1
+		buildMQTTDisconnect(),
+	)
+	defer server.Close()
+	defer client.Close()
+
+	done := runHandler(srv, server)
+	readPacketFrom(t, client) // CONNACK
+
+	select {
+	case <-done:
+	case <-time.After(3 * time.Second):
+		t.Error("handleConnection did not finish")
+	}
 }
