@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/chimeramq/chimera/internal/broker"
+	"github.com/chimeramq/chimera/internal/message"
 	"github.com/coder/websocket"
 )
 
@@ -593,5 +594,282 @@ func TestWSServeHTTPDeleteTopicNonexistent(t *testing.T) {
 	json.Unmarshal(data, &resp)
 	if resp.Op != "error" {
 		t.Errorf("expected error for nonexistent topic, got %q", resp.Op)
+	}
+}
+
+func TestWSSubscribeQueue(t *testing.T) {
+	_, b, httpSrv, cleanup := setupWSTestServer(t)
+	defer cleanup()
+
+	b.Topics().CreateTopic(broker.TopicConfig{Name: "sub-q", Mode: broker.ModeQueue, Partitions: 1})
+
+	conn := connectWS(t, "ws://"+httpSrv.Listener.Addr().String(), "chimera-json-v1")
+	defer conn.Close(websocket.StatusNormalClosure, "")
+
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	msg, _ := json.Marshal(wsMessage{Op: "subscribe", Topic: "sub-q"})
+	conn.Write(ctx, websocket.MessageText, msg)
+
+	_, data, err := conn.Read(ctx)
+	if err != nil {
+		t.Fatalf("read: %v", err)
+	}
+	var r wsMessage
+	json.Unmarshal(data, &r)
+	if r.Op != "suback" {
+		t.Errorf("expected suback, got %q", r.Op)
+	}
+}
+
+func TestWSSubscribeStream(t *testing.T) {
+	_, b, httpSrv, cleanup := setupWSTestServer(t)
+	defer cleanup()
+
+	b.Topics().CreateTopic(broker.TopicConfig{Name: "sub-s", Mode: broker.ModeStream, Partitions: 1})
+
+	conn := connectWS(t, "ws://"+httpSrv.Listener.Addr().String(), "chimera-json-v1")
+	defer conn.Close(websocket.StatusNormalClosure, "")
+
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	msg, _ := json.Marshal(wsMessage{Op: "subscribe", Topic: "sub-s", Group: "g1", AutoCommit: true})
+	conn.Write(ctx, websocket.MessageText, msg)
+
+	_, data, err := conn.Read(ctx)
+	if err != nil {
+		t.Fatalf("read: %v", err)
+	}
+	var r wsMessage
+	json.Unmarshal(data, &r)
+	if r.Op != "suback" {
+		t.Errorf("expected suback, got %q", r.Op)
+	}
+}
+
+func TestWSUnsubscribe(t *testing.T) {
+	_, b, httpSrv, cleanup := setupWSTestServer(t)
+	defer cleanup()
+
+	b.Topics().CreateTopic(broker.TopicConfig{Name: "unsub-t", Mode: broker.ModeQueue, Partitions: 1})
+
+	conn := connectWS(t, "ws://"+httpSrv.Listener.Addr().String(), "chimera-json-v1")
+	defer conn.Close(websocket.StatusNormalClosure, "")
+
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	msg, _ := json.Marshal(wsMessage{Op: "subscribe", Topic: "unsub-t"})
+	conn.Write(ctx, websocket.MessageText, msg)
+	conn.Read(ctx)
+
+	msg, _ = json.Marshal(wsMessage{Op: "unsubscribe"})
+	conn.Write(ctx, websocket.MessageText, msg)
+
+	_, data, err := conn.Read(ctx)
+	if err != nil {
+		t.Fatalf("read: %v", err)
+	}
+	var r wsMessage
+	json.Unmarshal(data, &r)
+	if r.Op != "unsuback" {
+		t.Errorf("expected unsuback, got %q", r.Op)
+	}
+}
+
+func TestWSSubscribeAlreadySubscribed(t *testing.T) {
+	_, b, httpSrv, cleanup := setupWSTestServer(t)
+	defer cleanup()
+
+	b.Topics().CreateTopic(broker.TopicConfig{Name: "dbl-sub", Mode: broker.ModeQueue, Partitions: 1})
+
+	conn := connectWS(t, "ws://"+httpSrv.Listener.Addr().String(), "chimera-json-v1")
+	defer conn.Close(websocket.StatusNormalClosure, "")
+
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	msg, _ := json.Marshal(wsMessage{Op: "subscribe", Topic: "dbl-sub"})
+	conn.Write(ctx, websocket.MessageText, msg)
+	conn.Read(ctx)
+
+	conn.Write(ctx, websocket.MessageText, msg)
+	_, data, err := conn.Read(ctx)
+	if err != nil {
+		t.Fatalf("read: %v", err)
+	}
+	var r wsMessage
+	json.Unmarshal(data, &r)
+	if r.Op != "error" {
+		t.Errorf("expected error for double subscribe, got %q", r.Op)
+	}
+}
+
+func TestWSAck(t *testing.T) {
+	_, b, httpSrv, cleanup := setupWSTestServer(t)
+	defer cleanup()
+
+	b.Topics().CreateTopic(broker.TopicConfig{Name: "ack-topic", Mode: broker.ModeQueue, Partitions: 1})
+
+	conn := connectWS(t, "ws://"+httpSrv.Listener.Addr().String(), "chimera-json-v1")
+	defer conn.Close(websocket.StatusNormalClosure, "")
+
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	msg, _ := json.Marshal(wsMessage{Op: "ack", Topic: "ack-topic", Offset: 1})
+	conn.Write(ctx, websocket.MessageText, msg)
+
+	_, data, err := conn.Read(ctx)
+	if err != nil {
+		t.Fatalf("read: %v", err)
+	}
+	var r wsMessage
+	json.Unmarshal(data, &r)
+	if r.Op != "ackack" {
+		t.Errorf("expected ackack, got %q", r.Op)
+	}
+}
+
+func TestWSNack(t *testing.T) {
+	_, b, httpSrv, cleanup := setupWSTestServer(t)
+	defer cleanup()
+
+	b.Topics().CreateTopic(broker.TopicConfig{Name: "nack-topic", Mode: broker.ModeQueue, Partitions: 1})
+
+	conn := connectWS(t, "ws://"+httpSrv.Listener.Addr().String(), "chimera-json-v1")
+	defer conn.Close(websocket.StatusNormalClosure, "")
+
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	msg, _ := json.Marshal(wsMessage{Op: "nack", Topic: "nack-topic", Offset: 1})
+	conn.Write(ctx, websocket.MessageText, msg)
+
+	_, data, err := conn.Read(ctx)
+	if err != nil {
+		t.Fatalf("read: %v", err)
+	}
+	var r wsMessage
+	json.Unmarshal(data, &r)
+	if r.Op != "nackack" {
+		t.Errorf("expected nackack, got %q", r.Op)
+	}
+}
+
+func TestWSCommit(t *testing.T) {
+	_, b, httpSrv, cleanup := setupWSTestServer(t)
+	defer cleanup()
+
+	b.Topics().CreateTopic(broker.TopicConfig{Name: "commit-topic", Mode: broker.ModeStream, Partitions: 1})
+
+	conn := connectWS(t, "ws://"+httpSrv.Listener.Addr().String(), "chimera-json-v1")
+	defer conn.Close(websocket.StatusNormalClosure, "")
+
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	msg, _ := json.Marshal(wsMessage{Op: "commit", Topic: "commit-topic", Group: "g1", Partition: 0, Offset: 5})
+	conn.Write(ctx, websocket.MessageText, msg)
+
+	_, data, err := conn.Read(ctx)
+	if err != nil {
+		t.Fatalf("read: %v", err)
+	}
+	var r wsMessage
+	json.Unmarshal(data, &r)
+	if r.Op != "commitack" {
+		t.Errorf("expected commitack, got %q", r.Op)
+	}
+}
+
+func TestWSCommitNoGroup(t *testing.T) {
+	_, b, httpSrv, cleanup := setupWSTestServer(t)
+	defer cleanup()
+
+	b.Topics().CreateTopic(broker.TopicConfig{Name: "commit-ng", Mode: broker.ModeStream, Partitions: 1})
+
+	conn := connectWS(t, "ws://"+httpSrv.Listener.Addr().String(), "chimera-json-v1")
+	defer conn.Close(websocket.StatusNormalClosure, "")
+
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	msg, _ := json.Marshal(wsMessage{Op: "commit", Topic: "commit-ng", Offset: 1})
+	conn.Write(ctx, websocket.MessageText, msg)
+
+	_, data, err := conn.Read(ctx)
+	if err != nil {
+		t.Fatalf("read: %v", err)
+	}
+	var r wsMessage
+	json.Unmarshal(data, &r)
+	if r.Op != "error" {
+		t.Errorf("expected error for missing group, got %q", r.Op)
+	}
+}
+
+func TestWSFetchWithDefaults(t *testing.T) {
+	_, b, httpSrv, cleanup := setupWSTestServer(t)
+	defer cleanup()
+
+	b.Topics().CreateTopic(broker.TopicConfig{Name: "fetch-def", Mode: broker.ModeStream, Partitions: 1})
+
+	conn := connectWS(t, "ws://"+httpSrv.Listener.Addr().String(), "chimera-json-v1")
+	defer conn.Close(websocket.StatusNormalClosure, "")
+
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	msg, _ := json.Marshal(wsMessage{Op: "fetch", Topic: "fetch-def"})
+	conn.Write(ctx, websocket.MessageText, msg)
+
+	_, data, err := conn.Read(ctx)
+	if err != nil {
+		t.Fatalf("read: %v", err)
+	}
+	var r wsMessage
+	json.Unmarshal(data, &r)
+	if r.Op != "fetch_complete" {
+		t.Errorf("expected fetch_complete, got %q", r.Op)
+	}
+}
+
+func TestWSFetchMessages(t *testing.T) {
+	_, b, httpSrv, cleanup := setupWSTestServer(t)
+	defer cleanup()
+
+	b.Topics().CreateTopic(broker.TopicConfig{Name: "fetch-msg", Mode: broker.ModeStream, Partitions: 1})
+	b.Publish(&message.Envelope{Topic: "fetch-msg", Payload: []byte("hello")})
+
+	conn := connectWS(t, "ws://"+httpSrv.Listener.Addr().String(), "chimera-json-v1")
+	defer conn.Close(websocket.StatusNormalClosure, "")
+
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	msg, _ := json.Marshal(wsMessage{Op: "fetch", Topic: "fetch-msg", Offset: 0, MaxMessages: 10, MaxWait: 500})
+	conn.Write(ctx, websocket.MessageText, msg)
+
+	_, data, err := conn.Read(ctx)
+	if err != nil {
+		t.Fatalf("read: %v", err)
+	}
+	var m1 wsMessage
+	json.Unmarshal(data, &m1)
+	if m1.Op != "message" {
+		t.Errorf("expected message, got %q", m1.Op)
+	}
+
+	_, data, err = conn.Read(ctx)
+	if err != nil {
+		t.Fatalf("read: %v", err)
+	}
+	var m2 wsMessage
+	json.Unmarshal(data, &m2)
+	if m2.Op != "fetch_complete" {
+		t.Errorf("expected fetch_complete, got %q", m2.Op)
 	}
 }
