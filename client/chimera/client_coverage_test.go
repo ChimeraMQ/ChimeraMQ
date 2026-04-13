@@ -1,6 +1,7 @@
 package chimera
 
 import (
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -323,5 +324,90 @@ func TestReplayDLQError(t *testing.T) {
 	err := c.ReplayDLQ("t")
 	if err == nil {
 		t.Error("expected error for 500 response")
+	}
+}
+
+// --- Success paths for partially-covered functions ---
+
+func TestGetTopicSuccess(t *testing.T) {
+	s := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		writeJSON(w, map[string]interface{}{"name": "t1", "mode": "stream", "partitions": 4})
+	}))
+	defer s.Close()
+
+	c := NewClient(s.URL)
+	topic, err := c.GetTopic("t1")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if topic.Name != "t1" {
+		t.Errorf("expected name t1, got %s", topic.Name)
+	}
+}
+
+func TestGetNilResult(t *testing.T) {
+	s := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer s.Close()
+
+	c := NewClient(s.URL)
+	if err := c.get("/v1/health", nil); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+}
+
+func TestDoRequestMarshalError(t *testing.T) {
+	c := NewClient("http://127.0.0.1:1")
+	_, _, err := c.doRequest("POST", "/v1/topics", make(chan int))
+	if err == nil {
+		t.Error("expected marshal error")
+	}
+}
+
+func TestDoRequestNewRequestError(t *testing.T) {
+	c := NewClient("http://127.0.0.1:1")
+	_, _, err := c.doRequest("BAD\nMETHOD", "/v1/topics", nil)
+	if err == nil {
+		t.Error("expected new request error")
+	}
+}
+
+type errorBody struct{}
+
+func (errorBody) Read(p []byte) (int, error) { return 0, errors.New("read error") }
+func (errorBody) Close() error               { return nil }
+
+type errorReadTripper struct{}
+
+func (errorReadTripper) RoundTrip(*http.Request) (*http.Response, error) {
+	return &http.Response{
+		StatusCode: 200,
+		Body:       errorBody{},
+		Header:     make(http.Header),
+	}, nil
+}
+
+func TestDoRequestReadError(t *testing.T) {
+	c := NewClient("http://example.com", WithHTTPClient(&http.Client{Transport: errorReadTripper{}}))
+	_, _, err := c.doRequest("GET", "/", nil)
+	if err == nil {
+		t.Error("expected read error")
+	}
+}
+
+func TestPublishNewRequestError(t *testing.T) {
+	c := NewClient("http://127.0.0.1:1")
+	_, err := c.Publish("bad\n", []byte("x"))
+	if err == nil {
+		t.Error("expected new request error")
+	}
+}
+
+func TestPublishNetworkError(t *testing.T) {
+	c := NewClient("http://127.0.0.1:1")
+	_, err := c.Publish("topic", []byte("x"))
+	if err == nil {
+		t.Error("expected network error")
 	}
 }
