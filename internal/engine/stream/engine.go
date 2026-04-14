@@ -144,6 +144,16 @@ func (se *Engine) Fetch(topic string, partitionID uint32, fromOffset uint64, max
 	}
 }
 
+// GetHighWatermark returns the current high watermark for a topic/partition.
+// Returns 0 if the partition does not exist.
+func (se *Engine) GetHighWatermark(topic string, partitionID uint32) uint64 {
+	part, err := se.storage.GetOrCreatePartition(topic, partitionID)
+	if err != nil {
+		return 0
+	}
+	return part.HighWatermark()
+}
+
 // NotifyWaiters wakes up consumers waiting on a topic/partition.
 func (se *Engine) NotifyWaiters(topic string, partID uint32) {
 	se.waiters.Notify(topic, partID)

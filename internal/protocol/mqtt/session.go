@@ -4,6 +4,8 @@ import (
 	"sync"
 	"sync/atomic"
 	"time"
+
+	"github.com/chimeramq/chimera/internal/auth"
 )
 
 // Session represents an MQTT client session.
@@ -18,6 +20,7 @@ type Session struct {
 	nextPID       atomic.Uint32
 	will          *willMessage
 	lastActive    time.Time
+	identity      *auth.Identity // authenticated identity for ACL checks
 }
 
 type inflightMessage struct {

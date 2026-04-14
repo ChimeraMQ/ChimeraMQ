@@ -34,6 +34,7 @@ type Session struct {
 	closed        bool
 	connected     bool
 	info          ClientInfo
+	identity      *auth.Identity // authenticated identity for ACL checks
 }
 
 // Subscription represents a NATS subscription.
@@ -148,9 +149,25 @@ func (s *Session) handleConnect(msg *Message) error {
 
 	// Authentication
 	if s.b.Config().Auth.Enabled {
-		if !s.authenticate(s.info.User, s.info.Pass, s.info.AuthToken) {
+		// Rate limit check
+		if lim := s.b.AuthLimiter(); lim != nil {
+			clientIP := auth.ExtractIP(s.conn)
+			if !lim.IsAllowed(clientIP) {
+				_ = s.sendError("Authorization rate limited")
+				return fmt.Errorf("authorization rate limited")
+			}
+		}
+		if identity, ok := s.authenticate(s.info.User, s.info.Pass, s.info.AuthToken); !ok {
+			if lim := s.b.AuthLimiter(); lim != nil {
+				lim.RecordFailed(auth.ExtractIP(s.conn))
+			}
 			_ = s.sendError("Authorization Violation")
 			return fmt.Errorf("authorization violation")
+		} else {
+			if lim := s.b.AuthLimiter(); lim != nil {
+				lim.RecordSuccess(auth.ExtractIP(s.conn))
+			}
+			s.identity = identity
 		}
 	}
 
@@ -163,17 +180,17 @@ func (s *Session) handleConnect(msg *Message) error {
 	return nil
 }
 
-func (s *Session) authenticate(username, password, token string) bool {
+func (s *Session) authenticate(username, password, token string) (*auth.Identity, bool) {
 	provider := s.b.AuthProvider()
 	if provider == nil {
-		return false
+		return nil, false
 	}
-	_, err := provider.Authenticate(context.Background(), auth.Credentials{
+	identity, err := provider.Authenticate(context.Background(), auth.Credentials{
 		Username: username,
 		Password: password,
 		Token:    token,
 	})
-	return err == nil
+	return identity, err == nil
 }
 
 func (s *Session) handlePub(msg *Message) error {
@@ -190,6 +207,13 @@ func (s *Session) handlePub(msg *Message) error {
 	// Remove NATS-specific prefixes
 	subject = strings.TrimPrefix(subject, "foo.") // NATS demo subjects
 	topic := strings.ReplaceAll(subject, ".", "/")
+
+	// ACL check: write permission on topic
+	if acl := s.b.ACLEngine(); acl != nil {
+		if !acl.Check(s.identity, auth.ResourceTopic, topic, auth.OpWrite) {
+			return s.sendError("Publish denied by ACL")
+		}
+	}
 
 	// Create message envelope
 	env := &message.Envelope{
@@ -236,6 +260,13 @@ func (s *Session) handleSub(msg *Message) error {
 
 	// Convert NATS subject to topic
 	topic := strings.ReplaceAll(subject, ".", "/")
+
+	// ACL check: read permission on topic
+	if acl := s.b.ACLEngine(); acl != nil {
+		if !acl.Check(s.identity, auth.ResourceTopic, topic, auth.OpRead) {
+			return s.sendError("Subscribe denied by ACL")
+		}
+	}
 
 	sub := &Subscription{
 		Subject: subject,

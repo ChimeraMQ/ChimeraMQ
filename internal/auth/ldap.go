@@ -2,6 +2,7 @@ package auth
 
 import (
 	"context"
+	"crypto/tls"
 	"fmt"
 	"strings"
 
@@ -128,8 +129,17 @@ func (p *LDAPProvider) Close() error {
 }
 
 func (p *LDAPProvider) dial() (*ldap.Conn, error) {
-	// Use DialURL which automatically handles TLS for ldaps:// URLs
-	return ldap.DialURL(p.url)
+	conn, err := ldap.DialURL(p.url)
+	if err != nil {
+		return nil, fmt.Errorf("ldap dial: %w", err)
+	}
+	if p.useTLS {
+		if err := conn.StartTLS(&tls.Config{MinVersion: tls.VersionTLS12}); err != nil {
+			conn.Close()
+			return nil, fmt.Errorf("ldap StartTLS: %w", err)
+		}
+	}
+	return conn, nil
 }
 
 // extractCN extracts the CN from a DN string.

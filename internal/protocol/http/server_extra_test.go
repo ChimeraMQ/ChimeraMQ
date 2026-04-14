@@ -597,6 +597,18 @@ func TestHandleCreateTopologyWithFeatures(t *testing.T) {
 	srv, _, cleanup := setupTestServerWithFeatures(t)
 	defer cleanup()
 
+	// Create source and sink topics first
+	createTopicBody, _ := json.Marshal(map[string]interface{}{"name": "topo-src"})
+	resp := doRequest(t, srv, "POST", "/v1/topics", createTopicBody)
+	if resp.StatusCode != http.StatusCreated && resp.StatusCode != http.StatusConflict {
+		t.Errorf("create source topic: status = %d", resp.StatusCode)
+	}
+	createTopicBody, _ = json.Marshal(map[string]interface{}{"name": "topo-sink"})
+	resp = doRequest(t, srv, "POST", "/v1/topics", createTopicBody)
+	if resp.StatusCode != http.StatusCreated && resp.StatusCode != http.StatusConflict {
+		t.Errorf("create sink topic: status = %d", resp.StatusCode)
+	}
+
 	body, _ := json.Marshal(map[string]interface{}{
 		"name": "feat-topo",
 		"source": map[string]interface{}{
@@ -607,7 +619,7 @@ func TestHandleCreateTopologyWithFeatures(t *testing.T) {
 			"topic": "topo-sink",
 		},
 	})
-	resp := doRequest(t, srv, "POST", "/v1/processors", body)
+	resp = doRequest(t, srv, "POST", "/v1/processors", body)
 	if resp.StatusCode != http.StatusCreated && resp.StatusCode != http.StatusConflict {
 		t.Errorf("status = %d, want 201 or 409", resp.StatusCode)
 	}
@@ -1181,6 +1193,18 @@ func TestTopologyFullLifecycle(t *testing.T) {
 	srv, _, cleanup := setupTestServerWithFeatures(t)
 	defer cleanup()
 
+	// Create source and sink topics first
+	createTopicBody, _ := json.Marshal(map[string]interface{}{"name": "life-src"})
+	resp := doRequest(t, srv, "POST", "/v1/topics", createTopicBody)
+	if resp.StatusCode != http.StatusCreated && resp.StatusCode != http.StatusConflict {
+		t.Errorf("create source topic: status = %d", resp.StatusCode)
+	}
+	createTopicBody, _ = json.Marshal(map[string]interface{}{"name": "life-sink"})
+	resp = doRequest(t, srv, "POST", "/v1/topics", createTopicBody)
+	if resp.StatusCode != http.StatusCreated && resp.StatusCode != http.StatusConflict {
+		t.Errorf("create sink topic: status = %d", resp.StatusCode)
+	}
+
 	// Create topology
 	body, _ := json.Marshal(map[string]interface{}{
 		"name": "lifecycle-topo",
@@ -1193,7 +1217,7 @@ func TestTopologyFullLifecycle(t *testing.T) {
 		},
 		"operators": []map[string]interface{}{},
 	})
-	resp := doRequest(t, srv, "POST", "/v1/processors", body)
+	resp = doRequest(t, srv, "POST", "/v1/processors", body)
 	if resp.StatusCode != http.StatusCreated {
 		b, _ := io.ReadAll(resp.Body)
 		t.Fatalf("create topology: status = %d, body = %s", resp.StatusCode, string(b))
@@ -1264,6 +1288,18 @@ func TestTopologyCreateDuplicate(t *testing.T) {
 	srv, _, cleanup := setupTestServerWithFeatures(t)
 	defer cleanup()
 
+	// Create source and sink topics first
+	createTopicBody, _ := json.Marshal(map[string]interface{}{"name": "dup-src"})
+	resp := doRequest(t, srv, "POST", "/v1/topics", createTopicBody)
+	if resp.StatusCode != http.StatusCreated && resp.StatusCode != http.StatusConflict {
+		t.Errorf("create source topic: status = %d", resp.StatusCode)
+	}
+	createTopicBody, _ = json.Marshal(map[string]interface{}{"name": "dup-sink"})
+	resp = doRequest(t, srv, "POST", "/v1/topics", createTopicBody)
+	if resp.StatusCode != http.StatusCreated && resp.StatusCode != http.StatusConflict {
+		t.Errorf("create sink topic: status = %d", resp.StatusCode)
+	}
+
 	body, _ := json.Marshal(map[string]interface{}{
 		"name": "dup-topo",
 		"source": map[string]interface{}{
@@ -1276,7 +1312,7 @@ func TestTopologyCreateDuplicate(t *testing.T) {
 		"operators": []map[string]interface{}{},
 	})
 
-	resp := doRequest(t, srv, "POST", "/v1/processors", body)
+	resp = doRequest(t, srv, "POST", "/v1/processors", body)
 	if resp.StatusCode != http.StatusCreated {
 		t.Fatalf("first create: status = %d", resp.StatusCode)
 	}
@@ -1290,6 +1326,18 @@ func TestTopologyCreateDuplicate(t *testing.T) {
 func TestTopologyListWithFeatures(t *testing.T) {
 	srv, _, cleanup := setupTestServerWithFeatures(t)
 	defer cleanup()
+
+	// Create source and sink topics first
+	createTopicBody, _ := json.Marshal(map[string]interface{}{"name": "list-src"})
+	resp := doRequest(t, srv, "POST", "/v1/topics", createTopicBody)
+	if resp.StatusCode != http.StatusCreated && resp.StatusCode != http.StatusConflict {
+		t.Errorf("create source topic: status = %d", resp.StatusCode)
+	}
+	createTopicBody, _ = json.Marshal(map[string]interface{}{"name": "list-sink"})
+	resp = doRequest(t, srv, "POST", "/v1/topics", createTopicBody)
+	if resp.StatusCode != http.StatusCreated && resp.StatusCode != http.StatusConflict {
+		t.Errorf("create sink topic: status = %d", resp.StatusCode)
+	}
 
 	// Create a topology
 	body, _ := json.Marshal(map[string]interface{}{
@@ -1305,7 +1353,7 @@ func TestTopologyListWithFeatures(t *testing.T) {
 	})
 	doRequest(t, srv, "POST", "/v1/processors", body)
 
-	resp := doRequest(t, srv, "GET", "/v1/processors", nil)
+	resp = doRequest(t, srv, "GET", "/v1/processors", nil)
 	if resp.StatusCode != http.StatusOK {
 		t.Fatalf("list topologies: status = %d", resp.StatusCode)
 	}

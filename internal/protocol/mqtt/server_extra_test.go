@@ -91,7 +91,7 @@ func TestAuthenticateWithAuthFailure(t *testing.T) {
 	b.Start()
 
 	srv := NewServer(b)
-	if srv.authenticate("admin", "wrong") {
+	if _, ok := srv.authenticate("admin", "wrong"); ok {
 		t.Error("expected false for wrong password")
 	}
 }

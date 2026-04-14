@@ -97,8 +97,8 @@ auth:
   token:
     # Reference an existing secret: {name: my-secret, key: token}
     existingSecret: ""
-    # Or set a value directly (not recommended for production)
-    value: "change-me-in-production"
+    # Or set a value directly — MUST be provided for production use
+    value: ""
 
 # Health probes
 livenessProbe:

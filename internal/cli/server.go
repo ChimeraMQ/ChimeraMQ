@@ -168,6 +168,11 @@ func RunServer(args []string) {
 	if cfg.Protocols.WebSocket.Enabled {
 		wsServer := ws.NewServer(b)
 		adminServer.RegisterWebSocket(cfg.Protocols.WebSocket.Path, wsServer)
+
+		// Wire slow consumer eviction from flow controller to WS disconnection
+		if fc := b.FlowController(); fc != nil {
+			fc.SetEvictionCallback(wsServer.EvictConsumer)
+		}
 	}
 
 	go func() {

@@ -1,7 +1,6 @@
 package http
 
 import (
-	"encoding/json"
 	"fmt"
 	"net/http"
 	"strconv"
@@ -26,7 +25,7 @@ func (s *AdminServer) handleConsumerJoin(w http.ResponseWriter, r *http.Request)
 		Partitions uint32 `json:"partitions"`
 		Strategy   string `json:"strategy"`
 	}
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+	if err := decodeJSON(r, &req, 0); err != nil {
 		writeError(w, http.StatusBadRequest, "invalid request body")
 		return
 	}
@@ -38,6 +37,15 @@ func (s *AdminServer) handleConsumerJoin(w http.ResponseWriter, r *http.Request)
 		writeError(w, http.StatusBadRequest, "member_id too long")
 		return
 	}
+
+	// Validate topic exists before creating consumer group
+	if s.broker.Topics() != nil {
+		if _, ok := s.broker.Topics().GetTopic(req.Topic); !ok {
+			writeError(w, http.StatusBadRequest, "topic does not exist")
+			return
+		}
+	}
+
 	if req.Partitions == 0 {
 		req.Partitions = 1
 	}
@@ -74,7 +82,7 @@ func (s *AdminServer) handleConsumerLeave(w http.ResponseWriter, r *http.Request
 	var req struct {
 		MemberID string `json:"member_id"`
 	}
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+	if err := decodeJSON(r, &req, 0); err != nil {
 		writeError(w, http.StatusBadRequest, "invalid request body")
 		return
 	}
@@ -101,7 +109,7 @@ func (s *AdminServer) handleConsumerHeartbeat(w http.ResponseWriter, r *http.Req
 	var req struct {
 		MemberID string `json:"member_id"`
 	}
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+	if err := decodeJSON(r, &req, 0); err != nil {
 		writeError(w, http.StatusBadRequest, "invalid request body")
 		return
 	}
@@ -111,7 +119,7 @@ func (s *AdminServer) handleConsumerHeartbeat(w http.ResponseWriter, r *http.Req
 	}
 
 	if err := s.broker.StreamEngine().Heartbeat(group, req.MemberID); err != nil {
-		writeError(w, http.StatusNotFound, err.Error())
+		writeErrorf(w, http.StatusNotFound, err)
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]string{"status": "ok"})
@@ -152,15 +160,22 @@ func (s *AdminServer) handleConsumerCommitOffsets(w http.ResponseWriter, r *http
 	var req struct {
 		Offsets map[string]uint64 `json:"offsets"`
 	}
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+	if err := decodeJSON(r, &req, 0); err != nil {
 		writeError(w, http.StatusBadRequest, "invalid request body")
 		return
 	}
 
 	committed := 0
 	for partStr, offset := range req.Offsets {
+		if offset == 0 {
+			continue // skip invalid zero offset
+		}
 		partID, err := strconv.ParseUint(partStr, 10, 32)
 		if err != nil {
+			continue
+		}
+		// Reject unreasonably large offset values
+		if offset > 1<<62 {
 			continue
 		}
 		if err := s.broker.StreamEngine().CommitOffset(group, uint32(partID), offset); err != nil {

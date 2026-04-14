@@ -37,6 +37,7 @@ type ClusterConfig struct {
 	GossipBindPort    int
 	GossipSeeds       []string
 	GossipHMACKey     []byte
+	GossipAllowedNodes []string // expected node IDs; if set, only listed nodes may join
 	ProbeInterval     time.Duration
 	ProbeTimeout      time.Duration
 	IndirectNodes     int
@@ -126,6 +127,7 @@ func (m *Manager) Start() error {
 		IndirectNodes:    m.cfg.IndirectNodes,
 		SuspicionTimeout: m.cfg.SuspicionTimeout,
 		HMACKey:          m.cfg.GossipHMACKey,
+		AllowedNodes:     toGossipNodeIDs(m.cfg.GossipAllowedNodes),
 	}
 
 	swim, err := gossip.NewSWIM(swimCfg)
@@ -298,6 +300,14 @@ func toNodeIDs(ss []string) []raft.NodeID {
 	ids := make([]raft.NodeID, len(ss))
 	for i, s := range ss {
 		ids[i] = raft.NodeID(s)
+	}
+	return ids
+}
+
+func toGossipNodeIDs(ss []string) []gossip.NodeID {
+	ids := make([]gossip.NodeID, len(ss))
+	for i, s := range ss {
+		ids[i] = gossip.NodeID(s)
 	}
 	return ids
 }

@@ -234,10 +234,10 @@ func TestSessionAuthenticateWithProvider(t *testing.T) {
 	defer cleanup()
 
 	sess := &Session{b: b}
-	if !sess.authenticate("admin", "secret", "") {
+	if _, ok := sess.authenticate("admin", "secret", ""); !ok {
 		t.Error("expected authenticate to succeed with valid credentials")
 	}
-	if sess.authenticate("admin", "wrong", "") {
+	if _, ok := sess.authenticate("admin", "wrong", ""); ok {
 		t.Error("expected authenticate to fail with invalid password")
 	}
 }
@@ -247,10 +247,10 @@ func TestSessionAuthenticateWithToken(t *testing.T) {
 	defer cleanup()
 
 	sess := &Session{b: b}
-	if !sess.authenticate("", "", "my-token") {
+	if _, ok := sess.authenticate("", "", "my-token"); !ok {
 		t.Error("expected authenticate to succeed with valid token")
 	}
-	if sess.authenticate("", "", "bad-token") {
+	if _, ok := sess.authenticate("", "", "bad-token"); ok {
 		t.Error("expected authenticate to fail with invalid token")
 	}
 }
@@ -260,7 +260,7 @@ func TestSessionAuthenticateNoProvider(t *testing.T) {
 	defer cleanup()
 
 	sess := &Session{b: b}
-	if sess.authenticate("admin", "secret", "") {
+	if _, ok := sess.authenticate("admin", "secret", ""); ok {
 		t.Error("expected authenticate to fail when no provider")
 	}
 }

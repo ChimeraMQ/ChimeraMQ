@@ -521,7 +521,7 @@ func TestVerifyJWTEd25519(t *testing.T) {
 func TestVerifyJWTUnsupportedKeyType(t *testing.T) {
 	// verifyJWT with a non-RSA, non-EC, non-ed25519 key should error
 	parts := []string{"a.b", "c.d", "Zg=="}
-	err := verifyJWT(parts, "not-a-key")
+	err := verifyJWT(parts, "not-a-key", "RS256")
 	if err == nil {
 		t.Error("should fail for unsupported key type")
 	}
@@ -530,7 +530,7 @@ func TestVerifyJWTUnsupportedKeyType(t *testing.T) {
 func TestVerifyJWTBadSignatureBase64(t *testing.T) {
 	privKey, _ := rsa.GenerateKey(rand.Reader, 2048)
 	parts := []string{"a", "b", "!!!invalid-base64!!!"}
-	err := verifyJWT(parts, &privKey.PublicKey)
+	err := verifyJWT(parts, &privKey.PublicKey, "RS256")
 	if err == nil {
 		t.Error("should fail for bad base64 in signature")
 	}

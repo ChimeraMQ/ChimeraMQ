@@ -219,6 +219,16 @@ func TestValidate_ClusterEnabledNoPeers(t *testing.T) {
 	}
 }
 
+func TestValidate_ClusterEnabledNoHMACKey(t *testing.T) {
+	cfg := defaultConfig()
+	cfg.Cluster.Enabled = true
+	cfg.Cluster.Raft.Peers = []string{"node1:5672"}
+	cfg.Cluster.Gossip.HMACKey = ""
+	if err := cfg.Validate(); err == nil {
+		t.Error("expected error for cluster enabled without hmac_key")
+	}
+}
+
 func TestValidate_ClusterEnabledReplicationFactorZero(t *testing.T) {
 	cfg := defaultConfig()
 	cfg.Cluster.Enabled = true
@@ -266,6 +276,7 @@ func TestValidate_ClusterValidAckPolicies(t *testing.T) {
 		cfg := defaultConfig()
 		cfg.Cluster.Enabled = true
 		cfg.Cluster.Raft.Peers = []string{"node1:5672"}
+		cfg.Cluster.Gossip.HMACKey = "test-secret"
 		cfg.Cluster.Replication.AckPolicy = policy
 		if err := cfg.Validate(); err != nil {
 			t.Errorf("ack_policy=%q should be valid: %v", policy, err)
@@ -288,6 +299,7 @@ func TestValidate_ClusterValidSyncModes(t *testing.T) {
 		cfg := defaultConfig()
 		cfg.Cluster.Enabled = true
 		cfg.Cluster.Raft.Peers = []string{"node1:5672"}
+		cfg.Cluster.Gossip.HMACKey = "test-secret"
 		cfg.Cluster.Replication.SyncMode = mode
 		if err := cfg.Validate(); err != nil {
 			t.Errorf("sync_mode=%q should be valid: %v", mode, err)
@@ -319,6 +331,7 @@ func TestValidate_ClusterValid(t *testing.T) {
 	cfg := defaultConfig()
 	cfg.Cluster.Enabled = true
 	cfg.Cluster.Raft.Peers = []string{"node1:5672", "node2:5672"}
+	cfg.Cluster.Gossip.HMACKey = "test-secret"
 	cfg.Cluster.Replication.DefaultFactor = 3
 	cfg.Cluster.Replication.MinISR = 2
 	cfg.Cluster.Replication.AckPolicy = "quorum"

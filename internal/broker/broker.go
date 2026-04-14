@@ -52,6 +52,7 @@ type Broker struct {
 	cluster       *clusterpkg.Manager
 	encryptor     *encrypt.Encryptor
 	authProvider  auth.AuthProvider
+	authLimiter   *auth.RateLimiter
 	aclEngine     *auth.ACLEngine
 	otelTracer    *tracing.Tracer
 	warmEngine    *warm.LSMTree
@@ -188,8 +189,12 @@ func (b *Broker) Start() error {
 		default:
 			b.logger.Info("auth enabled (" + b.config.Auth.Type + ")")
 		}
+		// Initialize brute force protection rate limiter (5 attempts per 15 minutes, 30 minute ban)
+		b.authLimiter = auth.NewAuthRateLimiter(5, 15*time.Minute, 30*time.Minute)
+		b.logger.Info("auth brute force protection enabled", "max_attempts", 5, "window", "15m")
 	} else {
-		b.logger.Warn("authentication is DISABLED - all connections accepted without credentials")
+		b.logger.Warn("SECURITY WARNING: authentication is DISABLED — all connections accepted without credentials. Set auth.enabled: true in your config or CHIMERA_AUTH_ENABLED=true")
+		fmt.Fprintln(os.Stderr, "WARNING: ChimeraMQ is starting with authentication DISABLED. All connections will be accepted without credentials. Set auth.enabled: true in your config or CHIMERA_AUTH_ENABLED=true")
 	}
 	// Step 2c: ACL Engine (if enabled)
 	if b.config.ACL.Enabled {
@@ -352,6 +357,7 @@ func (b *Broker) Start() error {
 			GossipBindPort:    b.config.Cluster.Gossip.BindPort,
 			GossipSeeds:       b.config.Cluster.Gossip.Seeds,
 			GossipHMACKey:     []byte(b.config.Cluster.Gossip.HMACKey),
+			GossipAllowedNodes: b.config.Cluster.Gossip.AllowedNodes,
 			ProbeInterval:     ParseDuration(b.config.Cluster.Gossip.ProbeInterval, 1*time.Second),
 			ProbeTimeout:      ParseDuration(b.config.Cluster.Gossip.ProbeTimeout, 500*time.Millisecond),
 			IndirectNodes:     b.config.Cluster.Gossip.IndirectNodes,
@@ -446,6 +452,9 @@ func (b *Broker) Start() error {
 			MaxSlowTicks:    b.config.FlowControl.MaxSlowTicks,
 		})
 		b.logger.Info("flow control enabled")
+	}
+	if b.flowCtrl != nil {
+		b.flowCtrl.Start()
 	}
 
 	// Step 18b: WASM Runtime (if enabled)
@@ -598,6 +607,12 @@ func (b *Broker) Stop() error {
 	b.streamEngine.Close()
 	b.logger.Info("engines stopped")
 
+	// Stop flow controller (eviction ticker)
+	if b.flowCtrl != nil {
+		b.flowCtrl.Stop()
+		b.logger.Info("flow controller stopped")
+	}
+
 	// Stop TTL expirer
 	if b.ttlExpirer != nil {
 		b.ttlExpirer.Stop()
@@ -720,6 +735,9 @@ func (b *Broker) Processor() *processing.Processor { return b.processor }
 
 // AuthProvider returns the authentication provider (nil if auth disabled).
 func (b *Broker) AuthProvider() auth.AuthProvider { return b.authProvider }
+
+// AuthLimiter returns the brute force protection rate limiter (nil if auth disabled).
+func (b *Broker) AuthLimiter() *auth.RateLimiter { return b.authLimiter }
 
 // ReloadConfig reloads configuration from file and applies dynamic changes.
 // Only certain settings can be changed at runtime (logging, limits, ACL, auth file).
@@ -873,6 +891,17 @@ func (b *Broker) Deduper() *idempotent.Deduper { return b.deduper }
 // TenantManager returns the tenant manager (nil if multi-tenancy disabled).
 func (b *Broker) TenantManager() *tenant.Manager { return b.tenantMgr }
 
+// WireTopicRateLimit applies the tenant's publish rate limit to the flow controller
+// for the given topic. Called after topic creation.
+func (b *Broker) WireTopicRateLimit(topic string) {
+	if b.flowCtrl == nil || b.tenantMgr == nil {
+		return
+	}
+	if t := b.tenantMgr.GetTenant(topic); t != nil && t.Quotas.MaxPublishRate > 0 {
+		b.flowCtrl.SetTopicRateLimit(topic, t.Quotas.MaxPublishRate)
+	}
+}
+
 // QuotaEnforcer returns the resource quota enforcer (nil if multi-tenancy disabled).
 func (b *Broker) QuotaEnforcer() *tenant.ResourceQuotaEnforcer { return b.quotaEnforcer }
 
@@ -907,7 +936,7 @@ func acquireLockFile(dataDir string) (*os.File, error) {
 			}
 			// Stale or corrupt lock — remove and reclaim
 			os.Remove(lockPath)
-			f, err = os.OpenFile(lockPath, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0600)
+			f, err = os.OpenFile(lockPath, os.O_CREATE|os.O_WRONLY|os.O_EXCL, 0600)
 			if err != nil {
 				return nil, fmt.Errorf("data directory locked by another process")
 			}

@@ -11,6 +11,7 @@ import (
 	"os"
 	"sync"
 	"sync/atomic"
+	"time"
 
 	"github.com/chimeramq/chimera/internal/broker"
 )
@@ -151,6 +152,9 @@ func (m *ProtocolMux) Serve() error {
 func (m *ProtocolMux) routeConnection(conn net.Conn) {
 	defer conn.Close()
 
+	// Slowloris protection: enforce a read deadline for initial protocol detection
+	_ = conn.SetReadDeadline(time.Now().Add(10 * time.Second))
+
 	// Determine max bytes needed across all detectors
 	maxNeeded := 8 // minimum for protocol detection
 	for _, entry := range m.detectors {
@@ -172,6 +176,8 @@ func (m *ProtocolMux) routeConnection(conn net.Conn) {
 	for _, entry := range m.detectors {
 		n := entry.detector.BytesNeeded()
 		if len(peeked) >= n && entry.detector.Detect(peeked[:n]) {
+			// Clear the read deadline — protocol handlers manage their own timeouts
+			_ = conn.SetReadDeadline(time.Time{})
 			// Replace conn with the buffered reader wrapper so peeked bytes are available
 			bufConn := &bufferedConn{Conn: conn, reader: br}
 			_ = entry.handler.HandleConnection(bufConn, peeked[:n])

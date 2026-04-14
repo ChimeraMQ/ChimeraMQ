@@ -451,3 +451,42 @@ func TestSWIMHandleAliveOldIncarnation(t *testing.T) {
 		t.Error("old incarnation alive should not downgrade")
 	}
 }
+
+func TestSWIMAllowedNodesReject(t *testing.T) {
+	s, err := NewSWIM(Config{
+		NodeID:           NodeID("node-1"),
+		BindAddr:         "127.0.0.1",
+		BindPort:         0,
+		ProbeInterval:    1 * time.Second,
+		ProbeTimeout:     500 * time.Millisecond,
+		SuspicionTimeout: 5 * time.Second,
+		AllowedNodes:     []NodeID{"node-2"}, // only node-2 allowed
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer s.transport.Close()
+
+	// Try to merge an unknown node
+	s.mergeMember(MemberMsg{ID: NodeID("rogue-node"), Addr: "10.0.0.1", Port: 7946, State: Alive, Incarnation: 1})
+	if m := s.members.Get("rogue-node"); m != nil {
+		t.Error("expected rogue-node to be rejected")
+	}
+
+	// Allowed node should be accepted
+	s.mergeMember(MemberMsg{ID: NodeID("node-2"), Addr: "10.0.0.2", Port: 7946, State: Alive, Incarnation: 1})
+	if m := s.members.Get("node-2"); m == nil {
+		t.Error("expected node-2 to be accepted")
+	}
+}
+
+func TestSWIMAllowedNodesEmpty(t *testing.T) {
+	s := newTestSWIM(t, "node-1")
+	defer s.transport.Close()
+
+	// No allowlist configured — any node should be accepted
+	s.mergeMember(MemberMsg{ID: NodeID("any-node"), Addr: "10.0.0.1", Port: 7946, State: Alive, Incarnation: 1})
+	if m := s.members.Get("any-node"); m == nil {
+		t.Error("expected any-node to be accepted when no allowlist configured")
+	}
+}

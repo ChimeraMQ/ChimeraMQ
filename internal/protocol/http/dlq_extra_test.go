@@ -35,7 +35,7 @@ func setupTestServerWithPProf(t *testing.T) (*AdminServer, func()) {
 		},
 		Logging: broker.LoggingConfig{Level: "warn", Format: "text"},
 		Observability: broker.ObservabilityConfig{
-			PProf: broker.PProfConfig{Enabled: true},
+			PProf: broker.PProfConfig{Enabled: true, AllowProduction: true},
 		},
 	}
 

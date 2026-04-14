@@ -143,10 +143,12 @@ spec:
     requests:
       storage: 10Gi
 ---
+# NOTE: Do NOT use this Secret in production with the default value.
+# Create a proper Secret with a cryptographically random token, e.g.:
+#   kubectl create secret generic chimera-secrets --from-literal=admin-token="$(openssl rand -hex 32)"
 apiVersion: v1
 kind: Secret
 metadata:
   name: chimera-secrets
 type: Opaque
-stringData:
-  admin-token: "change-me-in-production"
+stringData: {}

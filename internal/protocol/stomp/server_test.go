@@ -282,10 +282,10 @@ func TestSessionAuthenticateWithProvider(t *testing.T) {
 	defer cleanup()
 
 	sess := &Session{b: b}
-	if !sess.authenticate("admin", "secret") {
+	if _, ok := sess.authenticate("admin", "secret"); !ok {
 		t.Error("expected authenticate to succeed")
 	}
-	if sess.authenticate("admin", "wrong") {
+	if _, ok := sess.authenticate("admin", "wrong"); ok {
 		t.Error("expected authenticate to fail")
 	}
 }
@@ -295,7 +295,7 @@ func TestSessionAuthenticateNoProvider(t *testing.T) {
 	defer cleanup()
 
 	sess := &Session{b: b}
-	if sess.authenticate("admin", "secret") {
+	if _, ok := sess.authenticate("admin", "secret"); ok {
 		t.Error("expected authenticate to fail with no provider")
 	}
 }

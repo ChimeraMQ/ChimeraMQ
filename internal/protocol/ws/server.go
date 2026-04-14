@@ -20,6 +20,11 @@ import (
 	"github.com/coder/websocket"
 )
 
+const (
+	wsDefaultRateLimit = 100 // messages per second per connection
+	wsRateBurst        = 50  // burst capacity above steady rate
+)
+
 // Server implements the WebSocket protocol handler.
 type Server struct {
 	broker   *broker.Broker
@@ -62,10 +67,20 @@ func (s *Server) Stop() {
 // This is mounted on the HTTP mux for the WebSocket path.
 func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	// Auth check when enabled
+	var authIdentity *auth.Identity
 	cfg := s.broker.Config()
 	if cfg.Auth.Enabled {
 		provider := s.broker.AuthProvider()
 		if provider != nil {
+			// Rate limit check
+			if lim := s.broker.AuthLimiter(); lim != nil {
+				clientIP := r.RemoteAddr
+				if !lim.IsAllowed(clientIP) {
+					http.Error(w, "authentication rate limited", http.StatusTooManyRequests)
+					return
+				}
+			}
+
 			authHeader := r.Header.Get("Authorization")
 			var creds auth.Credentials
 			if strings.HasPrefix(authHeader, "Bearer ") {
@@ -80,15 +95,28 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 				creds.Username = decoded.username
 				creds.Password = decoded.password
 			}
-			if _, err := provider.Authenticate(r.Context(), creds); err != nil {
+			identity, err := provider.Authenticate(r.Context(), creds)
+			if err != nil {
+				if lim := s.broker.AuthLimiter(); lim != nil {
+					lim.RecordFailed(r.RemoteAddr)
+				}
 				http.Error(w, "unauthorized", http.StatusUnauthorized)
 				return
 			}
+			if lim := s.broker.AuthLimiter(); lim != nil {
+				lim.RecordSuccess(r.RemoteAddr)
+			}
+			authIdentity = identity
 		}
 	}
 
 	opts := &websocket.AcceptOptions{
 		Subprotocols: []string{"chimera-json-v1", "chimera-binary-v1"},
+		OriginPatterns: []string{
+			"localhost:*",
+			"127.0.0.1:*",
+			"[::1]:*",
+		},
 	}
 
 	conn, err := websocket.Accept(w, r, opts)
@@ -101,9 +129,12 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 
 	subproto := conn.Subprotocol()
 	sess := &wsSession{
-		conn:     conn,
-		broker:   s.broker,
-		subproto: subproto,
+		conn:       conn,
+		broker:     s.broker,
+		subproto:   subproto,
+		identity:   authIdentity,
+		rateTokens: wsRateBurst, // start with full burst capacity
+		rateLast:   time.Now(),
 	}
 
 	s.sessions.Store(conn, sess)
@@ -121,6 +152,9 @@ type wsSession struct {
 	consumerID string
 	subTopic   string
 	cancelSub  context.CancelFunc
+	identity   *auth.Identity // authenticated identity for ACL checks
+	rateTokens int64          // message rate limiter tokens
+	rateLast   time.Time      // last refill timestamp
 }
 
 // wsMessage is the JSON message format for chimera-json-v1.
@@ -171,6 +205,11 @@ func (s *wsSession) serve() {
 }
 
 func (s *wsSession) handleJSON(ctx interface{}, data []byte) {
+	if !s.allowMessage() {
+		s.sendError("rate limited")
+		return
+	}
+
 	var msg wsMessage
 	if err := json.Unmarshal(data, &msg); err != nil {
 		s.sendError("invalid json")
@@ -204,6 +243,10 @@ func (s *wsSession) handleJSON(ctx interface{}, data []byte) {
 }
 
 func (s *wsSession) handleBinary(data []byte) {
+	if !s.allowMessage() {
+		s.sendError("rate limited")
+		return
+	}
 	// Binary sub-protocol: try Chimera native frame format (magic "CHMR")
 	if len(data) >= 12 && data[0] == 'C' && data[1] == 'H' && data[2] == 'M' && data[3] == 'R' {
 		s.handleChimeraFrame(data)
@@ -244,6 +287,14 @@ func (s *wsSession) handlePublishJSON(msg *wsMessage) {
 		return
 	}
 
+	// ACL check: write permission on topic
+	if acl := s.broker.ACLEngine(); acl != nil {
+		if !acl.Check(s.identity, auth.ResourceTopic, msg.Topic, auth.OpWrite) {
+			s.sendError("publish denied by ACL")
+			return
+		}
+	}
+
 	payload := []byte(msg.Payload)
 
 	env := &message.Envelope{
@@ -255,7 +306,7 @@ func (s *wsSession) handlePublishJSON(msg *wsMessage) {
 
 	offset, err := s.broker.Publish(env)
 	if err != nil {
-		s.sendError(err.Error())
+		s.sendError(wsSanitizeError(err))
 		return
 	}
 
@@ -272,6 +323,14 @@ func (s *wsSession) handleCreateTopicJSON(msg *wsMessage) {
 	if msg.Topic == "" {
 		s.sendError("topic name is required")
 		return
+	}
+
+	// ACL check: create permission on topic
+	if acl := s.broker.ACLEngine(); acl != nil {
+		if !acl.Check(s.identity, auth.ResourceTopic, msg.Topic, auth.OpCreate) {
+			s.sendError("create topic denied by ACL")
+			return
+		}
 	}
 
 	partitions := msg.Partitions
@@ -295,9 +354,12 @@ func (s *wsSession) handleCreateTopicJSON(msg *wsMessage) {
 		Partitions: partitions,
 	})
 	if err != nil {
-		s.sendError(err.Error())
+		s.sendError(wsSanitizeError(err))
 		return
 	}
+
+	// Wire per-tenant rate limit to flow controller
+	s.broker.WireTopicRateLimit(msg.Topic)
 
 	s.sendJSON(&wsMessage{Op: "create_topic_ack", Status: "ok", Topic: msg.Topic})
 }
@@ -308,9 +370,17 @@ func (s *wsSession) handleDeleteTopicJSON(msg *wsMessage) {
 		return
 	}
 
+	// ACL check: delete permission on topic
+	if acl := s.broker.ACLEngine(); acl != nil {
+		if !acl.Check(s.identity, auth.ResourceTopic, msg.Topic, auth.OpDelete) {
+			s.sendError("delete topic denied by ACL")
+			return
+		}
+	}
+
 	err := s.broker.Topics().DeleteTopic(msg.Topic)
 	if err != nil {
-		s.sendError(err.Error())
+		s.sendError(wsSanitizeError(err))
 		return
 	}
 
@@ -334,9 +404,56 @@ func (s *wsSession) sendError(msg string) {
 	s.sendJSON(&wsMessage{Op: "error", Error: msg})
 }
 
+// allowMessage checks the token bucket rate limiter before processing a message.
+// Returns false if the connection has exceeded its rate limit.
+func (s *wsSession) allowMessage() bool {
+	now := time.Now()
+	elapsed := now.Sub(s.rateLast).Seconds()
+	s.rateLast = now
+
+	// Refill tokens based on elapsed time
+	s.rateTokens += int64(elapsed * float64(wsDefaultRateLimit))
+	if s.rateTokens > wsRateBurst {
+		s.rateTokens = wsRateBurst
+	}
+
+	if s.rateTokens <= 0 {
+		return false
+	}
+	s.rateTokens--
+	return true
+}
+
+// wsSanitizeError returns a safe error message for WebSocket clients.
+// Internal errors are replaced with a generic message.
+func wsSanitizeError(err error) string {
+	msg := err.Error()
+	// Strip file paths and internal details
+	if strings.Contains(msg, "data") || strings.Contains(msg, "/") || strings.Contains(msg, "goroutine") {
+		return "internal error"
+	}
+	return msg
+}
+
 func (s *wsSession) close() {
 	s.stopSubscription()
 	s.conn.Close(websocket.StatusNormalClosure, "server shutting down")
+}
+
+// EvictConsumer closes the WebSocket connection for a given consumer ID.
+// Called by the flow controller's eviction callback when a consumer is slow.
+func (s *Server) EvictConsumer(consumerID string) {
+	s.sessions.Range(func(key, value any) bool {
+		sess := value.(*wsSession)
+		sess.mu.Lock()
+		if sess.consumerID == consumerID {
+			sess.mu.Unlock()
+			sess.close()
+			return false // stop ranging, we found it
+		}
+		sess.mu.Unlock()
+		return true // continue ranging
+	})
 }
 
 // handleSubscribeJSON handles subscribe operation for both queue and stream modes.
@@ -364,6 +481,14 @@ func (s *wsSession) handleSubscribeJSON(msg *wsMessage) {
 
 	// Generate unique consumer ID
 	consumerID := fmt.Sprintf("ws-%s-%d", msg.Topic, time.Now().UnixNano())
+
+	// ACL check: read permission on topic
+	if acl := s.broker.ACLEngine(); acl != nil {
+		if !acl.Check(s.identity, auth.ResourceTopic, msg.Topic, auth.OpRead) {
+			s.sendError("subscribe denied by ACL")
+			return
+		}
+	}
 
 	s.mu.Lock()
 	s.consumerID = consumerID
@@ -502,6 +627,14 @@ func (s *wsSession) handleFetchJSON(msg *wsMessage) {
 		return
 	}
 
+	// ACL check: read permission on topic
+	if acl := s.broker.ACLEngine(); acl != nil {
+		if !acl.Check(s.identity, auth.ResourceTopic, msg.Topic, auth.OpRead) {
+			s.sendError("fetch denied by ACL")
+			return
+		}
+	}
+
 	partitionID := msg.Partition
 	offset := msg.Offset
 	maxMessages := msg.MaxMessages
@@ -516,7 +649,7 @@ func (s *wsSession) handleFetchJSON(msg *wsMessage) {
 	// Fetch from stream engine
 	msgs, newOffset, err := s.broker.StreamEngine().Fetch(msg.Topic, partitionID, offset, maxMessages, maxWait)
 	if err != nil {
-		s.sendError(fmt.Sprintf("fetch failed: %v", err))
+		s.sendError(wsSanitizeError(err))
 		return
 	}
 
@@ -562,7 +695,7 @@ func (s *wsSession) handleCommitJSON(msg *wsMessage) {
 	}
 	err := s.broker.StreamEngine().CommitOffset(msg.Group, msg.Partition, msg.Offset)
 	if err != nil {
-		s.sendError(fmt.Sprintf("commit failed: %v", err))
+		s.sendError(wsSanitizeError(err))
 		return
 	}
 	s.sendJSON(&wsMessage{Op: "commitack", Status: "ok", Offset: msg.Offset})

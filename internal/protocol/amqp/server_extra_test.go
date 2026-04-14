@@ -891,10 +891,10 @@ func TestNegotiateSASLSuccess(t *testing.T) {
 	reader := bufio.NewReaderSize(serverConn, 64*1024)
 	writer := bufio.NewWriterSize(serverConn, 64*1024)
 
-	result := s.negotiateSASL(reader, writer, defaultMaxFrameSize)
+	_, ok := s.negotiateSASL(reader, writer, defaultMaxFrameSize, serverConn)
 	serverConn.Close()
 
-	if !result {
+	if !ok {
 		t.Error("negotiateSASL should succeed with valid credentials")
 	}
 
@@ -935,10 +935,10 @@ func TestNegotiateSASLBadCredentials(t *testing.T) {
 	reader := bufio.NewReaderSize(serverConn, 64*1024)
 	writer := bufio.NewWriterSize(serverConn, 64*1024)
 
-	result := s.negotiateSASL(reader, writer, defaultMaxFrameSize)
+	_, ok := s.negotiateSASL(reader, writer, defaultMaxFrameSize, serverConn)
 	serverConn.Close()
 
-	if result {
+	if ok {
 		t.Error("negotiateSASL should fail with bad credentials")
 	}
 }
@@ -967,10 +967,10 @@ func TestNegotiateSASLBadFrameType(t *testing.T) {
 	reader := bufio.NewReaderSize(serverConn, 64*1024)
 	writer := bufio.NewWriterSize(serverConn, 64*1024)
 
-	result := s.negotiateSASL(reader, writer, defaultMaxFrameSize)
+	_, ok := s.negotiateSASL(reader, writer, defaultMaxFrameSize, serverConn)
 	serverConn.Close()
 
-	if result {
+	if ok {
 		t.Error("negotiateSASL should fail with wrong frame type")
 	}
 }
@@ -993,10 +993,10 @@ func TestNegotiateSASLClientCloses(t *testing.T) {
 	reader := bufio.NewReaderSize(serverConn, 64*1024)
 	writer := bufio.NewWriterSize(serverConn, 64*1024)
 
-	result := s.negotiateSASL(reader, writer, defaultMaxFrameSize)
+	_, ok := s.negotiateSASL(reader, writer, defaultMaxFrameSize, serverConn)
 	serverConn.Close()
 
-	if result {
+	if ok {
 		t.Error("negotiateSASL should fail when client closes")
 	}
 }
@@ -1009,7 +1009,8 @@ func TestAuthenticateNoProvider(t *testing.T) {
 
 	// No auth provider configured
 	s := NewServer(bkr)
-	if s.authenticate("user", "pass") {
+	_, ok := s.authenticate("user", "pass")
+	if ok {
 		t.Error("authenticate should fail with no provider")
 	}
 }
@@ -1226,10 +1227,10 @@ func TestNegotiateSASLMalformedBody(t *testing.T) {
 	reader := bufio.NewReaderSize(serverConn, 64*1024)
 	writer := bufio.NewWriterSize(serverConn, 64*1024)
 
-	result := s.negotiateSASL(reader, writer, defaultMaxFrameSize)
+	_, ok := s.negotiateSASL(reader, writer, defaultMaxFrameSize, serverConn)
 	serverConn.Close()
 
-	if result {
+	if ok {
 		t.Error("negotiateSASL should fail with malformed body")
 	}
 }
@@ -1266,10 +1267,10 @@ func TestNegotiateSASLNonListInit(t *testing.T) {
 	reader := bufio.NewReaderSize(serverConn, 64*1024)
 	writer := bufio.NewWriterSize(serverConn, 64*1024)
 
-	result := s.negotiateSASL(reader, writer, defaultMaxFrameSize)
+	_, ok := s.negotiateSASL(reader, writer, defaultMaxFrameSize, serverConn)
 	serverConn.Close()
 
-	if result {
+	if ok {
 		t.Error("negotiateSASL should fail with non-list INIT")
 	}
 }

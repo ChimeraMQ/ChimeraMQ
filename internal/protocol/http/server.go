@@ -26,8 +26,51 @@ import (
 )
 
 const (
-	maxFetchTimeout = 30 * time.Second
+	maxFetchTimeout     = 30 * time.Second
+	maxJSONBodySize     = 10 << 20 // 10 MB default max JSON body size
+	maxListLimit        = 1000     // maximum items returned per list request
+	defaultListLimit    = 100      // default items returned per list request
 )
+
+// parsePagination extracts limit/offset from query params with sane defaults.
+func parsePagination(r *http.Request) (limit, offset int) {
+	limit = defaultListLimit
+	offset = 0
+	if l := r.URL.Query().Get("limit"); l != "" {
+		if v, err := strconv.Atoi(l); err == nil && v > 0 {
+			limit = v
+		}
+	}
+	if o := r.URL.Query().Get("offset"); o != "" {
+		if v, err := strconv.Atoi(o); err == nil && v >= 0 {
+			offset = v
+		}
+	}
+	if limit > maxListLimit {
+		limit = maxListLimit
+	}
+	return limit, offset
+}
+
+// paginate returns a slice clamped to [offset, offset+limit].
+func paginate[T any](items []T, limit, offset int) []T {
+	if offset >= len(items) {
+		return []T{}
+	}
+	end := offset + limit
+	if end > len(items) {
+		end = len(items)
+	}
+	return items[offset:end]
+}
+
+// decodeJSON reads and decodes JSON from r.Body, limited to maxBytes.
+func decodeJSON(r *http.Request, v any, maxBytes int64) error {
+	if maxBytes <= 0 {
+		maxBytes = maxJSONBodySize
+	}
+	return json.NewDecoder(io.LimitReader(r.Body, maxBytes)).Decode(v)
+}
 
 // AdminServer provides the HTTP admin API.
 type AdminServer struct {
@@ -73,7 +116,7 @@ func (s *AdminServer) registerRoutes() {
 	s.mux.HandleFunc("GET /v1/consumers/{group}/offsets", s.auth(s.handleConsumerOffsets))
 	s.mux.HandleFunc("POST /v1/consumers/{group}/offsets", s.auth(s.handleConsumerCommitOffsets))
 	s.mux.HandleFunc("GET /v1/health", s.handleHealth)
-	s.mux.HandleFunc("GET /v1/metrics", s.handleMetrics)
+	s.mux.HandleFunc("GET /v1/metrics", s.auth(s.handleMetrics))
 	s.mux.HandleFunc("GET /v1/cluster/members", s.auth(s.handleClusterMembers))
 	s.mux.HandleFunc("POST /v1/schemas/{subject}", s.auth(s.handleRegisterSchema))
 	s.mux.HandleFunc("GET /v1/schemas/{subject}", s.auth(s.handleListSchemas))
@@ -125,7 +168,16 @@ func (s *AdminServer) registerRoutes() {
 
 	// pprof profiling endpoints (when enabled)
 	if s.broker.Config().Observability.PProf.Enabled {
-		s.registerPProfRoutes()
+		// Security: when auth is disabled, require explicit allow_production flag
+		pprofCfg := s.broker.Config().Observability.PProf
+		if !s.broker.Config().Auth.Enabled && !pprofCfg.AllowProduction {
+			fmt.Fprintf(os.Stderr, "WARNING: pprof endpoints disabled — auth is off and allow_production is not set\n")
+		} else {
+			if !s.broker.Config().Auth.Enabled {
+				fmt.Fprintf(os.Stderr, "WARNING: pprof endpoints enabled without auth (allow_production=true)\n")
+			}
+			s.registerPProfRoutes()
+		}
 	}
 
 	// Embedded Web UI dashboard
@@ -224,14 +276,17 @@ func (s *AdminServer) handlePProfThreadcreate(w http.ResponseWriter, r *http.Req
 func (s *AdminServer) handlePProfTrace(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/octet-stream")
 	if err := trace.Start(w); err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
+		http.Error(w, sanitizeError(http.StatusInternalServerError, err), http.StatusInternalServerError)
 		return
 	}
 	defer trace.Stop()
 
-	// Wait for the specified duration or default 1 second
+	// Wait for the specified duration or default 1 second (capped at 5s)
 	duration := 1 * time.Second
 	if sec, _ := strconv.Atoi(r.URL.Query().Get("seconds")); sec > 0 {
+		if sec > 5 {
+			sec = 5
+		}
 		duration = time.Duration(sec) * time.Second
 	}
 	time.Sleep(duration)
@@ -243,9 +298,13 @@ func (s *AdminServer) securityMiddleware(next http.Handler) http.Handler {
 		w.Header().Set("X-Content-Type-Options", "nosniff")
 		w.Header().Set("X-Frame-Options", "DENY")
 		w.Header().Set("X-XSS-Protection", "1; mode=block")
+		w.Header().Set("Strict-Transport-Security", "max-age=31536000; includeSubDomains")
+		w.Header().Set("Content-Security-Policy", "default-src 'none'")
+		w.Header().Set("Referrer-Policy", "strict-origin-when-cross-origin")
+		w.Header().Set("Cache-Control", "no-store, no-cache, must-revalidate")
 
 		if r.Method == "OPTIONS" {
-			w.Header().Set("Access-Control-Allow-Methods", "GET, POST, DELETE, OPTIONS")
+			w.Header().Set("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS")
 			w.Header().Set("Access-Control-Allow-Headers", "Authorization, Content-Type")
 			w.WriteHeader(http.StatusNoContent)
 			return
@@ -272,6 +331,15 @@ func (s *AdminServer) auth(next http.HandlerFunc) http.HandlerFunc {
 			return
 		}
 
+		// Rate limit check
+		if lim := s.broker.AuthLimiter(); lim != nil {
+			clientIP := r.RemoteAddr
+			if !lim.IsAllowed(clientIP) {
+				writeError(w, http.StatusTooManyRequests, "authentication rate limited")
+				return
+			}
+		}
+
 		var creds auth.Credentials
 
 		// Bearer token auth
@@ -292,8 +360,14 @@ func (s *AdminServer) auth(next http.HandlerFunc) http.HandlerFunc {
 
 		identity, err := provider.Authenticate(r.Context(), creds)
 		if err != nil {
+			if lim := s.broker.AuthLimiter(); lim != nil {
+				lim.RecordFailed(r.RemoteAddr)
+			}
 			writeError(w, http.StatusUnauthorized, "unauthorized")
 			return
+		}
+		if lim := s.broker.AuthLimiter(); lim != nil {
+			lim.RecordSuccess(r.RemoteAddr)
 		}
 
 		// Store identity in context for downstream handlers
@@ -318,6 +392,12 @@ func (s *AdminServer) auth(next http.HandlerFunc) http.HandlerFunc {
 				rt = auth.ResourceSchema
 			} else if strings.Contains(r.URL.Path, "/wasm/") {
 				rt = auth.ResourceWASM
+			} else if strings.Contains(r.URL.Path, "/consumers/") {
+				rt = auth.ResourceConsumerGroup
+				name = r.PathValue("group")
+				if name == "" {
+					name = "*"
+				}
 			} else if strings.Contains(r.URL.Path, "/cluster/") || strings.Contains(r.URL.Path, "/processors") {
 				rt = auth.ResourceCluster
 			} else if strings.Contains(r.URL.Path, "/tenants/") {
@@ -425,8 +505,7 @@ func (s *AdminServer) handleCreateTopic(w http.ResponseWriter, r *http.Request) 
 		DLQTopic      string `json:"dlq_topic,omitempty"`
 		MaxRetries    uint32 `json:"max_retries,omitempty"`
 	}
-
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+	if err := decodeJSON(r, &req, 0); err != nil {
 		writeError(w, http.StatusBadRequest, "invalid request body")
 		return
 	}
@@ -461,9 +540,12 @@ func (s *AdminServer) handleCreateTopic(w http.ResponseWriter, r *http.Request) 
 	}
 
 	if err := s.broker.Topics().CreateTopic(cfg); err != nil {
-		writeError(w, http.StatusConflict, err.Error())
+		writeErrorf(w, http.StatusConflict, err)
 		return
 	}
+
+	// Wire per-tenant rate limit to flow controller
+	s.broker.WireTopicRateLimit(cfg.Name)
 
 	writeJSON(w, http.StatusCreated, map[string]interface{}{
 		"name":       cfg.Name,
@@ -479,6 +561,8 @@ func (s *AdminServer) handleListTopics(w http.ResponseWriter, r *http.Request) {
 	}
 
 	topics := s.broker.Topics().ListTopics()
+	limit, offset := parsePagination(r)
+	topics = paginate(topics, limit, offset)
 
 	type topicInfo struct {
 		Name       string `json:"name"`
@@ -556,7 +640,7 @@ func (s *AdminServer) handleDeleteTopic(w http.ResponseWriter, r *http.Request) 
 
 	name := r.PathValue("name")
 	if err := s.broker.Topics().DeleteTopic(name); err != nil {
-		writeError(w, http.StatusNotFound, err.Error())
+		writeErrorf(w, http.StatusNotFound, err)
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]string{"status": "deleted"})
@@ -778,7 +862,7 @@ func (s *AdminServer) handleAck(w http.ResponseWriter, r *http.Request) {
 	var req struct {
 		Offsets []uint64 `json:"offsets"`
 	}
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+	if err := decodeJSON(r, &req, 0); err != nil {
 		writeError(w, http.StatusBadRequest, "invalid request body")
 		return
 	}
@@ -806,7 +890,7 @@ func (s *AdminServer) handleNack(w http.ResponseWriter, r *http.Request) {
 	var req struct {
 		Offsets []uint64 `json:"offsets"`
 	}
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+	if err := decodeJSON(r, &req, 0); err != nil {
 		writeError(w, http.StatusBadRequest, "invalid request body")
 		return
 	}
@@ -835,6 +919,8 @@ func (s *AdminServer) handleListConsumers(w http.ResponseWriter, r *http.Request
 	}
 
 	groups := s.broker.StreamEngine().ListGroups()
+	limit, offset := parsePagination(r)
+	groups = paginate(groups, limit, offset)
 	writeJSON(w, http.StatusOK, map[string]interface{}{
 		"groups": groups,
 		"count":  len(groups),
@@ -889,6 +975,30 @@ func writeJSON(w http.ResponseWriter, status int, v interface{}) {
 
 func writeError(w http.ResponseWriter, status int, msg string) {
 	writeJSON(w, status, map[string]string{"error": msg})
+}
+
+// writeErrorf writes an error, sanitizing internal errors for clients.
+func writeErrorf(w http.ResponseWriter, status int, err error) {
+	writeJSON(w, status, map[string]string{"error": sanitizeError(status, err)})
+}
+
+// sanitizeError returns a safe error message for clients.
+// Internal errors are replaced with a generic message; the original
+// is logged server-side. Client-originated errors (bad request, not
+// found, conflict) are kept as-is since they describe the user input.
+func sanitizeError(status int, err error) string {
+	if status >= 500 {
+		return "internal server error"
+	}
+	msg := err.Error()
+	if status == http.StatusNotFound || status == http.StatusConflict || status == http.StatusBadRequest {
+		// Keep the message but strip anything that looks like a file path
+		if idx := strings.LastIndex(msg, "/"); idx >= 0 && strings.Contains(msg, ": ") {
+			msg = msg[strings.LastIndex(msg, ": ")+2:]
+		}
+		return msg
+	}
+	return "request failed"
 }
 
 // validateTopicName checks that a topic name is non-empty, has a reasonable length,
@@ -948,7 +1058,7 @@ func (s *AdminServer) handleRegisterSchema(w http.ResponseWriter, r *http.Reques
 		Type   string `json:"type"`
 		Schema string `json:"schema"`
 	}
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+	if err := decodeJSON(r, &req, 0); err != nil {
 		http.Error(w, "invalid request body", http.StatusBadRequest)
 		return
 	}
@@ -960,7 +1070,7 @@ func (s *AdminServer) handleRegisterSchema(w http.ResponseWriter, r *http.Reques
 
 	sv, err := reg.Register(subject, schemaType, req.Schema)
 	if err != nil {
-		http.Error(w, err.Error(), http.StatusConflict)
+		http.Error(w, sanitizeError(http.StatusConflict, err), http.StatusConflict)
 		return
 	}
 
@@ -977,7 +1087,7 @@ func (s *AdminServer) handleListSchemas(w http.ResponseWriter, r *http.Request) 
 	subject := r.PathValue("subject")
 	versions, err := reg.List(subject)
 	if err != nil {
-		http.Error(w, err.Error(), http.StatusNotFound)
+		http.Error(w, sanitizeError(http.StatusNotFound, err), http.StatusNotFound)
 		return
 	}
 	writeJSON(w, http.StatusOK, versions)
@@ -993,7 +1103,7 @@ func (s *AdminServer) handleGetLatestSchema(w http.ResponseWriter, r *http.Reque
 	subject := r.PathValue("subject")
 	sv, err := reg.GetLatest(subject)
 	if err != nil {
-		http.Error(w, err.Error(), http.StatusNotFound)
+		http.Error(w, sanitizeError(http.StatusNotFound, err), http.StatusNotFound)
 		return
 	}
 	writeJSON(w, http.StatusOK, sv)
@@ -1015,7 +1125,7 @@ func (s *AdminServer) handleGetSchemaVersion(w http.ResponseWriter, r *http.Requ
 
 	sv, err := reg.Get(subject, version)
 	if err != nil {
-		http.Error(w, err.Error(), http.StatusNotFound)
+		http.Error(w, sanitizeError(http.StatusNotFound, err), http.StatusNotFound)
 		return
 	}
 	writeJSON(w, http.StatusOK, sv)
@@ -1047,7 +1157,7 @@ func (s *AdminServer) handleSetCompatibility(w http.ResponseWriter, r *http.Requ
 	var req struct {
 		Mode string `json:"mode"`
 	}
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+	if err := decodeJSON(r, &req, 0); err != nil {
 		http.Error(w, "invalid request body", http.StatusBadRequest)
 		return
 	}
@@ -1083,7 +1193,7 @@ func (s *AdminServer) handleUploadWASM(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if err := rt.Compile(name, body); err != nil {
-		http.Error(w, err.Error(), http.StatusBadRequest)
+		http.Error(w, sanitizeError(http.StatusBadRequest, err), http.StatusBadRequest)
 		return
 	}
 
@@ -1101,6 +1211,8 @@ func (s *AdminServer) handleListWASM(w http.ResponseWriter, r *http.Request) {
 	}
 
 	modules := rt.ListModules()
+	limit, offset := parsePagination(r)
+	modules = paginate(modules, limit, offset)
 	writeJSON(w, http.StatusOK, map[string]interface{}{
 		"modules": modules,
 		"count":   len(modules),
@@ -1116,7 +1228,7 @@ func (s *AdminServer) handleDeleteWASM(w http.ResponseWriter, r *http.Request) {
 
 	name := r.PathValue("name")
 	if err := rt.Remove(name); err != nil {
-		http.Error(w, err.Error(), http.StatusNotFound)
+		http.Error(w, sanitizeError(http.StatusNotFound, err), http.StatusNotFound)
 		return
 	}
 	w.WriteHeader(http.StatusNoContent)
@@ -1132,18 +1244,34 @@ func (s *AdminServer) handleCreateTopology(w http.ResponseWriter, r *http.Reques
 	}
 
 	var spec processing.TopologySpec
-	if err := json.NewDecoder(r.Body).Decode(&spec); err != nil {
+	if err := decodeJSON(r, &spec, 0); err != nil {
 		http.Error(w, "invalid request body", http.StatusBadRequest)
 		return
 	}
 
-	if spec.Name == "" {
-		http.Error(w, "name is required", http.StatusBadRequest)
+	if spec.Name == "" || len(spec.Name) > 255 {
+		http.Error(w, "name is required and must be under 256 characters", http.StatusBadRequest)
 		return
 	}
 
+	// Validate topic references exist
+	if s.broker.Topics() != nil {
+		if spec.Source.Topic != "" {
+			if _, ok := s.broker.Topics().GetTopic(spec.Source.Topic); !ok {
+				http.Error(w, "source topic does not exist", http.StatusBadRequest)
+				return
+			}
+		}
+		if spec.Sink.Topic != "" {
+			if _, ok := s.broker.Topics().GetTopic(spec.Sink.Topic); !ok {
+				http.Error(w, "sink topic does not exist", http.StatusBadRequest)
+				return
+			}
+		}
+	}
+
 	if err := p.CreateTopology(spec); err != nil {
-		http.Error(w, err.Error(), http.StatusConflict)
+		http.Error(w, sanitizeError(http.StatusConflict, err), http.StatusConflict)
 		return
 	}
 
@@ -1165,6 +1293,8 @@ func (s *AdminServer) handleListTopologies(w http.ResponseWriter, r *http.Reques
 	}
 
 	names := p.ListTopologies()
+	limit, offset := parsePagination(r)
+	names = paginate(names, limit, offset)
 	writeJSON(w, http.StatusOK, map[string]interface{}{
 		"topologies": names,
 		"count":      len(names),
@@ -1204,7 +1334,7 @@ func (s *AdminServer) handleDeleteTopology(w http.ResponseWriter, r *http.Reques
 
 	name := r.PathValue("name")
 	if err := p.DeleteTopology(name); err != nil {
-		http.Error(w, err.Error(), http.StatusConflict)
+		http.Error(w, sanitizeError(http.StatusConflict, err), http.StatusConflict)
 		return
 	}
 	w.WriteHeader(http.StatusNoContent)
@@ -1219,7 +1349,7 @@ func (s *AdminServer) handleStartTopology(w http.ResponseWriter, r *http.Request
 
 	name := r.PathValue("name")
 	if err := p.StartTopology(name); err != nil {
-		http.Error(w, err.Error(), http.StatusNotFound)
+		http.Error(w, sanitizeError(http.StatusNotFound, err), http.StatusNotFound)
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]string{"status": "running"})
@@ -1234,7 +1364,7 @@ func (s *AdminServer) handleStopTopology(w http.ResponseWriter, r *http.Request)
 
 	name := r.PathValue("name")
 	if err := p.StopTopology(name); err != nil {
-		http.Error(w, err.Error(), http.StatusNotFound)
+		http.Error(w, sanitizeError(http.StatusNotFound, err), http.StatusNotFound)
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]string{"status": "stopped"})
@@ -1297,11 +1427,19 @@ func (s *AdminServer) handleDLQReplay(w http.ResponseWriter, r *http.Request) {
 		AddDLQMetadata    bool                   `json:"add_dlq_metadata"`
 	}
 
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil && err.Error() != "EOF" {
+	if err := decodeJSON(r, &req, 0); err != nil && err.Error() != "EOF" {
 		// Use defaults if no body or invalid
 		req.DryRun = false
 		req.MaxMessages = 0
 		req.DeleteAfterReplay = false
+	}
+
+	// Validate target_topic exists if specified
+	if req.TargetTopic != "" && s.broker.Topics() != nil {
+		if _, ok := s.broker.Topics().GetTopic(req.TargetTopic); !ok {
+			writeError(w, http.StatusBadRequest, "target_topic does not exist")
+			return
+		}
 	}
 
 	// Build replay options
@@ -1391,7 +1529,7 @@ func (s *AdminServer) handleDLQPreview(w http.ResponseWriter, r *http.Request) {
 		Condition   map[string]interface{} `json:"condition"`
 	}
 
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil && err.Error() != "EOF" {
+	if err := decodeJSON(r, &req, 0); err != nil && err.Error() != "EOF" {
 		req.MaxMessages = 100 // default
 	}
 
@@ -1495,7 +1633,7 @@ func (s *AdminServer) handleCreateTenant(w http.ResponseWriter, r *http.Request)
 		Labels       map[string]string `json:"labels,omitempty"`
 	}
 
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+	if err := decodeJSON(r, &req, 0); err != nil {
 		writeError(w, http.StatusBadRequest, "invalid request body")
 		return
 	}
@@ -1522,7 +1660,7 @@ func (s *AdminServer) handleCreateTenant(w http.ResponseWriter, r *http.Request)
 	}
 
 	if err := tm.CreateTenant(tenant); err != nil {
-		writeError(w, http.StatusConflict, err.Error())
+		writeErrorf(w, http.StatusConflict, err)
 		return
 	}
 
@@ -1542,6 +1680,8 @@ func (s *AdminServer) handleListTenants(w http.ResponseWriter, r *http.Request) 
 	}
 
 	tenants := tm.ListTenants()
+	limit, offset := parsePagination(r)
+	tenants = paginate(tenants, limit, offset)
 	type tenantInfo struct {
 		ID          string `json:"id"`
 		Name        string `json:"name"`
@@ -1607,7 +1747,7 @@ func (s *AdminServer) handleDeleteTenant(w http.ResponseWriter, r *http.Request)
 
 	id := r.PathValue("id")
 	if err := tm.DeleteTenant(id); err != nil {
-		writeError(w, http.StatusNotFound, err.Error())
+		writeErrorf(w, http.StatusNotFound, err)
 		return
 	}
 
@@ -1677,7 +1817,7 @@ func (s *AdminServer) handleUpdateTenantQuotas(w http.ResponseWriter, r *http.Re
 		MaxFetchRate int64 `json:"max_fetch_rate"`
 	}
 
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+	if err := decodeJSON(r, &req, 0); err != nil {
 		writeError(w, http.StatusBadRequest, "invalid request body")
 		return
 	}
@@ -1696,7 +1836,7 @@ func (s *AdminServer) handleUpdateTenantQuotas(w http.ResponseWriter, r *http.Re
 	t.Quotas.MaxFetchRate = req.MaxFetchRate
 
 	if err := tm.UpdateTenant(t); err != nil {
-		writeError(w, http.StatusInternalServerError, err.Error())
+		writeErrorf(w, http.StatusInternalServerError, err)
 		return
 	}
 

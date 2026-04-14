@@ -548,7 +548,7 @@ func TestAuthenticateNoProvider(t *testing.T) {
 	b, cleanup := newMQTTTestBroker(t)
 	defer cleanup()
 	srv := NewServer(b)
-	if srv.authenticate("user", "pass") {
+	if _, ok := srv.authenticate("user", "pass"); ok {
 		t.Error("expected false with no auth provider")
 	}
 }

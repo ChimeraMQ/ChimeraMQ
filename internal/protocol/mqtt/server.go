@@ -82,11 +82,29 @@ func (s *Server) handleConnection(conn net.Conn) {
 	}
 
 	// Authentication
+	var authIdentity *auth.Identity
 	if s.broker.Config().Auth.Enabled {
-		if !s.authenticate(connect.Username, connect.Password) {
+		// Rate limit check
+		if lim := s.broker.AuthLimiter(); lim != nil {
+			clientIP := auth.ExtractIP(conn)
+			if !lim.IsAllowed(clientIP) {
+				s.writePacket(writer, PacketConnAck, 0, BuildConnAck(false, ConnAckBadCredentials))
+				writer.Flush()
+				return
+			}
+		}
+		var ok bool
+		authIdentity, ok = s.authenticate(connect.Username, connect.Password)
+		if !ok {
+			if lim := s.broker.AuthLimiter(); lim != nil {
+				lim.RecordFailed(auth.ExtractIP(conn))
+			}
 			s.writePacket(writer, PacketConnAck, 0, BuildConnAck(false, ConnAckBadCredentials))
 			writer.Flush()
 			return
+		}
+		if lim := s.broker.AuthLimiter(); lim != nil {
+			lim.RecordSuccess(auth.ExtractIP(conn))
 		}
 	}
 
@@ -105,6 +123,7 @@ func (s *Server) handleConnection(conn net.Conn) {
 
 	// Session
 	session := NewSession(clientID, connect.CleanSession, connect.KeepAlive, connect.ProtocolLevel)
+	session.identity = authIdentity
 	if connect.WillTopic != "" {
 		session.SetWill(connect.WillTopic, connect.WillPayload, connect.WillQoS, connect.WillRetain)
 	}
@@ -161,10 +180,14 @@ func (s *Server) handleConnection(conn net.Conn) {
 			if err != nil {
 				return
 			}
-			if s.broker.Config().Auth.Enabled && !s.authenticate(newConnect.Username, newConnect.Password) {
-				s.writePacket(writer, PacketConnAck, 0, BuildConnAck(false, ConnAckBadCredentials))
-				writer.Flush()
-				return
+			if s.broker.Config().Auth.Enabled {
+				if identity, ok := s.authenticate(newConnect.Username, newConnect.Password); !ok {
+					s.writePacket(writer, PacketConnAck, 0, BuildConnAck(false, ConnAckBadCredentials))
+					writer.Flush()
+					return
+				} else {
+					session.identity = identity
+				}
 			}
 
 		case PacketPublish:
@@ -231,6 +254,13 @@ func (s *Server) handlePublish(writer *bufio.Writer, session *Session, pkt *Pack
 	// Convert MQTT topic to ChimeraMQ topic
 	chimeraTopic := s.topics.MQTTToChimera(pub.Topic)
 
+	// ACL check: write permission on topic
+	if acl := s.broker.ACLEngine(); acl != nil {
+		if !acl.Check(session.identity, auth.ResourceTopic, chimeraTopic, auth.OpWrite) {
+			return // silently deny
+		}
+	}
+
 	// Build envelope
 	env := &message.Envelope{
 		Topic:       chimeraTopic,
@@ -280,6 +310,14 @@ func (s *Server) handleSubscribe(writer *bufio.Writer, session *Session, pkt *Pa
 	returnCodes := make([]byte, len(sub.Topics))
 	for i, topic := range sub.Topics {
 		chimeraTopic := s.topics.MQTTToChimera(topic.Filter)
+
+		// ACL check: read permission on topic
+		if acl := s.broker.ACLEngine(); acl != nil {
+			if !acl.Check(session.identity, auth.ResourceTopic, chimeraTopic, auth.OpRead) {
+				returnCodes[i] = 0x80 // Failure
+				continue
+			}
+		}
 
 		// Verify topic exists (or allow auto-create)
 		_, exists := s.broker.Topics().GetTopic(chimeraTopic)
@@ -337,17 +375,17 @@ func (s *Server) publishWill(will *willMessage) {
 	}
 }
 
-func (s *Server) authenticate(username, password string) bool {
+func (s *Server) authenticate(username, password string) (*auth.Identity, bool) {
 	provider := s.broker.AuthProvider()
 	if provider == nil {
-		return false
+		return nil, false
 	}
-	_, err := provider.Authenticate(context.Background(), auth.Credentials{
+	identity, err := provider.Authenticate(context.Background(), auth.Credentials{
 		Username: username,
 		Password: password,
 		Token:    password,
 	})
-	return err == nil
+	return identity, err == nil
 }
 
 func (s *Server) writePacket(w *bufio.Writer, pktType byte, flags byte, data []byte) {

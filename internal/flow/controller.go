@@ -26,14 +26,19 @@ type Controller struct {
 	usedMemoryBytes atomic.Int64
 	highWatermark   float64 // 0.0–1.0, default 0.85
 
-	// Slow consumer tracking
+	// Slow consumer detection
 	slowThreshold time.Duration
 	slowConsumers map[string]*slowEntry // consumerID → entry
 	maxSlowTicks  int
+	slowInterval  time.Duration
+	tickStop      chan struct{}
 
 	// Connection tracking
 	connectionCount atomic.Int64
 	maxConnections  int64
+
+	// Eviction callback (wired by broker to disconnect consumers)
+	onEvict func(consumerID string)
 
 	enabled atomic.Bool
 }
@@ -84,6 +89,7 @@ func NewController(cfg Config) *Controller {
 		slowThreshold:  slowTTL,
 		maxSlowTicks:   maxSlow,
 		slowConsumers:  make(map[string]*slowEntry),
+		slowInterval:   slowTTL / 3, // check every 1/3 of the TTL
 	}
 	if cfg.GlobalRateLimit > 0 {
 		c.globalLimit = newRateLimit(cfg.GlobalRateLimit)
@@ -96,6 +102,45 @@ func NewController(cfg Config) *Controller {
 
 // Enabled returns whether flow control is active.
 func (c *Controller) Enabled() bool { return c.enabled.Load() }
+
+// Start launches the slow consumer eviction ticker.
+func (c *Controller) Start() {
+	if !c.enabled.Load() || c.slowThreshold <= 0 {
+		return
+	}
+	c.tickStop = make(chan struct{})
+	go func() {
+		ticker := time.NewTicker(c.slowInterval)
+		defer ticker.Stop()
+		for {
+			select {
+			case <-c.tickStop:
+				return
+			case <-ticker.C:
+				evicted := c.TickSlowConsumers()
+				if c.onEvict != nil {
+					for _, id := range evicted {
+						c.onEvict(id)
+					}
+				}
+			}
+		}
+	}()
+}
+
+// Stop halts the slow consumer eviction ticker.
+func (c *Controller) Stop() {
+	if c.tickStop != nil {
+		close(c.tickStop)
+	}
+}
+
+// SetEvictionCallback sets the function called when a consumer is evicted.
+func (c *Controller) SetEvictionCallback(fn func(consumerID string)) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.onEvict = fn
+}
 
 // --- Memory backpressure ---
 
@@ -179,12 +224,17 @@ func (c *Controller) Connect() bool {
 		c.connectionCount.Add(1)
 		return true
 	}
-	new := c.connectionCount.Add(1)
-	if new > c.maxConnections {
-		c.connectionCount.Add(-1)
-		return false
+	// Use compare-and-swap loop to avoid briefly exceeding the limit
+	for {
+		current := c.connectionCount.Load()
+		if current >= c.maxConnections {
+			return false
+		}
+		if c.connectionCount.CompareAndSwap(current, current+1) {
+			return true
+		}
+		// CAS failed — another goroutine changed count; retry
 	}
-	return true
 }
 
 // Disconnect decrements the connection counter.

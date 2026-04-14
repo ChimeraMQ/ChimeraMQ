@@ -61,20 +61,19 @@ func NewConsumerGroup(name, topic string, partitionCount uint32, strategy Rebala
 // Join adds a member and triggers rebalance.
 func (cg *ConsumerGroup) Join(memberID string) {
 	cg.mu.Lock()
-	defer cg.mu.Unlock()
-
 	cg.members[memberID] = &GroupMember{
 		ID:            memberID,
 		LastHeartbeat: time.Now(),
 	}
+	cg.mu.Unlock()
 	cg.rebalance()
 }
 
 // Leave removes a member and triggers rebalance.
 func (cg *ConsumerGroup) Leave(memberID string) {
 	cg.mu.Lock()
-	defer cg.mu.Unlock()
 	delete(cg.members, memberID)
+	cg.mu.Unlock()
 	cg.rebalance()
 }
 
@@ -106,6 +105,11 @@ func (cg *ConsumerGroup) GetCommittedOffset(partitionID uint32) uint64 {
 	return cg.committed[partitionID]
 }
 
+// Topic returns the topic name for this consumer group.
+func (cg *ConsumerGroup) Topic() string {
+	return cg.topic
+}
+
 // Assignments returns the current partition assignments.
 func (cg *ConsumerGroup) Assignments() map[uint32]string {
 	cg.mu.RLock()
@@ -117,13 +121,17 @@ func (cg *ConsumerGroup) Assignments() map[uint32]string {
 	return result
 }
 
-// Members returns the group members.
-func (cg *ConsumerGroup) Members() map[string]*GroupMember {
+// Members returns a deep copy of the group members.
+func (cg *ConsumerGroup) Members() map[string]GroupMember {
 	cg.mu.RLock()
 	defer cg.mu.RUnlock()
-	result := make(map[string]*GroupMember, len(cg.members))
+	result := make(map[string]GroupMember, len(cg.members))
 	for k, v := range cg.members {
-		result[k] = v
+		result[k] = GroupMember{
+			ID:            v.ID,
+			Partitions:    append([]uint32(nil), v.Partitions...),
+			LastHeartbeat: v.LastHeartbeat,
+		}
 	}
 	return result
 }
@@ -147,6 +155,9 @@ func (cg *ConsumerGroup) loadCommittedOffsets() {
 }
 
 func (cg *ConsumerGroup) rebalance() {
+	cg.mu.Lock()
+	defer cg.mu.Unlock()
+
 	// Save previous assignments for sticky strategy
 	prevAssignments := make(map[uint32]string, len(cg.assignments))
 	for k, v := range cg.assignments {
@@ -301,13 +312,19 @@ func (cg *ConsumerGroup) heartbeatLoop() {
 		case <-ticker.C:
 			cg.mu.Lock()
 			now := time.Now()
+			var expired []string
 			for id, m := range cg.members {
 				if now.Sub(m.LastHeartbeat) > cg.sessionTimeout {
-					delete(cg.members, id)
-					cg.rebalance()
+					expired = append(expired, id)
 				}
 			}
+			for _, id := range expired {
+				delete(cg.members, id)
+			}
 			cg.mu.Unlock()
+			if len(expired) > 0 {
+				cg.rebalance()
+			}
 		case <-cg.stopCh:
 			return
 		}

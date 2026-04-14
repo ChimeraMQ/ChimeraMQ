@@ -77,8 +77,11 @@ func (s *Server) handleConnection(conn net.Conn) {
 	writer.Flush()
 
 	// SASL negotiation
+	var authIdentity *auth.Identity
 	if s.broker.Config().Auth.Enabled {
-		if !s.negotiateSASL(reader, writer, maxFrameSize) {
+		var ok bool
+		authIdentity, ok = s.negotiateSASL(reader, writer, maxFrameSize, conn)
+		if !ok {
 			return
 		}
 	}
@@ -90,6 +93,7 @@ func (s *Server) handleConnection(conn net.Conn) {
 		writer:   writer,
 		maxSize:  maxFrameSize,
 		channels: make(map[uint16]*amqpChannel),
+		identity: authIdentity,
 	}
 	defer ac.close()
 
@@ -112,7 +116,7 @@ func (s *Server) handleConnection(conn net.Conn) {
 	}
 }
 
-func (s *Server) negotiateSASL(reader *bufio.Reader, writer *bufio.Writer, maxSize uint32) bool {
+func (s *Server) negotiateSASL(reader *bufio.Reader, writer *bufio.Writer, maxSize uint32, conn net.Conn) (*auth.Identity, bool) {
 	// Send SASL mechanisms
 	saslFrame := BuildSASLMechanisms()
 	_ = WriteFrame(writer, frameTypeSASL, 0, saslFrame)
@@ -121,16 +125,16 @@ func (s *Server) negotiateSASL(reader *bufio.Reader, writer *bufio.Writer, maxSi
 	// Wait for SASL INIT
 	frame, err := ReadFrame(reader, maxSize)
 	if err != nil {
-		return false
+		return nil, false
 	}
 
 	if frame.Type != frameTypeSASL {
-		return false
+		return nil, false
 	}
 
 	desc, value, err := ParseDescribedType(frame.Body)
 	if err != nil {
-		return false
+		return nil, false
 	}
 
 	_ = desc // Should be descSASLInit
@@ -139,11 +143,11 @@ func (s *Server) negotiateSASL(reader *bufio.Reader, writer *bufio.Writer, maxSi
 	tr := newTypeReader(value)
 	any, err := tr.readAny()
 	if err != nil {
-		return false
+		return nil, false
 	}
 	items, ok := any.([]interface{})
 	if !ok {
-		return false
+		return nil, false
 	}
 
 	var username, password string
@@ -160,31 +164,47 @@ func (s *Server) negotiateSASL(reader *bufio.Reader, writer *bufio.Writer, maxSi
 	}
 
 	// Authenticate
-	if !s.authenticate(username, password) {
+	if lim := s.broker.AuthLimiter(); lim != nil {
+		clientIP := auth.ExtractIP(conn)
+		if !lim.IsAllowed(clientIP) {
+			outcome := BuildSASLOutcome(1) // auth failed
+			_ = WriteFrame(writer, frameTypeSASL, 0, outcome)
+			writer.Flush()
+			return nil, false
+		}
+	}
+	identity, ok := s.authenticate(username, password)
+	if !ok {
+		if lim := s.broker.AuthLimiter(); lim != nil {
+			lim.RecordFailed(auth.ExtractIP(conn))
+		}
 		outcome := BuildSASLOutcome(1) // auth failed
 		_ = WriteFrame(writer, frameTypeSASL, 0, outcome)
 		writer.Flush()
-		return false
+		return nil, false
+	}
+	if lim := s.broker.AuthLimiter(); lim != nil {
+		lim.RecordSuccess(auth.ExtractIP(conn))
 	}
 
 	// Success
 	outcome := BuildSASLOutcome(0) // OK
 	_ = WriteFrame(writer, frameTypeSASL, 0, outcome)
 	writer.Flush()
-	return true
+	return identity, true
 }
 
-func (s *Server) authenticate(username, password string) bool {
+func (s *Server) authenticate(username, password string) (*auth.Identity, bool) {
 	provider := s.broker.AuthProvider()
 	if provider == nil {
-		return false
+		return nil, false
 	}
-	_, err := provider.Authenticate(context.Background(), auth.Credentials{
+	identity, err := provider.Authenticate(context.Background(), auth.Credentials{
 		Username: username,
 		Password: password,
 		Token:    password,
 	})
-	return err == nil
+	return identity, err == nil
 }
 
 func splitNull(s string) []string {
@@ -211,6 +231,7 @@ type amqpConn struct {
 	channels    map[uint16]*amqpChannel
 	mu          sync.Mutex
 	containerID string
+	identity    *auth.Identity // authenticated identity for ACL checks
 }
 
 type amqpChannel struct {
@@ -376,6 +397,13 @@ func (ac *amqpConn) handleTransfer(value []byte, channel uint16) error {
 
 	if linkAddr == "" {
 		return nil
+	}
+
+	// ACL check: write permission on topic
+	if acl := ac.server.broker.ACLEngine(); acl != nil {
+		if !acl.Check(ac.identity, auth.ResourceTopic, linkAddr, auth.OpWrite) {
+			return nil // silently deny
+		}
 	}
 
 	// The message body is the raw bytes after the performative in the frame

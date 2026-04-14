@@ -32,6 +32,7 @@ type Session struct {
 	mu            sync.RWMutex
 	closed        bool
 	version       string
+	identity      *auth.Identity // authenticated identity for ACL checks
 }
 
 // Subscription represents a STOMP subscription.
@@ -124,11 +125,31 @@ func (s *Session) handleConnect(frame *Frame) error {
 	if s.b.Config().Auth.Enabled {
 		login := frame.Get("login")
 		passcode := frame.Get("passcode")
-		if !s.authenticate(login, passcode) {
+
+		// Rate limit check
+		if lim := s.b.AuthLimiter(); lim != nil {
+			clientIP := auth.ExtractIP(s.conn)
+			if !lim.IsAllowed(clientIP) {
+				errFrame := NewFrame(CmdError)
+				errFrame.Set("message", "Authentication rate limited")
+				_ = s.writeFrame(errFrame)
+				return fmt.Errorf("authentication rate limited")
+			}
+		}
+
+		if identity, ok := s.authenticate(login, passcode); !ok {
+			if lim := s.b.AuthLimiter(); lim != nil {
+				lim.RecordFailed(auth.ExtractIP(s.conn))
+			}
 			errFrame := NewFrame(CmdError)
 			errFrame.Set("message", "Authentication failed")
 			_ = s.writeFrame(errFrame)
 			return fmt.Errorf("authentication failed")
+		} else {
+			if lim := s.b.AuthLimiter(); lim != nil {
+				lim.RecordSuccess(auth.ExtractIP(s.conn))
+			}
+			s.identity = identity
 		}
 	}
 
@@ -182,6 +203,13 @@ func (s *Session) handleSend(frame *Frame) error {
 	destination = strings.TrimPrefix(destination, "topic/")
 	destination = strings.TrimPrefix(destination, "queue/")
 
+	// ACL check: write permission on topic
+	if acl := s.b.ACLEngine(); acl != nil {
+		if !acl.Check(s.identity, auth.ResourceTopic, destination, auth.OpWrite) {
+			return s.sendError("Publish denied by ACL", "ACL policy prevents publishing to this destination")
+		}
+	}
+
 	// Create message envelope
 	env := &message.Envelope{
 		Topic:       destination,
@@ -233,6 +261,13 @@ func (s *Session) handleSubscribe(frame *Frame) error {
 	destination = strings.TrimPrefix(destination, "/")
 	destination = strings.TrimPrefix(destination, "topic/")
 	destination = strings.TrimPrefix(destination, "queue/")
+
+	// ACL check: read permission on topic
+	if acl := s.b.ACLEngine(); acl != nil {
+		if !acl.Check(s.identity, auth.ResourceTopic, destination, auth.OpRead) {
+			return s.sendError("Subscribe denied by ACL", "ACL policy prevents subscribing to this destination")
+		}
+	}
 
 	sub := &Subscription{
 		ID:          subID,
@@ -418,16 +453,16 @@ func (s *Session) close() {
 	s.conn.Close()
 }
 
-func (s *Session) authenticate(username, password string) bool {
+func (s *Session) authenticate(username, password string) (*auth.Identity, bool) {
 	provider := s.b.AuthProvider()
 	if provider == nil {
-		return false
+		return nil, false
 	}
-	_, err := provider.Authenticate(context.Background(), auth.Credentials{
+	identity, err := provider.Authenticate(context.Background(), auth.Credentials{
 		Username: username,
 		Password: password,
 	})
-	return err == nil
+	return identity, err == nil
 }
 
 func generateSessionID() string {

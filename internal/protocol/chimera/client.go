@@ -6,6 +6,8 @@ import (
 	"io"
 	"net"
 	"sync"
+
+	"github.com/chimeramq/chimera/internal/auth"
 )
 
 // ClientConn represents a connected client.
@@ -17,6 +19,7 @@ type ClientConn struct {
 	clientID string
 	subs     map[string]*Subscription
 	subsMu   sync.RWMutex
+	identity *auth.Identity // authenticated identity for ACL checks
 }
 
 // writeFrame writes a frame to the client connection. Returns error on write failure.

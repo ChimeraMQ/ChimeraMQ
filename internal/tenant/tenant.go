@@ -29,6 +29,7 @@ type Tenant struct {
 	Enabled     bool
 
 	// Rate tracking
+	quotaMu      sync.Mutex // protects reset+check atomicity
 	publishCount atomic.Int64 // current window count
 	fetchCount   atomic.Int64
 	connCount    atomic.Int64
@@ -207,14 +208,25 @@ func (m *Manager) CreateTenant(t *Tenant) error {
 	return nil
 }
 
-// UpdateTenant updates an existing tenant.
+// UpdateTenant updates an existing tenant's quotas only.
 func (m *Manager) UpdateTenant(t *Tenant) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	if _, exists := m.tenants[t.ID]; !exists {
+	existing, exists := m.tenants[t.ID]
+	if !exists {
 		return fmt.Errorf("tenant %q not found", t.ID)
 	}
-	m.tenants[t.ID] = t
+	// Only update quota fields; protect internal state
+	existing.Quotas = t.Quotas
+	if t.Name != "" {
+		existing.Name = t.Name
+	}
+	if t.Description != "" {
+		existing.Description = t.Description
+	}
+	if t.Labels != nil {
+		existing.Labels = t.Labels
+	}
 	return nil
 }
 
@@ -262,14 +274,20 @@ func (m *Manager) CheckQuota(tenantID string, op string) bool {
 		if t.Quotas.MaxPublishRate <= 0 {
 			return true // unlimited
 		}
+		t.quotaMu.Lock()
 		t.resetWindowIfNeeded()
-		return t.publishCount.Add(1) <= t.Quotas.MaxPublishRate
+		allowed := t.publishCount.Add(1) <= t.Quotas.MaxPublishRate
+		t.quotaMu.Unlock()
+		return allowed
 	case "fetch":
 		if t.Quotas.MaxFetchRate <= 0 {
 			return true
 		}
+		t.quotaMu.Lock()
 		t.resetWindowIfNeeded()
-		return t.fetchCount.Add(1) <= t.Quotas.MaxFetchRate
+		allowed := t.fetchCount.Add(1) <= t.Quotas.MaxFetchRate
+		t.quotaMu.Unlock()
+		return allowed
 	case "connect":
 		if t.Quotas.MaxConnections <= 0 {
 			return true
@@ -314,13 +332,21 @@ func (m *Manager) DecrConnection(tenantID string) {
 }
 
 // resetWindowIfNeeded resets rate counters if the current second has elapsed.
+// Uses atomic CAS to ensure only one goroutine performs the reset.
 func (t *Tenant) resetWindowIfNeeded() {
 	now := time.Now().Unix()
-	start := t.windowStart.Load()
-	if now > start {
-		t.windowStart.Store(now)
-		t.publishCount.Store(0)
-		t.fetchCount.Store(0)
+	for {
+		start := t.windowStart.Load()
+		if now <= start {
+			return // not yet a new window
+		}
+		// Atomically claim the window transition
+		if t.windowStart.CompareAndSwap(start, now) {
+			t.publishCount.Store(0)
+			t.fetchCount.Store(0)
+			return
+		}
+		// CAS failed — another goroutine reset; retry to see if we're still past the window
 	}
 }
 

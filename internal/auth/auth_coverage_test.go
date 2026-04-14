@@ -151,7 +151,7 @@ func TestAlgMatchesKeyUnsupported(t *testing.T) {
 
 func TestECDSAVerifyInvalidLength(t *testing.T) {
 	privKey, _ := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
-	err := ecdsaVerify(&privKey.PublicKey, "data", []byte("short"))
+	err := ecdsaVerify(&privKey.PublicKey, "data", []byte("short"), "ES256")
 	if err == nil {
 		t.Error("expected error for invalid ECDSA signature length")
 	}

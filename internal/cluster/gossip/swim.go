@@ -19,6 +19,9 @@ type Config struct {
 	SuspicionTimeout time.Duration
 	// HMACKey enables HMAC-SHA256 message authentication when non-empty.
 	HMACKey []byte
+	// AllowedNodes is a list of node IDs that are permitted to join the cluster.
+	// If empty, any node with the correct HMAC key can join (less secure).
+	AllowedNodes []NodeID
 }
 
 // transport is the minimal interface required by SWIM.
@@ -435,7 +438,19 @@ func (s *SWIM) handleSync(msg *Message) {
 func (s *SWIM) mergeMember(m MemberMsg) {
 	existing := s.members.Get(m.ID)
 	if existing == nil {
-		// New member
+		// New member — check allowlist if configured
+		if len(s.cfg.AllowedNodes) > 0 {
+			allowed := false
+			for _, id := range s.cfg.AllowedNodes {
+				if id == m.ID {
+					allowed = true
+					break
+				}
+			}
+			if !allowed {
+				return // reject unknown node
+			}
+		}
 		s.members.Add(&Member{
 			ID:          m.ID,
 			Addr:        m.Addr,

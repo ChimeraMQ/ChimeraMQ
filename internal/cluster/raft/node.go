@@ -44,6 +44,9 @@ type RaftNode struct {
 	// Peer management
 	peers []NodeID
 
+	// Election: vote tracking under mutex to prevent duplicate becomeLeader()
+	votesReceived int
+
 	// Shutdown
 	stopCh   chan struct{}
 	done     chan struct{}
@@ -227,12 +230,15 @@ func (n *RaftNode) run() {
 			return
 		case <-n.electionTimer.C:
 			n.mu.Lock()
-			if n.state != Leader {
+			isLeader := n.state == Leader
+			n.mu.Unlock()
+			if !isLeader {
 				n.startElection()
 			} else {
+				n.mu.Lock()
 				n.resetElectionTimerLocked()
+				n.mu.Unlock()
 			}
-			n.mu.Unlock()
 		case <-snapshotTicker.C:
 			n.maybeSnapshot()
 		}
@@ -271,12 +277,12 @@ func (n *RaftNode) randomElectionTimeout() time.Duration {
 
 // startElection starts a new election.
 func (n *RaftNode) startElection() {
+	n.mu.Lock()
 	n.state = Candidate
 	n.currentTerm++
 	n.votedFor = n.id
+	n.votesReceived = 1 // self-vote
 	n.saveState()
-
-	votesReceived := 1 // self
 
 	lastIndex := n.log.LastIndex()
 	lastTerm := n.log.LastTerm()
@@ -292,15 +298,25 @@ func (n *RaftNode) startElection() {
 
 	// Single-node cluster: self-vote is sufficient for quorum.
 	quorum := (len(n.peers)+1)/2 + 1
-	if votesReceived >= quorum {
+	if n.votesReceived >= quorum {
 		n.becomeLeader()
+		n.mu.Unlock()
 		return
 	}
+	n.mu.Unlock()
 
 	for _, peer := range n.peers {
 		peer := peer
 		go func() {
 			resp, err := n.transport.SendRequestVote(peer, req)
+
+			// Check if node was shut down while waiting for response
+			select {
+			case <-n.stopCh:
+				return
+			default:
+			}
+
 			if err != nil {
 				return
 			}
@@ -318,8 +334,8 @@ func (n *RaftNode) startElection() {
 			}
 
 			if resp.VoteGranted {
-				votesReceived++
-				if votesReceived >= quorum {
+				n.votesReceived++
+				if n.votesReceived >= quorum {
 					n.becomeLeader()
 				}
 			}
@@ -329,6 +345,9 @@ func (n *RaftNode) startElection() {
 
 // becomeLeader transitions to leader state.
 func (n *RaftNode) becomeLeader() {
+	if n.state != Candidate {
+		return // already stepped down or promoted by another goroutine
+	}
 	n.state = Leader
 
 	// Initialize nextIndex/matchIndex

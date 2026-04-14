@@ -154,13 +154,30 @@ func (s *Server) handleConnection(conn net.Conn) {
 
 	// V-02: Authentication check
 	if s.broker.Config().Auth.Enabled {
-		_, authErr := s.authenticate(payload.Username, payload.Password)
+		// Rate limit check
+		if lim := s.broker.AuthLimiter(); lim != nil {
+			clientIP := auth.ExtractIP(conn)
+			if !lim.IsAllowed(clientIP) {
+				connackPayload := encodeConnAck("", 1)
+				connackFrame, _ := EncodeFrame(&Frame{Version: FrameVersion, OpCode: OpConnAck, Payload: connackPayload})
+				_ = client.writeFrame(connackFrame)
+				return
+			}
+		}
+		identity, authErr := s.authenticate(payload.Username, payload.Password)
 		if authErr != nil {
+			if lim := s.broker.AuthLimiter(); lim != nil {
+				lim.RecordFailed(auth.ExtractIP(conn))
+			}
 			connackPayload := encodeConnAck("", 1) // status 1 = auth failed
 			connackFrame, _ := EncodeFrame(&Frame{Version: FrameVersion, OpCode: OpConnAck, Payload: connackPayload})
 			_ = client.writeFrame(connackFrame)
 			return
 		}
+		if lim := s.broker.AuthLimiter(); lim != nil {
+			lim.RecordSuccess(auth.ExtractIP(conn))
+		}
+		client.identity = identity
 	}
 
 	if payload.ClientID == "" {
@@ -212,13 +229,14 @@ func (s *Server) handleConnection(conn net.Conn) {
 		case OpConnect:
 			newPayload := decodeConnect(frame.Payload)
 			if s.broker.Config().Auth.Enabled {
-				_, authErr := s.authenticate(newPayload.Username, newPayload.Password)
+				identity, authErr := s.authenticate(newPayload.Username, newPayload.Password)
 				if authErr != nil {
 					connackPayload := encodeConnAck("", 1)
 					connackFrame, _ := EncodeFrame(&Frame{Version: FrameVersion, OpCode: OpConnAck, Payload: connackPayload})
 					_ = client.writeFrame(connackFrame)
 					return
 				}
+				client.identity = identity
 			}
 			s.clients.Delete(client.clientID)
 			if newPayload.ClientID == "" {
@@ -278,6 +296,14 @@ func (s *Server) authenticate(username, password string) (*auth.Identity, error)
 func (s *Server) handlePublish(client *ClientConn, frame *Frame) {
 	payload := decodePublish(frame.Payload)
 
+	// ACL check: write permission on topic
+	if acl := s.broker.ACLEngine(); acl != nil {
+		if !acl.Check(client.identity, auth.ResourceTopic, payload.Topic, auth.OpWrite) {
+			s.sendError(client, "publish denied by ACL")
+			return
+		}
+	}
+
 	env := &message.Envelope{
 		Topic:       payload.Topic,
 		RoutingKey:  payload.RoutingKey,
@@ -303,6 +329,16 @@ func (s *Server) handlePublish(client *ClientConn, frame *Frame) {
 func (s *Server) handleSubscribe(client *ClientConn, frame *Frame) {
 	payload := decodeSubscribe(frame.Payload)
 
+	// ACL check: read permission on topic
+	if acl := s.broker.ACLEngine(); acl != nil {
+		if !acl.Check(client.identity, auth.ResourceTopic, payload.Topic, auth.OpRead) {
+			ackPayload := encodeSubAck(payload.Topic, false)
+			ackFrame, _ := EncodeFrame(&Frame{Version: FrameVersion, OpCode: OpSubAck, Payload: ackPayload})
+			_ = client.writeFrame(ackFrame)
+			return
+		}
+	}
+
 	sub := &Subscription{topic: payload.Topic, mode: payload.Mode}
 	client.subsMu.Lock()
 	client.subs[payload.Topic] = sub
@@ -316,6 +352,15 @@ func (s *Server) handleSubscribe(client *ClientConn, frame *Frame) {
 func (s *Server) handleFetch(client *ClientConn, frame *Frame) {
 	r := newReader(frame.Payload)
 	topic, _ := r.readString()
+
+	// ACL check: read permission on topic
+	if acl := s.broker.ACLEngine(); acl != nil {
+		if !acl.Check(client.identity, auth.ResourceTopic, topic, auth.OpRead) {
+			s.sendError(client, "fetch denied by ACL")
+			return
+		}
+	}
+
 	var partitionID uint32
 	var fromOffset uint64
 	var maxMessages uint32 = 100
@@ -422,6 +467,14 @@ func (s *Server) handleCommitOffset(client *ClientConn, frame *Frame) {
 func (s *Server) handleCreateTopic(client *ClientConn, frame *Frame) {
 	payload := decodeCreateTopic(frame.Payload)
 
+	// ACL check: create permission on topic
+	if acl := s.broker.ACLEngine(); acl != nil {
+		if !acl.Check(client.identity, auth.ResourceTopic, payload.Name, auth.OpCreate) {
+			s.sendError(client, "create topic denied by ACL")
+			return
+		}
+	}
+
 	mode := broker.ModeUnified
 	switch payload.Mode {
 	case "stream":
@@ -448,6 +501,14 @@ func (s *Server) handleCreateTopic(client *ClientConn, frame *Frame) {
 func (s *Server) handleDeleteTopic(client *ClientConn, frame *Frame) {
 	r := newReader(frame.Payload)
 	name, _ := r.readString()
+
+	// ACL check: delete permission on topic
+	if acl := s.broker.ACLEngine(); acl != nil {
+		if !acl.Check(client.identity, auth.ResourceTopic, name, auth.OpDelete) {
+			s.sendError(client, "delete topic denied by ACL")
+			return
+		}
+	}
 
 	if err := s.broker.Topics().DeleteTopic(name); err != nil {
 		s.sendError(client, err.Error())

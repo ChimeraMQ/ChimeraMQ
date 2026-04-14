@@ -582,10 +582,8 @@ func TestStartElectionHigherTermResponse(t *testing.T) {
 	transport.voteResps["node-3"] = &RequestVoteResponse{Term: 50, VoteGranted: false}
 	transport.mu.Unlock()
 
-	// Trigger election
-	node.mu.Lock()
+	// Trigger election (startElection manages its own locking)
 	node.startElection()
-	node.mu.Unlock()
 
 	// Give goroutines time to run
 	time.Sleep(100 * time.Millisecond)
@@ -617,9 +615,8 @@ func TestStartElectionNoVoteGranted(t *testing.T) {
 	transport.voteResps["node-3"] = &RequestVoteResponse{Term: 1, VoteGranted: false}
 	transport.mu.Unlock()
 
-	node.mu.Lock()
+	// Trigger election (startElection manages its own locking)
 	node.startElection()
-	node.mu.Unlock()
 
 	time.Sleep(100 * time.Millisecond)
 
@@ -643,9 +640,8 @@ func TestStartElectionTransportError(t *testing.T) {
 	node.log.Load()
 	os.MkdirAll(filepath.Join(cfg.DataDir, "raft"), 0755)
 
-	node.mu.Lock()
+	// Trigger election (startElection manages its own locking)
 	node.startElection()
-	node.mu.Unlock()
 
 	time.Sleep(100 * time.Millisecond)
 
@@ -670,10 +666,8 @@ func TestStartElectionStaleStateAfterVote(t *testing.T) {
 	node.log.Load()
 	os.MkdirAll(filepath.Join(cfg.DataDir, "raft"), 0755)
 
-	// Start election
-	node.mu.Lock()
+	// Start election (startElection manages its own locking)
 	node.startElection()
-	node.mu.Unlock()
 
 	// Quickly change state away from Candidate
 	time.Sleep(20 * time.Millisecond)

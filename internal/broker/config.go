@@ -67,6 +67,7 @@ type GossipConfig struct {
 	IndirectNodes    int      `yaml:"indirect_nodes"`
 	SuspicionTimeout string   `yaml:"suspicion_timeout"`
 	HMACKey          string   `yaml:"hmac_key"`
+	AllowedNodes     []string `yaml:"allowed_nodes"` // expected node IDs; if set, only listed nodes may join
 }
 
 // ReplicationConfig controls partition replication.
@@ -328,7 +329,8 @@ type ObservabilityConfig struct {
 
 // PProfConfig controls profiling endpoints.
 type PProfConfig struct {
-	Enabled bool `yaml:"enabled"`
+	Enabled        bool `yaml:"enabled"`
+	AllowProduction bool `yaml:"allow_production"` // must be true when auth is disabled
 }
 
 // DashboardConfig controls the embedded Web UI.
@@ -632,7 +634,7 @@ func defaultConfig() *Config {
 		},
 		ACL: ACL{
 			Enabled:       false,
-			DefaultPolicy: "allow",
+			DefaultPolicy: "deny",
 		},
 		GeoReplication: GeoReplicationConfig{
 			Enabled:         false,
@@ -787,6 +789,9 @@ func (c *Config) Validate() error {
 	if c.Cluster.Enabled {
 		if len(c.Cluster.Raft.Peers) == 0 {
 			return fmt.Errorf("cluster.raft.peers is required when cluster is enabled")
+		}
+		if c.Cluster.Gossip.HMACKey == "" {
+			return fmt.Errorf("cluster.gossip.hmac_key is required when cluster is enabled")
 		}
 		if c.Cluster.Replication.DefaultFactor < 1 {
 			return fmt.Errorf("cluster.replication.default_factor must be >= 1")

@@ -1,7 +1,6 @@
 package http
 
 import (
-	"encoding/json"
 	"net/http"
 
 	"github.com/chimeramq/chimera/internal/engine/exchange"
@@ -14,7 +13,7 @@ func (s *AdminServer) handleCreateExchange(w http.ResponseWriter, r *http.Reques
 		Type    string `json:"type"`
 		Durable bool   `json:"durable"`
 	}
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+	if err := decodeJSON(r, &req, 0); err != nil {
 		writeError(w, http.StatusBadRequest, "invalid request body")
 		return
 	}
@@ -26,7 +25,7 @@ func (s *AdminServer) handleCreateExchange(w http.ResponseWriter, r *http.Reques
 	xtype := exchange.ExchangeTypeFromString(req.Type)
 	ex, err := s.broker.Exchanges().Declare(req.Name, xtype, req.Durable)
 	if err != nil {
-		writeError(w, http.StatusConflict, err.Error())
+		writeErrorf(w, http.StatusConflict, err)
 		return
 	}
 
@@ -39,6 +38,8 @@ func (s *AdminServer) handleCreateExchange(w http.ResponseWriter, r *http.Reques
 
 func (s *AdminServer) handleListExchanges(w http.ResponseWriter, r *http.Request) {
 	names := s.broker.Exchanges().List()
+	limit, offset := parsePagination(r)
+	names = paginate(names, limit, offset)
 
 	type exchangeInfo struct {
 		Name     string `json:"name"`
@@ -97,7 +98,7 @@ func (s *AdminServer) handleGetExchange(w http.ResponseWriter, r *http.Request) 
 func (s *AdminServer) handleDeleteExchange(w http.ResponseWriter, r *http.Request) {
 	name := r.PathValue("name")
 	if err := s.broker.Exchanges().Delete(name); err != nil {
-		writeError(w, http.StatusNotFound, err.Error())
+		writeErrorf(w, http.StatusNotFound, err)
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]string{"status": "deleted"})
@@ -110,7 +111,7 @@ func (s *AdminServer) handleBindExchange(w http.ResponseWriter, r *http.Request)
 		Destination string            `json:"destination"`
 		Arguments   map[string]string `json:"arguments,omitempty"`
 	}
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+	if err := decodeJSON(r, &req, 0); err != nil {
 		writeError(w, http.StatusBadRequest, "invalid request body")
 		return
 	}
@@ -120,7 +121,7 @@ func (s *AdminServer) handleBindExchange(w http.ResponseWriter, r *http.Request)
 	}
 
 	if err := s.broker.Exchanges().Bind(name, req.Key, req.Destination, req.Arguments); err != nil {
-		writeError(w, http.StatusNotFound, err.Error())
+		writeErrorf(w, http.StatusNotFound, err)
 		return
 	}
 
@@ -133,13 +134,13 @@ func (s *AdminServer) handleUnbindExchange(w http.ResponseWriter, r *http.Reques
 		Key         string `json:"key"`
 		Destination string `json:"destination"`
 	}
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+	if err := decodeJSON(r, &req, 0); err != nil {
 		writeError(w, http.StatusBadRequest, "invalid request body")
 		return
 	}
 
 	if err := s.broker.Exchanges().Unbind(name, req.Key, req.Destination); err != nil {
-		writeError(w, http.StatusNotFound, err.Error())
+		writeErrorf(w, http.StatusNotFound, err)
 		return
 	}
 
@@ -153,14 +154,14 @@ func (s *AdminServer) handlePublishToExchange(w http.ResponseWriter, r *http.Req
 		Headers    map[string]string `json:"headers,omitempty"`
 		Payload    []byte            `json:"payload"`
 	}
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+	if err := decodeJSON(r, &req, 0); err != nil {
 		writeError(w, http.StatusBadRequest, "invalid request body")
 		return
 	}
 
 	destinations, err := s.broker.Exchanges().Route(name, req.RoutingKey, req.Headers)
 	if err != nil {
-		writeError(w, http.StatusNotFound, err.Error())
+		writeErrorf(w, http.StatusNotFound, err)
 		return
 	}
 

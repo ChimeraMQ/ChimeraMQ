@@ -8,11 +8,13 @@ import (
 	"crypto/elliptic"
 	"crypto/rsa"
 	"crypto/sha256"
+	"crypto/sha512"
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"math/big"
 	"net/http"
+	"os"
 	"strings"
 	"sync"
 	"time"
@@ -116,7 +118,7 @@ func (p *OAuthProvider) Authenticate(ctx context.Context, creds Credentials) (*I
 	}
 
 	// Verify signature
-	if err := verifyJWT(parts, pubKey); err != nil {
+	if err := verifyJWT(parts, pubKey, alg); err != nil {
 		return nil, fmt.Errorf("jwt verification: %w", err)
 	}
 
@@ -153,6 +155,21 @@ func (p *OAuthProvider) Authenticate(ctx context.Context, creds Credentials) (*I
 	if exp, ok := payload["exp"].(float64); ok {
 		if time.Now().Unix() > int64(exp) {
 			return nil, fmt.Errorf("token expired")
+		}
+	}
+
+	// Check not-before
+	if nbf, ok := payload["nbf"].(float64); ok {
+		if time.Now().Unix() < int64(nbf) {
+			return nil, fmt.Errorf("token not yet valid")
+		}
+	}
+
+	// Reject tokens issued too far in the past (30-day max lifetime)
+	if iat, ok := payload["iat"].(float64); ok {
+		const maxTokenAge = 30 * 24 * int64(time.Hour/time.Second)
+		if time.Now().Unix()-int64(iat) > maxTokenAge {
+			return nil, fmt.Errorf("token too old")
 		}
 	}
 
@@ -217,7 +234,7 @@ func (p *OAuthProvider) refreshLoop() {
 		case <-ticker.C:
 			if err := p.refreshKeys(); err != nil {
 				// Log but don't fail — keep existing keys
-				_ = err
+				fmt.Fprintf(os.Stderr, "WARNING: JWKS refresh failed: %v\n", err)
 			}
 		}
 	}
@@ -241,7 +258,11 @@ func (p *OAuthProvider) refreshKeys() error {
 		return fmt.Errorf("discovery decode: %w", err)
 	}
 
-	// Fetch JWKS
+	// Fetch JWKS — enforce HTTPS (except localhost for testing)
+	isLocal := strings.Contains(disc.JWKSURI, "localhost") || strings.Contains(disc.JWKSURI, "127.0.0.1")
+	if !strings.HasPrefix(disc.JWKSURI, "https://") && !isLocal {
+		return fmt.Errorf("jwks URI must use HTTPS, got: %s", disc.JWKSURI)
+	}
 	jwksResp, err := p.httpClient.Get(disc.JWKSURI)
 	if err != nil {
 		return fmt.Errorf("jwks fetch: %w", err)
@@ -376,7 +397,7 @@ func algMatchesKey(alg string, pubKey interface{}) error {
 	return nil
 }
 
-func verifyJWT(parts []string, pubKey interface{}) error {
+func verifyJWT(parts []string, pubKey interface{}, alg string) error {
 	// Reconstruct the signed content
 	signed := parts[0] + "." + parts[1]
 	sig, err := base64.RawURLEncoding.DecodeString(parts[2])
@@ -386,11 +407,9 @@ func verifyJWT(parts []string, pubKey interface{}) error {
 
 	switch k := pubKey.(type) {
 	case *rsa.PublicKey:
-		// For simplicity, we support RS256 verification via crypto/rsa
-		// In production you'd check the alg header
-		return rsaVerifyPKCS1v15(k, signed, sig)
+		return rsaVerifyPKCS1v15(k, signed, sig, alg)
 	case *ecdsa.PublicKey:
-		return ecdsaVerify(k, signed, sig)
+		return ecdsaVerify(k, signed, sig, alg)
 	case ed25519.PublicKey:
 		if !ed25519.Verify(k, []byte(signed), sig) {
 			return fmt.Errorf("ed25519 verification failed")
@@ -401,19 +420,14 @@ func verifyJWT(parts []string, pubKey interface{}) error {
 	}
 }
 
-func rsaVerifyPKCS1v15(pub *rsa.PublicKey, data string, sig []byte) error {
-	h := sha256Sum([]byte(data))
-	return rsa.VerifyPKCS1v15(pub, crypto.SHA256, h, sig)
+func rsaVerifyPKCS1v15(pub *rsa.PublicKey, data string, sig []byte, alg string) error {
+	h := hashForAlg(alg, []byte(data))
+	return rsa.VerifyPKCS1v15(pub, hashCrypto(alg), h, sig)
 }
 
-func sha256Sum(data []byte) []byte {
-	h := sha256.Sum256(data)
-	return h[:]
-}
-
-func ecdsaVerify(pub *ecdsa.PublicKey, data string, sig []byte) error {
-	h := sha256Sum([]byte(data))
-	// ECDSA sig is r || s, each 32 bytes for P-256
+func ecdsaVerify(pub *ecdsa.PublicKey, data string, sig []byte, alg string) error {
+	h := hashForAlg(alg, []byte(data))
+	// ECDSA sig is r || s, each byteLen bytes for the curve
 	byteLen := (pub.Curve.Params().BitSize + 7) / 8
 	if len(sig) != 2*byteLen {
 		return fmt.Errorf("invalid ECDSA signature length")
@@ -424,4 +438,36 @@ func ecdsaVerify(pub *ecdsa.PublicKey, data string, sig []byte) error {
 		return fmt.Errorf("ecdsa verification failed")
 	}
 	return nil
+}
+
+func hashForAlg(alg string, data []byte) []byte {
+	switch alg {
+	case "RS384", "ES384":
+		h := sha512.New384()
+		h.Write(data)
+		return h.Sum(nil)
+	case "RS512", "ES512":
+		h := sha512.New()
+		h.Write(data)
+		return h.Sum(nil)
+	default: // RS256, ES256, EdDSA
+		h := sha256.Sum256(data)
+		return h[:]
+	}
+}
+
+func hashCrypto(alg string) crypto.Hash {
+	switch alg {
+	case "RS384", "ES384":
+		return crypto.SHA384
+	case "RS512", "ES512":
+		return crypto.SHA512
+	default:
+		return crypto.SHA256
+	}
+}
+
+func sha256Sum(data []byte) []byte {
+	h := sha256.Sum256(data)
+	return h[:]
 }
