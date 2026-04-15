@@ -11,7 +11,7 @@ ARG DATE=unknown
 RUN CGO_ENABLED=0 GOOS=linux go build -ldflags="-s -w -X main.version=${VERSION} -X main.commit=${COMMIT} -X main.date=${DATE}" -o /chimera ./cmd/chimera
 
 # Runtime stage
-FROM alpine:3.21
+FROM alpine:3.23
 RUN apk add --no-cache ca-certificates tini
 RUN addgroup -S chimera && adduser -S chimera -G chimera
 COPY --from=builder /chimera /usr/local/bin/chimera
