@@ -19,7 +19,7 @@ jobs:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
 
       - name: Set up Go
-        uses: actions/setup-go@3041bf56c941b39c17d8b5a82a1c0ea9291374a8 # v5.2.0
+        uses: actions/setup-go@v6
         with:
           go-version: ${{ matrix.go }}
 
@@ -36,7 +36,7 @@ jobs:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
 
       - name: Set up Go
-        uses: actions/setup-go@3041bf56c941b39c17d8b5a82a1c0ea9291374a8 # v5.2.0
+        uses: actions/setup-go@v6
         with:
           go-version: '1.25'
 
@@ -57,12 +57,12 @@ jobs:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
 
       - name: Set up Go
-        uses: actions/setup-go@3041bf56c941b39c17d8b5a82a1c0ea9291374a8 # v5.2.0
+        uses: actions/setup-go@v6
         with:
           go-version: '1.25'
 
       - name: golangci-lint
-        uses: golangci/golangci-lint-action@55c2b1449710b71a4a7e005389e0d6fae1597a79 # v6.5.0
+        uses: golangci/golangci-lint-action@v9
         with:
           version: v2.11
 
@@ -73,7 +73,7 @@ jobs:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
 
       - name: Set up Go
-        uses: actions/setup-go@3041bf56c941b39c17d8b5a82a1c0ea9291374a8 # v5.2.0
+        uses: actions/setup-go@v6
         with:
           go-version: '1.25'
 
@@ -90,7 +90,7 @@ jobs:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
 
       - name: Set up Go
-        uses: actions/setup-go@3041bf56c941b39c17d8b5a82a1c0ea9291374a8 # v5.2.0
+        uses: actions/setup-go@v6
         with:
           go-version: '1.25'
 
