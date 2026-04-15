@@ -180,15 +180,17 @@ func (s *AdminServer) registerRoutes() {
 
 	// pprof profiling endpoints (when enabled)
 	if s.broker.Config().Observability.PProf.Enabled {
-		// Security: when auth is disabled, require explicit allow_production flag
 		pprofCfg := s.broker.Config().Observability.PProf
-		if !s.broker.Config().Auth.Enabled && !pprofCfg.AllowProduction {
-			fmt.Fprintf(os.Stderr, "WARNING: pprof endpoints disabled — auth is off and allow_production is not set\n")
-		} else {
-			if !s.broker.Config().Auth.Enabled {
-				fmt.Fprintf(os.Stderr, "WARNING: pprof endpoints enabled without auth (allow_production=true)\n")
-			}
+		if s.broker.Config().Auth.Enabled {
+			// Auth enabled: pprof safe to enable
 			s.registerPProfRoutes()
+		} else if pprofCfg.AllowProduction {
+			// Auth disabled but explicit opt-in: log critical warning and enable
+			fmt.Fprintf(os.Stderr, "CRITICAL: pprof endpoints enabled without auth (allow_production=true)\n")
+			s.registerPProfRoutes()
+		} else {
+			// Auth disabled, no explicit opt-in: keep pprof disabled
+			fmt.Fprintf(os.Stderr, "WARNING: pprof endpoints disabled — auth is off and allow_production is not set\n")
 		}
 	}
 
