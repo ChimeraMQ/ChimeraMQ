@@ -61,6 +61,15 @@ jobs:
         with:
           go-version: '1.25'
 
+      - name: Check formatting
+        run: |
+          UNFORMATTED=$(gofmt -l .)
+          if [ -n "$UNFORMATTED" ]; then
+            echo "Unformatted files found:"
+            echo "$UNFORMATTED"
+            exit 1
+          fi
+
       - name: golangci-lint
         uses: golangci/golangci-lint-action@v8
         with:
