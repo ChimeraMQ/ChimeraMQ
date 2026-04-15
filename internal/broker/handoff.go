@@ -17,6 +17,7 @@ type HandoffManager struct {
 	handoffSock string
 	listener    net.Listener
 	draining    bool
+	started     bool
 }
 
 // NewHandoffManager creates a new handoff manager for rolling upgrades.
@@ -38,7 +39,11 @@ func (h *HandoffManager) Start() error {
 		return fmt.Errorf("handoff listen: %w", err)
 	}
 
+	h.mu.Lock()
 	h.listener = ln
+	h.started = true
+	h.mu.Unlock()
+
 	h.b.logger.Info("handoff manager started", "socket", h.handoffSock)
 
 	go h.run()
@@ -47,8 +52,14 @@ func (h *HandoffManager) Start() error {
 
 // Stop stops the handoff manager.
 func (h *HandoffManager) Stop() {
-	if h.listener != nil {
-		_ = h.listener.Close()
+	h.mu.Lock()
+	listener := h.listener
+	h.listener = nil // Prevent further accepts
+	h.started = false
+	h.mu.Unlock()
+
+	if listener != nil {
+		_ = listener.Close()
 	}
 	_ = os.Remove(h.handoffSock)
 }
@@ -56,9 +67,20 @@ func (h *HandoffManager) Stop() {
 // run handles incoming handoff requests from new version.
 func (h *HandoffManager) run() {
 	for {
-		conn, err := h.listener.Accept()
+		h.mu.RLock()
+		listener := h.listener
+		h.mu.RUnlock()
+
+		if listener == nil {
+			return
+		}
+
+		conn, err := listener.Accept()
 		if err != nil {
-			if h.draining {
+			h.mu.RLock()
+			draining := h.draining
+			h.mu.RUnlock()
+			if draining || listener == nil {
 				return
 			}
 			h.b.logger.Error("handoff accept failed", "error", err)

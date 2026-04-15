@@ -313,9 +313,8 @@ func (lsm *LSMTree) compactL0() {
 	// Collect L0 SSTables for compaction
 	toCompact := lsm.levels[0].sstables
 	lsm.levels[0].sstables = nil
-	lsm.mu.Unlock()
 
-	// Merge all entries from SSTables
+	// Merge all entries from SSTables (keep lock held to prevent race with other goroutines)
 	merged := make(map[uint64][]byte) // offset -> value
 	deleted := make(map[uint64]bool)  // offset -> deleted
 
@@ -343,13 +342,12 @@ func (lsm *LSMTree) compactL0() {
 	newSST, err := FlushMemTable(mt, lsm.dir, lsm.config.BloomFPRate)
 	if err != nil {
 		// Put back the old SSTables
-		lsm.mu.Lock()
 		lsm.levels[0].sstables = append(toCompact, lsm.levels[0].sstables...)
 		lsm.mu.Unlock()
 		return
 	}
 
-	// Remove old SSTables
+	// Remove old SSTables (still under lock)
 	for _, sst := range toCompact {
 		if err := lsm.manifest.Remove(sst.Path()); err != nil {
 			slog.Error("manifest remove", "err", err)
@@ -359,12 +357,11 @@ func (lsm *LSMTree) compactL0() {
 		}
 	}
 
-	lsm.mu.Lock()
-	defer lsm.mu.Unlock()
 	lsm.levels[1].sstables = append(lsm.levels[1].sstables, newSST)
 	if err := lsm.manifest.Add(1, newSST); err != nil {
 		slog.Error("manifest add L1", "err", err)
 	}
+	lsm.mu.Unlock()
 }
 
 // OldSSTables returns SSTables at L1+ older than the given threshold.
