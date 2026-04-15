@@ -91,7 +91,7 @@ func (t *TCPTransport) SetAddr(nodeID NodeID, addr string) {
 	// Only close existing connection if the address is actually changing
 	if currentAddr, ok := t.addrs[nodeID]; ok && currentAddr != addr {
 		if entry, ok := t.conns[nodeID]; ok {
-		_ = entry.conn.Close()
+			_ = entry.conn.Close()
 			delete(t.conns, nodeID)
 		}
 	}
@@ -194,7 +194,7 @@ func (t *TCPTransport) invalidateConn(nodeID NodeID) {
 	t.mu.Lock()
 	defer t.mu.Unlock()
 	if entry, ok := t.conns[nodeID]; ok {
-	_ = entry.conn.Close()
+		_ = entry.conn.Close()
 		delete(t.conns, nodeID)
 	}
 }
@@ -203,7 +203,7 @@ func (t *TCPTransport) evictConn(nodeID NodeID) {
 	t.mu.Lock()
 	defer t.mu.Unlock()
 	if entry, ok := t.conns[nodeID]; ok {
-	_ = entry.conn.Close()
+		_ = entry.conn.Close()
 		delete(t.conns, nodeID)
 	}
 }
