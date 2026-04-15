@@ -22,15 +22,15 @@ func newGCPProvider(cfg Config) (Provider, error) {
 }
 
 func (g *gcpProvider) GenerateDataKey(ctx context.Context, keyID string, keySpec string) (*DataKey, error) {
-	return nil, fmt.Errorf("Google Cloud KMS support requires GCP SDK: go get cloud.google.com/go/kms/apiv1")
+	return nil, fmt.Errorf("google Cloud KMS support requires GCP SDK: go get cloud.google.com/go/kms/apiv1")
 }
 
 func (g *gcpProvider) DecryptDataKey(ctx context.Context, encryptedKey []byte, keyID string) ([]byte, error) {
-	return nil, fmt.Errorf("Google Cloud KMS support requires GCP SDK: go get cloud.google.com/go/kms/apiv1")
+	return nil, fmt.Errorf("google Cloud KMS support requires GCP SDK: go get cloud.google.com/go/kms/apiv1")
 }
 
 func (g *gcpProvider) Encrypt(ctx context.Context, plaintext []byte, keyID string) ([]byte, error) {
-	return nil, fmt.Errorf("Google Cloud KMS support requires GCP SDK: go get cloud.google.com/go/kms/apiv1")
+	return nil, fmt.Errorf("google Cloud KMS support requires GCP SDK: go get cloud.google.com/go/kms/apiv1")
 }
 
 func (g *gcpProvider) Decrypt(ctx context.Context, ciphertext []byte, keyID string) ([]byte, error) {

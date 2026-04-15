@@ -119,7 +119,7 @@ func hashKernel(key []byte) (uint64, uint64) {
 
 // hashBytes produces a hash of key with the given seed.
 func hashBytes(key []byte, seed uint8) uint64 {
-	var h uint64 = uint64(seed)*0x9e3779b97f4a7c15 + 0x517cc1b727220a95
+	var h = uint64(seed)*0x9e3779b97f4a7c15 + 0x517cc1b727220a95
 	for _, b := range key {
 		h ^= uint64(b)
 		h *= 0x5bd1e9955bd1e995

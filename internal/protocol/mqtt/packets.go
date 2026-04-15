@@ -146,7 +146,7 @@ func ReadPacket(r io.Reader) (*Packet, error) {
 
 func readRemainingLength(r io.Reader) (int, error) {
 	var value int
-	var multiplier int = 1
+	var multiplier = 1
 	var b [1]byte
 
 	for i := 0; i < 4; i++ {

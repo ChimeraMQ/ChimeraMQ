@@ -22,19 +22,19 @@ func newAzureProvider(cfg Config) (Provider, error) {
 }
 
 func (a *azureProvider) GenerateDataKey(ctx context.Context, keyID string, keySpec string) (*DataKey, error) {
-	return nil, fmt.Errorf("Azure Key Vault support requires Azure SDK: go get github.com/Azure/azure-sdk-for-go/sdk/keyvault/azkeys")
+	return nil, fmt.Errorf("azure Key Vault support requires Azure SDK: go get github.com/Azure/azure-sdk-for-go/sdk/keyvault/azkeys")
 }
 
 func (a *azureProvider) DecryptDataKey(ctx context.Context, encryptedKey []byte, keyID string) ([]byte, error) {
-	return nil, fmt.Errorf("Azure Key Vault support requires Azure SDK: go get github.com/Azure/azure-sdk-for-go/sdk/keyvault/azkeys")
+	return nil, fmt.Errorf("azure Key Vault support requires Azure SDK: go get github.com/Azure/azure-sdk-for-go/sdk/keyvault/azkeys")
 }
 
 func (a *azureProvider) Encrypt(ctx context.Context, plaintext []byte, keyID string) ([]byte, error) {
-	return nil, fmt.Errorf("Azure Key Vault support requires Azure SDK: go get github.com/Azure/azure-sdk-for-go/sdk/keyvault/azkeys")
+	return nil, fmt.Errorf("azure Key Vault support requires Azure SDK: go get github.com/Azure/azure-sdk-for-go/sdk/keyvault/azkeys")
 }
 
 func (a *azureProvider) Decrypt(ctx context.Context, ciphertext []byte, keyID string) ([]byte, error) {
-	return nil, fmt.Errorf("Azure Key Vault support requires Azure SDK: go get github.com/Azure/azure-sdk-for-go/sdk/keyvault/azkeys")
+	return nil, fmt.Errorf("azure Key Vault support requires Azure SDK: go get github.com/Azure/azure-sdk-for-go/sdk/keyvault/azkeys")
 }
 
 func (a *azureProvider) Close() error {
