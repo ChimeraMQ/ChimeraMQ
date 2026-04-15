@@ -77,6 +77,7 @@ cluster:
       - "127.0.0.1:%d"
   gossip:
     bind_port: %d
+    hmac_key: "test-gossip-key-for-integration-tests-only"
     seeds:
       - "127.0.0.1:%d"
 auth:
@@ -387,6 +388,7 @@ cluster:
       - "127.0.0.1:%d"
   gossip:
     bind_port: %d
+    hmac_key: "test-gossip-key-for-integration-tests-only"
     seeds:
       - "127.0.0.1:%d"
 auth:
