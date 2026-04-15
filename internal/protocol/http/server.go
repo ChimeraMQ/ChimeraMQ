@@ -345,7 +345,7 @@ func (s *AdminServer) auth(next http.HandlerFunc) http.HandlerFunc {
 
 		// Rate limit check
 		if lim := s.broker.AuthLimiter(); lim != nil {
-			clientIP := r.RemoteAddr
+			clientIP := extractRealIP(r, cfg.Listener.TrustedProxyCIDR)
 			if !lim.IsAllowed(clientIP) {
 				writeError(w, http.StatusTooManyRequests, "authentication rate limited")
 				return
@@ -447,6 +447,36 @@ func hasClusterAdminRole(ident *auth.Identity) bool {
 		}
 	}
 	return false
+}
+
+// extractRealIP extracts the real client IP by checking X-Forwarded-For.
+// If TrustedProxyCIDR is set and the request comes from a trusted proxy,
+// the leftmost untrusted IP from X-Forwarded-For is returned.
+// Otherwise, r.RemoteAddr is returned.
+func extractRealIP(r *http.Request, trustedCIDR string) string {
+	if trustedCIDR != "" {
+		proxy := net.ParseIP(strings.TrimSpace(strings.Split(r.RemoteAddr, ":")[0]))
+		_, ipNet, err := net.ParseCIDR(trustedCIDR)
+		if err == nil && ipNet.Contains(proxy) {
+			if fwd := r.Header.Get("X-Forwarded-For"); fwd != "" {
+				// Take leftmost IP (original client) and reject if multiple IPs present
+				// (indicates spoofing attempt via comma-separated values)
+				ips := strings.Split(fwd, ",")
+				if len(ips) == 1 {
+					trimmed := strings.TrimSpace(ips[0])
+					if clientIP := net.ParseIP(trimmed); clientIP != nil {
+						return trimmed
+					}
+				}
+			}
+		}
+	}
+	// Fallback: TCP remote address
+	addr := r.RemoteAddr
+	if host, _, err := net.SplitHostPort(addr); err == nil {
+		return host
+	}
+	return addr
 }
 
 // methodToOp maps HTTP methods to auth operations.

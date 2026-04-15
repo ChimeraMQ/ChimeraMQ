@@ -232,12 +232,13 @@ type NodeConfig struct {
 
 // ListenerConfig controls network listeners.
 type ListenerConfig struct {
-	Bind           string `yaml:"bind"`
-	Port           int    `yaml:"port"`
-	AdminPort      int    `yaml:"admin_port"`
-	GRPCPort       int    `yaml:"grpc_port"`
-	GeoPort        int    `yaml:"geo_port"`
-	MaxConnections int    `yaml:"max_connections"`
+	Bind            string `yaml:"bind"`
+	Port            int    `yaml:"port"`
+	AdminPort       int    `yaml:"admin_port"`
+	GRPCPort        int    `yaml:"grpc_port"`
+	GeoPort         int    `yaml:"geo_port"`
+	MaxConnections  int    `yaml:"max_connections"`
+	TrustedProxyCIDR string `yaml:"trusted_proxy_cidr"` // CIDR range of trusted proxies; empty = no proxy trust
 }
 
 // StorageConfig controls storage tiers.
@@ -767,6 +768,9 @@ func applyEnvOverrides(cfg *Config) {
 	}
 	if v := os.Getenv("CHIMERA_CLUSTER_GOSSIP_HMAC_KEY"); v != "" {
 		cfg.Cluster.Gossip.HMACKey = v
+	}
+	if v := os.Getenv("CHIMERA_TRUSTED_PROXY_CIDR"); v != "" {
+		cfg.Listener.TrustedProxyCIDR = v
 	}
 	if v := os.Getenv("CHIMERA_PROCESSING_ENABLED"); v == "true" {
 		cfg.Processing.Enabled = true
