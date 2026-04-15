@@ -456,7 +456,7 @@ func (r *Registry) saveGlobalID() {
 	path := filepath.Join(r.schemasDir, "_global_id.json")
 	tmpPath := path + ".tmp"
 	if os.WriteFile(tmpPath, data, 0640) == nil {
-	_ = os.Remove(path)
+		_ = os.Remove(path)
 		if err := os.Rename(tmpPath, path); err != nil {
 			slog.Error("schema global id rename", "err", err)
 		}
