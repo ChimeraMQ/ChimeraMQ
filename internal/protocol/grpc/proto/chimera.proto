@@ -1,0 +1,198 @@
+syntax = "proto3";
+
+package chimera.v1;
+
+option go_package = "github.com/chimeramq/chimera/internal/protocol/grpc/proto";
+
+// ChimeraMQ is a unified message queue and event streaming platform.
+// The gRPC API provides bidirectional streaming for publish and consume operations.
+service ChimeraService {
+  // Publish a single message to a topic.
+  rpc Publish(PublishRequest) returns (PublishResponse);
+
+  // Publish multiple messages in a batch.
+  rpc PublishBatch(PublishBatchRequest) returns (PublishBatchResponse);
+
+  // Consume messages from a topic with offset tracking.
+  // Client sends ConsumeRequest (subscribe/fetch/ack), server streams messages.
+  rpc Consume(stream ConsumeRequest) returns (stream ConsumeResponse);
+
+  // Create a new topic.
+  rpc CreateTopic(CreateTopicRequest) returns (CreateTopicResponse);
+
+  // Delete a topic.
+  rpc DeleteTopic(DeleteTopicRequest) returns (DeleteTopicResponse);
+
+  // Get topic information.
+  rpc GetTopicInfo(GetTopicInfoRequest) returns (GetTopicInfoResponse);
+
+  // Health check.
+  rpc Health(HealthRequest) returns (HealthResponse);
+}
+
+// --- Publish ---
+
+message PublishRequest {
+  string topic = 1;
+  bytes payload = 2;
+  string routing_key = 3;
+  int32 priority = 4;
+  int64 ttl_ms = 5;
+  int64 deliver_at_ms = 6;
+  map<string, bytes> headers = 7;
+  string content_type = 8;
+}
+
+message PublishResponse {
+  string topic = 1;
+  uint32 partition_id = 2;
+  uint64 offset = 3;
+}
+
+// --- Batch Publish ---
+
+message PublishBatchRequest {
+  repeated PublishRequest messages = 1;
+}
+
+message BatchPublishResult {
+  bool ok = 1;
+  uint32 partition_id = 2;
+  uint64 offset = 3;
+}
+
+message PublishBatchResponse {
+  repeated BatchPublishResult results = 1;
+  int32 success_count = 2;
+  int32 failure_count = 3;
+}
+
+// --- Consume (bidirectional streaming) ---
+
+message ConsumeRequest {
+  oneof action {
+    SubscribeRequest subscribe = 1;
+    FetchRequest fetch = 2;
+    AckRequest ack = 3;
+    NackRequest nack = 4;
+    CommitOffsetRequest commit_offset = 5;
+    UnsubscribeRequest unsubscribe = 6;
+  }
+}
+
+message SubscribeRequest {
+  string topic = 1;
+  string group_id = 2;  // empty for stream mode, set for consumer group mode
+  uint64 start_offset = 3;
+}
+
+message FetchRequest {
+  int32 max_messages = 1;
+}
+
+message AckRequest {
+  string topic = 1;
+  string group_id = 2;
+  uint64 offset = 3;
+}
+
+message NackRequest {
+  string topic = 1;
+  string group_id = 2;
+  uint64 offset = 3;
+  bool requeue = 4;
+}
+
+message CommitOffsetRequest {
+  string topic = 1;
+  string group_id = 2;
+  uint64 offset = 3;
+}
+
+message UnsubscribeRequest {
+  string topic = 1;
+}
+
+message ConsumeResponse {
+  oneof event {
+    Message message = 1;
+    Heartbeat heartbeat = 2;
+    ErrorInfo error = 3;
+  }
+}
+
+message Message {
+  string topic = 1;
+  uint32 partition_id = 2;
+  uint64 offset = 3;
+  bytes message_id = 4;   // UUIDv7 (16 bytes)
+  int64 timestamp_ms = 5;
+  string routing_key = 6;
+  int32 priority = 7;
+  map<string, bytes> headers = 8;
+  string content_type = 9;
+  bytes payload = 10;
+  uint32 schema_id = 11;
+}
+
+message Heartbeat {
+  int64 server_timestamp_ms = 1;
+}
+
+message ErrorInfo {
+  string message = 1;
+  int32 code = 2;
+}
+
+// --- Topic Management ---
+
+message TopicConfig {
+  string name = 1;
+  string mode = 2;          // "queue", "stream", or "unified"
+  uint32 partitions = 3;
+  int64 retention_ms = 4;
+  int64 max_segment_size = 5;
+}
+
+message CreateTopicRequest {
+  TopicConfig config = 1;
+}
+
+message CreateTopicResponse {
+  bool created = 1;
+  TopicConfig config = 2;
+}
+
+message DeleteTopicRequest {
+  string topic = 1;
+}
+
+message DeleteTopicResponse {
+  bool deleted = 1;
+}
+
+message GetTopicInfoRequest {
+  string topic = 1;
+}
+
+message PartitionInfo {
+  uint32 id = 1;
+  uint64 head_offset = 2;
+  uint64 tail_offset = 3;
+  int64 size_bytes = 4;
+}
+
+message GetTopicInfoResponse {
+  TopicConfig config = 1;
+  repeated PartitionInfo partitions = 2;
+}
+
+// --- Health ---
+
+message HealthRequest {}
+
+message HealthResponse {
+  bool healthy = 1;
+  string version = 2;
+  int64 uptime_ms = 3;
+}
