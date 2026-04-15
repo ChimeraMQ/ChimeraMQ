@@ -134,12 +134,26 @@ func (p *LDAPProvider) dial() (*ldap.Conn, error) {
 		return nil, fmt.Errorf("ldap dial: %w", err)
 	}
 	if p.useTLS {
-		if err := conn.StartTLS(&tls.Config{MinVersion: tls.VersionTLS12}); err != nil {
+		host := strings.TrimPrefix(p.url, "ldap://")
+		host = strings.TrimSuffix(host, ":"+extractPort(p.url))
+		if err := conn.StartTLS(&tls.Config{
+			ServerName:         host,
+			MinVersion:         tls.VersionTLS12,
+			InsecureSkipVerify: false,
+		}); err != nil {
 			conn.Close()
 			return nil, fmt.Errorf("ldap StartTLS: %w", err)
 		}
 	}
 	return conn, nil
+}
+
+// extractPort pulls the port number from an ldap:// URL.
+func extractPort(url string) string {
+	if idx := strings.LastIndex(url, ":"); idx >= 0 {
+		return url[idx+1:]
+	}
+	return "389"
 }
 
 // extractCN extracts the CN from a DN string.

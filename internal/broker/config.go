@@ -765,6 +765,9 @@ func applyEnvOverrides(cfg *Config) {
 	if v := os.Getenv("CHIMERA_WASM_ENABLED"); v == "true" {
 		cfg.WASM.Enabled = true
 	}
+	if v := os.Getenv("CHIMERA_CLUSTER_GOSSIP_HMAC_KEY"); v != "" {
+		cfg.Cluster.Gossip.HMACKey = v
+	}
 	if v := os.Getenv("CHIMERA_PROCESSING_ENABLED"); v == "true" {
 		cfg.Processing.Enabled = true
 	}

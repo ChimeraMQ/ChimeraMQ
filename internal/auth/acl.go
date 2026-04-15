@@ -130,6 +130,7 @@ func (e *ACLEngine) matchEntry(entry ACLEntry, identity *Identity, rt ResourceTy
 }
 
 // matchGlob does simple glob matching: "*" matches any suffix/prefix.
+// For "public.*" pattern, matches exactly one segment after prefix.
 func matchGlob(pattern, name string) bool {
 	if pattern == "*" {
 		return true
@@ -137,10 +138,10 @@ func matchGlob(pattern, name string) bool {
 	if matched, _ := filepath.Match(pattern, name); matched {
 		return true
 	}
-	// Also support prefix wildcard like "public.*"
+	// prefix wildcard like "public.*" — must match exactly one dot-delimited segment
 	if strings.HasSuffix(pattern, ".*") {
 		prefix := strings.TrimSuffix(pattern, ".*")
-		return strings.HasPrefix(name, prefix+".")
+		return strings.HasPrefix(name, prefix+".") && !strings.Contains(name[len(prefix)+1:], ".")
 	}
 	return pattern == name
 }
