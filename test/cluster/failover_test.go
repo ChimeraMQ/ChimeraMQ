@@ -17,6 +17,7 @@ func TestClusterFailoverLeaderKill(t *testing.T) {
 
 	// This test requires a compiled chimera binary
 	binary := getBinaryPath(t)
+	defer os.Remove("chimera-test")
 
 	// Create temporary directories for 3-node cluster
 	baseDir := t.TempDir()
@@ -158,6 +159,7 @@ func TestClusterFailoverQuorumLoss(t *testing.T) {
 	}
 
 	binary := getBinaryPath(t)
+	defer os.Remove("chimera-test")
 
 	// Create temporary directories for 3-node cluster
 	baseDir := t.TempDir()
@@ -280,7 +282,6 @@ func getBinaryPath(t *testing.T) string {
 	if out, err := cmd.CombinedOutput(); err != nil {
 		t.Skipf("Cannot build chimera binary: %v\nOutput: %s", err, out)
 	}
-	defer os.Remove("chimera-test")
 
 	absPath, _ := filepath.Abs("chimera-test")
 	return absPath
@@ -307,6 +308,7 @@ func TestClusterFailoverGraceful(t *testing.T) {
 	}
 
 	binary := getBinaryPath(t)
+	defer os.Remove("chimera-test")
 
 	// Create temporary directories for 3-node cluster
 	baseDir := t.TempDir()

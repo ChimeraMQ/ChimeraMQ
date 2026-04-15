@@ -28,6 +28,7 @@ func TestClusterLoadTest3Node(t *testing.T) {
 	if binary == "" {
 		t.Skip("chimera binary not found, skipping cluster test")
 	}
+	defer os.Remove("chimera-test")
 
 	// Create temporary directories for 3-node cluster
 	baseDir := t.TempDir()
