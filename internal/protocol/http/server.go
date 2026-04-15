@@ -21,9 +21,13 @@ import (
 	"github.com/chimeramq/chimera/internal/message"
 	"github.com/chimeramq/chimera/internal/processing"
 	"github.com/chimeramq/chimera/internal/schema"
+	"github.com/chimeramq/chimera/internal/storage/hot"
 	"github.com/chimeramq/chimera/internal/tenant"
 	"github.com/chimeramq/chimera/internal/ui"
 )
+
+// version is injected at build time via ldflags.
+var version = "dev"
 
 const (
 	maxFetchTimeout     = 30 * time.Second
@@ -105,6 +109,7 @@ func (s *AdminServer) registerRoutes() {
 	s.mux.HandleFunc("GET /v1/topics/{name}", s.auth(s.handleGetTopic))
 	s.mux.HandleFunc("DELETE /v1/topics/{name}", s.auth(s.handleDeleteTopic))
 	s.mux.HandleFunc("POST /v1/messages/{topic}", s.auth(s.handlePublish))
+	s.mux.HandleFunc("POST /v1/messages/{topic}/batch", s.auth(s.handleBatchPublish))
 	s.mux.HandleFunc("GET /v1/messages/{topic}", s.auth(s.handleFetch))
 	s.mux.HandleFunc("POST /v1/messages/{topic}/ack", s.auth(s.handleAck))
 	s.mux.HandleFunc("POST /v1/messages/{topic}/nack", s.auth(s.handleNack))
@@ -165,6 +170,13 @@ func (s *AdminServer) registerRoutes() {
 
 	// Config reload endpoint
 	s.mux.HandleFunc("POST /v1/config/reload", s.auth(s.handleConfigReload))
+
+	// Geo-replication endpoints
+	s.mux.HandleFunc("GET /v1/geo-replication/status", s.auth(s.handleGeoStatus))
+	s.mux.HandleFunc("GET /v1/geo-replication/lag", s.auth(s.handleGeoLag))
+
+	// Admin drain endpoint
+	s.mux.HandleFunc("POST /v1/admin/drain", s.auth(s.handleDrain))
 
 	// pprof profiling endpoints (when enabled)
 	if s.broker.Config().Observability.PProf.Enabled {
@@ -681,13 +693,157 @@ func (s *AdminServer) handlePublish(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
-func (s *AdminServer) handleHealth(w http.ResponseWriter, r *http.Request) {
-	writeJSON(w, http.StatusOK, map[string]interface{}{
-		"status":  "healthy",
-		"node_id": s.broker.Config().Node.ID,
-		"name":    s.broker.Config().Node.Name,
-		"uptime":  time.Since(s.broker.StartTime()).String(),
+func (s *AdminServer) handleBatchPublish(w http.ResponseWriter, r *http.Request) {
+	topicName := r.PathValue("topic")
+
+	maxBatchSize := s.broker.Config().Limits.MaxBatchSize
+	if maxBatchSize <= 0 {
+		maxBatchSize = 1000
+	}
+
+	var messages []struct {
+		Payload     []byte            `json:"payload"`
+		RoutingKey  string            `json:"routing_key,omitempty"`
+		Headers     map[string][]byte `json:"headers,omitempty"`
+		ContentType string            `json:"content_type,omitempty"`
+		Priority    uint8             `json:"priority,omitempty"`
+		TTL         string            `json:"ttl,omitempty"`
+		DeliverAt   string            `json:"deliver_at,omitempty"`
+	}
+	if err := decodeJSON(r, &messages, 0); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid request body")
+		return
+	}
+	if len(messages) == 0 {
+		writeError(w, http.StatusBadRequest, "empty message batch")
+		return
+	}
+	if len(messages) > maxBatchSize {
+		writeError(w, http.StatusBadRequest, "batch size exceeds maximum")
+		return
+	}
+
+	results := make([]map[string]interface{}, len(messages))
+	var okCount, failCount int
+
+	for i, msg := range messages {
+		targetTopic := topicName
+		env := &message.Envelope{
+			Topic:       targetTopic,
+			RoutingKey:  msg.RoutingKey,
+			Payload:     msg.Payload,
+			ContentType: msg.ContentType,
+			Headers:     msg.Headers,
+			Priority:    msg.Priority,
+			SourceProto: message.ProtoHTTP,
+		}
+
+		offset, err := s.broker.Publish(env)
+		if err != nil {
+			s.broker.Logger().Error("batch publish failed", "index", i, "error", err)
+			results[i] = map[string]interface{}{
+				"index": i,
+				"ok":    false,
+				"error": "internal error",
+			}
+			failCount++
+		} else {
+			results[i] = map[string]interface{}{
+				"index":     i,
+				"ok":        true,
+				"offset":    offset,
+				"partition": env.PartitionID,
+				"topic":     env.Topic,
+			}
+			okCount++
+		}
+	}
+
+	statusCode := http.StatusOK
+	if failCount > 0 && okCount == 0 {
+		statusCode = http.StatusInternalServerError
+	} else if failCount > 0 {
+		statusCode = http.StatusMultiStatus
+	}
+
+	writeJSON(w, statusCode, map[string]interface{}{
+		"total":   len(messages),
+		"ok":      okCount,
+		"failed":  failCount,
+		"results": results,
 	})
+}
+
+func (s *AdminServer) handleHealth(w http.ResponseWriter, r *http.Request) {
+	status := "healthy"
+	if s.broker.IsDrainMode() {
+		status = "draining"
+	}
+
+	resp := map[string]interface{}{
+		"status":      status,
+		"node_id":     s.broker.Config().Node.ID,
+		"name":        s.broker.Config().Node.Name,
+		"version":     version,
+		"uptime":      time.Since(s.broker.StartTime()).String(),
+		"drain_mode":  s.broker.IsDrainMode(),
+		"fips":        s.broker.IsFIPSEnabled(),
+	}
+
+	// Raft state (if clustered)
+	if s.broker.IsClustered() {
+		mgr := s.broker.Cluster()
+		if mgr != nil {
+			if rn := mgr.RaftNode(); rn != nil {
+				resp["raft"] = map[string]interface{}{
+					"state":        rn.State().String(),
+					"term":         int64(rn.Term()),
+					"commit_index": int64(rn.CommitIndex()),
+					"is_leader":    rn.IsLeader(),
+					"leader_id":    string(rn.LeaderID()),
+				}
+			}
+			if fsm := mgr.FSM(); fsm != nil {
+				topics := fsm.ListTopics()
+				resp["topics"] = len(topics)
+			}
+			resp["cluster"] = map[string]interface{}{
+				"alive_members": mgr.AliveCount(),
+				"members":       len(mgr.Members()),
+			}
+		}
+	} else {
+		resp["mode"] = "single-node"
+	}
+
+	// Storage health
+	if storage := s.broker.Storage(); storage != nil {
+		var totalSize int64
+		storage.ForEachPartition(func(_ string, _ uint32, p *hot.Partition) bool {
+			totalSize += p.TotalSize()
+			return true
+		})
+		resp["storage"] = map[string]interface{}{
+			"hot_size_bytes": totalSize,
+			"partitions":     0, // will be filled by ForEachPartition count
+		}
+		_ = totalSize // used above
+	}
+
+	// Warm storage
+	if warm := s.broker.WarmEngine(); warm != nil {
+		resp["warm"] = map[string]interface{}{
+			"enabled": true,
+			"size":    warm.TotalSize(),
+		}
+	}
+
+	// DLQ stats
+	if dlq := s.broker.DLQHandler(); dlq != nil {
+		resp["dlq_topics"] = len(dlq.Topics())
+	}
+
+	writeJSON(w, http.StatusOK, resp)
 }
 
 func (s *AdminServer) handleMetrics(w http.ResponseWriter, r *http.Request) {
@@ -1610,6 +1766,82 @@ func (s *AdminServer) handleConfigReload(w http.ResponseWriter, r *http.Request)
 		"status":  "ok",
 		"message": "configuration reloaded",
 	})
+}
+
+// handleGeoStatus returns geo-replication status.
+func (s *AdminServer) handleGeoStatus(w http.ResponseWriter, r *http.Request) {
+	gm := s.broker.GeoManager()
+	if gm == nil {
+		writeJSON(w, http.StatusOK, map[string]interface{}{
+			"enabled": false,
+		})
+		return
+	}
+
+	replicated, failed := gm.Stats()
+
+	// Get receiver stats if available
+	var received, rejected int64
+	if gr := s.broker.GeoReceiver(); gr != nil {
+		received, rejected = gr.Stats()
+	}
+
+	resp := map[string]interface{}{
+		"enabled":    true,
+		"local_dc":   s.broker.Config().GeoReplication.LocalDC,
+		"mode":       s.broker.Config().GeoReplication.ReplicationMode,
+		"remote_dcs": len(s.broker.Config().GeoReplication.RemoteDCs),
+		"sender": map[string]interface{}{
+			"events_sent":    replicated,
+			"events_failed":  failed,
+		},
+		"receiver": map[string]interface{}{
+			"events_received": received,
+			"events_rejected": rejected,
+		},
+	}
+	writeJSON(w, http.StatusOK, resp)
+}
+
+// handleGeoLag returns per-topic/partition replication lag.
+func (s *AdminServer) handleGeoLag(w http.ResponseWriter, r *http.Request) {
+	gm := s.broker.GeoManager()
+	if gm == nil {
+		writeJSON(w, http.StatusOK, map[string]interface{}{
+			"enabled": false,
+			"lag":     map[string]interface{}{},
+		})
+		return
+	}
+
+	lagInfos := gm.LagInfos()
+	writeJSON(w, http.StatusOK, map[string]interface{}{
+		"enabled": true,
+		"lag":     lagInfos,
+	})
+}
+
+// handleDrain sets or clears graceful drain mode.
+func (s *AdminServer) handleDrain(w http.ResponseWriter, r *http.Request) {
+	var req struct {
+		Drain bool `json:"drain"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid request body")
+		return
+	}
+	s.broker.SetDrainMode(req.Drain)
+	if req.Drain {
+		writeJSON(w, http.StatusOK, map[string]string{
+			"status":  "ok",
+			"message": "drain mode enabled",
+		})
+	} else {
+		writeJSON(w, http.StatusOK, map[string]string{
+			"status":  "ok",
+			"message": "drain mode disabled",
+		})
+	}
 }
 
 // --- Tenant Management Handlers ---

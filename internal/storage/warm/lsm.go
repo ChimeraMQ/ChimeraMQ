@@ -27,7 +27,7 @@ func DefaultLSMConfig() LSMConfig {
 	return LSMConfig{
 		MemTableCapacity:   4 * 1024 * 1024,
 		BlockSize:          blockSizeDefault,
-		BloomFPRate:        0.01,
+		BloomFPRate:        0.001,
 		CompactionStrategy: "size_tiered",
 		CompactionInterval: 5 * time.Minute,
 		MaxLevel:           7,
@@ -180,10 +180,13 @@ func (lsm *LSMTree) Get(key []byte) ([]byte, bool, bool) {
 
 	// Check levels (L0 first, then L1+)
 	for _, level := range lsm.levels {
-		// L0: check all SSTables (overlapping ranges)
-		// L1+: could binary search, but for now check all
 		for i := len(level.sstables) - 1; i >= 0; i-- {
-			if val, found, deleted := level.sstables[i].Get(key); found {
+			sst := level.sstables[i]
+			// Skip SSTables whose key range cannot contain the target key
+			if !sst.KeyRangeMayContain(key) {
+				continue
+			}
+			if val, found, deleted := sst.Get(key); found {
 				return val, true, deleted
 			}
 		}
@@ -276,7 +279,7 @@ func (lsm *LSMTree) flushImmutable() {
 
 	mt.Freeze()
 
-	sst, err := FlushMemTable(mt, lsm.dir)
+	sst, err := FlushMemTable(mt, lsm.dir, lsm.config.BloomFPRate)
 	if err != nil {
 		return
 	}
@@ -337,7 +340,7 @@ func (lsm *LSMTree) compactL0() {
 	}
 	mt.Freeze()
 
-	newSST, err := FlushMemTable(mt, lsm.dir)
+	newSST, err := FlushMemTable(mt, lsm.dir, lsm.config.BloomFPRate)
 	if err != nil {
 		// Put back the old SSTables
 		lsm.mu.Lock()

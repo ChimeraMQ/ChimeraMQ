@@ -64,7 +64,7 @@ jobs:
       - name: golangci-lint
         uses: golangci/golangci-lint-action@55c2b1449710b71a4a7e005389e0d6fae1597a79 # v6.5.0
         with:
-          version: latest
+          version: v2.11
 
   integration:
     runs-on: ubuntu-latest

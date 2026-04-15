@@ -21,7 +21,7 @@ ChimeraMQ v0.1.0 is the initial production-ready release of the unified message 
 
 ## Features
 
-### Protocol Adapters (8)
+### Protocol Adapters (7)
 - **HTTP/REST** - Admin API, publish/fetch endpoints
 - **Native TCP** - Custom binary protocol with pipelining
 - **MQTT 3.1.1/5.0** - QoS 0/1/2, retained messages, will messages
@@ -29,7 +29,6 @@ ChimeraMQ v0.1.0 is the initial production-ready release of the unified message 
 - **WebSocket** - JSON and binary sub-protocols
 - **STOMP** - Simple Text Oriented Messaging Protocol 1.2
 - **NATS** - Core NATS protocol support
-- **gRPC** - Protocol Buffers over HTTP/2
 
 ### Storage Tiers (3)
 - **Hot** - Memory-mapped log segments with zero-copy sendfile

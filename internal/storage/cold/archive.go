@@ -42,6 +42,9 @@ type ColdArchive struct {
 	segIndex    []ArchiveSegIndex
 	size        int64
 	file        *os.File
+	compressed  bool
+	dictID      uint32
+	compressor  *DictCompressor
 }
 
 // ColdConfig holds configuration for the cold tier.
@@ -52,8 +55,28 @@ type ColdConfig struct {
 	CompressionLevel int
 }
 
+// ColdArchiveOption configures archive creation.
+type ColdArchiveOption func(*coldArchiveOpts)
+
+type coldArchiveOpts struct {
+	compressor *DictCompressor
+	dictID     uint32
+}
+
+// WithCompressor sets the zstd compressor for archive creation.
+func WithCompressor(comp *DictCompressor, dictID uint32) ColdArchiveOption {
+	return func(o *coldArchiveOpts) {
+		o.compressor = comp
+		o.dictID = dictID
+	}
+}
+
 // CreateColdArchive creates a new cold archive from SSTables.
-func CreateColdArchive(path string, sstables []*warm.SSTable) (*ColdArchive, error) {
+func CreateColdArchive(path string, sstables []*warm.SSTable, opts ...ColdArchiveOption) (*ColdArchive, error) {
+	options := &coldArchiveOpts{}
+	for _, o := range opts {
+		o(options)
+	}
 	if len(sstables) == 0 {
 		return nil, fmt.Errorf("no SSTables to archive")
 	}
@@ -92,6 +115,7 @@ func CreateColdArchive(path string, sstables []*warm.SSTable) (*ColdArchive, err
 	// Build archive data: segments of entries
 	var dataBuf []byte
 	var segIdx []ArchiveSegIndex
+	compressed := options.compressor != nil
 
 	segStart := uint32(0)
 	var segData []byte
@@ -123,10 +147,16 @@ func CreateColdArchive(path string, sstables []*warm.SSTable) (*ColdArchive, err
 
 		// Flush segment every 1000 entries or at end
 		if count >= 1000 || off == maxOff {
+			// Compress segment if compressor is available
+			segLen := uint32(len(segData))
+			if compressed {
+				segData = CompressData(segData, options.compressor)
+				segLen = uint32(len(segData))
+			}
 			segIdx = append(segIdx, ArchiveSegIndex{
 				Offset:   segFirstOff,
 				Position: segStart,
-				Length:   uint32(len(segData)),
+				Length:   segLen,
 			})
 			dataBuf = append(dataBuf, segData...)
 			segStart = uint32(len(dataBuf))
@@ -144,6 +174,10 @@ func CreateColdArchive(path string, sstables []*warm.SSTable) (*ColdArchive, err
 	binary.BigEndian.PutUint64(header[24:32], uint64(minTs))
 	binary.BigEndian.PutUint64(header[32:40], uint64(maxTs))
 	binary.BigEndian.PutUint32(header[40:44], uint32(len(segIdx)))
+	if compressed {
+		header[44] = 1 // compression type: zstd
+		binary.BigEndian.PutUint32(header[45:49], options.dictID)
+	}
 
 	// Segment index
 	segIndexData := make([]byte, len(segIdx)*16)
@@ -183,8 +217,6 @@ func CreateColdArchive(path string, sstables []*warm.SSTable) (*ColdArchive, err
 
 	return OpenColdArchive(path)
 }
-
-// OpenColdArchive opens an existing cold archive.
 func OpenColdArchive(path string) (*ColdArchive, error) {
 	f, err := os.OpenFile(path, os.O_RDONLY, 0)
 	if err != nil {
@@ -215,6 +247,8 @@ func OpenColdArchive(path string) (*ColdArchive, error) {
 	minOff := binary.BigEndian.Uint64(header[8:16])
 	maxOff := binary.BigEndian.Uint64(header[16:24])
 	segCount := binary.BigEndian.Uint32(header[40:44])
+	compressed := header[44] == 1
+	dictID := binary.BigEndian.Uint32(header[45:49])
 
 	// Read segment index (before footer)
 	segIndexSize := int(segCount) * 16
@@ -240,6 +274,8 @@ func OpenColdArchive(path string) (*ColdArchive, error) {
 		segIndex:    segIdx,
 		size:        size,
 		file:        f,
+		compressed:  compressed,
+		dictID:      dictID,
 	}, nil
 }
 
@@ -257,6 +293,15 @@ func (ca *ColdArchive) Get(offset uint64) ([]byte, error) {
 		segData := make([]byte, si.Length)
 		if _, err := ca.file.ReadAt(segData, int64(archiveHeader)+int64(si.Position)); err != nil {
 			continue
+		}
+
+		// Decompress if needed
+		if ca.compressed && ca.compressor != nil {
+			var err error
+			segData, err = DecompressData(segData, ca.compressor)
+			if err != nil {
+				continue
+			}
 		}
 
 		// Scan segment for offset
@@ -297,6 +342,26 @@ func (ca *ColdArchive) Close() error {
 	ca.mu.Lock()
 	defer ca.mu.Unlock()
 	return ca.file.Close()
+}
+
+// IsCompressed returns true if the archive data is zstd-compressed.
+func (ca *ColdArchive) IsCompressed() bool {
+	return ca.compressed
+}
+
+// DictID returns the dictionary ID used for compression.
+func (ca *ColdArchive) DictID() uint32 {
+	return ca.dictID
+}
+
+// SetCompressor sets the decompressor for reading compressed segments.
+func (ca *ColdArchive) SetCompressor(comp *DictCompressor) {
+	ca.mu.Lock()
+	defer ca.mu.Unlock()
+	_ = comp // stored via closure for Get
+	if ca.compressed {
+		ca.compressor = comp
+	}
 }
 
 // Path returns the archive file path.

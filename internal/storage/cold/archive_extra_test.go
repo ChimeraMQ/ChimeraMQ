@@ -90,7 +90,7 @@ func TestColdArchiveGetNotFound(t *testing.T) {
 	mt.Put(key, []byte("val-10"))
 	mt.Freeze()
 
-	sst, err := warm.FlushMemTable(mt, sstDir)
+	sst, err := warm.FlushMemTable(mt, sstDir, 0)
 	if err != nil {
 		t.Fatal(err)
 	}

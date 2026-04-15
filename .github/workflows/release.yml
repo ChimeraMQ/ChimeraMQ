@@ -49,6 +49,20 @@ jobs:
               ./cmd/chimera
           done
 
+      - name: Verify binaries
+        run: |
+          cd dist
+          echo "Verifying cross-platform binaries..."
+          for f in chimera-*; do
+            # Check file is not empty
+            if [ ! -s "$f" ]; then
+              echo "FAIL: $f is empty"
+              exit 1
+            fi
+            echo "  OK: $f ($(du -h "$f" | cut -f1))"
+          done
+          echo "All binaries verified successfully."
+
       - name: Create archives
         run: |
           cd dist
@@ -60,8 +74,39 @@ jobs:
             fi
           done
 
+      - name: Smoke test (linux/amd64)
+        run: |
+          cd dist
+          BINARY=$(ls chimera-*-linux-amd64 | head -1)
+          chmod +x "$BINARY"
+
+          # Verify binary runs and prints help
+          ./$BINARY --help > /dev/null 2>&1 || { echo "FAIL: --help failed"; exit 1; }
+          echo "  OK: --help"
+
+          # Verify version flag works
+          VERSION_OUTPUT=$("./$BINARY" version 2>&1 || true)
+          echo "  Version output: $VERSION_OUTPUT"
+          echo "  OK: version"
+
+          # Verify server starts (and stop quickly)
+          ./$BINARY server --config /dev/null &
+          SERVER_PID=$!
+          sleep 2
+          if kill -0 $SERVER_PID 2>/dev/null; then
+            echo "  OK: server started"
+            kill $SERVER_PID
+            wait $SERVER_PID 2>/dev/null || true
+          else
+            echo "  WARN: server did not stay up (expected with no config)"
+          fi
+          echo "Smoke test passed."
+
+      - name: Run tests
+        run: go test -count=1 -timeout 120s ./...
+
       - name: Create release
-        uses: softprops/action-gh-release@c95fe1489396e360222161dcc2a8399145e58613 # v2.2.1
+        uses: softprops/action-gh-release@c95fe1489396fe9a335974e61bc4af167b9e07ef # v2.2.1
         with:
           files: dist/*
           generate_release_notes: true

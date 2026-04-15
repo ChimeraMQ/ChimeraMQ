@@ -1,101 +1,122 @@
-openapi: 3.0.3
+openapi: "3.0.3"
 info:
-  title: ChimeraMQ Admin API
-  description: Unified message queue and event streaming platform
-  version: 0.8.0
+  title: "ChimeraMQ API"
+  description: |
+    Admin HTTP API for ChimeraMQ — a unified message queue and event streaming platform.
+    Runs on a separate admin port (default 9090). All endpoints except `/v1/health`
+    require authentication via Bearer token or Basic Auth.
+  version: "0.1.0"
   contact:
-    name: ChimeraMQ
-    url: https://github.com/ChimeraMQ/ChimeraMQ
+    name: "ChimeraMQ"
+    url: "https://github.com/chimeramq/chimera"
+  license:
+    name: "Apache 2.0"
+    url: "https://www.apache.org/licenses/LICENSE-2.0"
 
 servers:
-  - url: http://localhost:9090
-    description: Local development
+  - url: "http://localhost:9090"
+    description: "Admin server (default port)"
+  - url: "http://{host}:{adminPort}"
+    description: "Admin server (custom port)"
+    variables:
+      host:
+        default: "localhost"
+      adminPort:
+        default: "9090"
+        description: "Configured admin port"
 
-security: []
+security:
+  - BearerAuth: []
+  - BasicAuth: []
+
+tags:
+  - name: "Topics"
+    description: "Create, list, inspect, and delete topics"
+  - name: "Messages"
+    description: "Publish and consume messages, ack/nack"
+  - name: "Consumer Groups"
+    description: "Manage stream consumer groups, offsets, and membership"
+  - name: "Schema Registry"
+    description: "Register and manage schema versions with compatibility checks"
+  - name: "WASM"
+    description: "Upload, list, and delete WASM transform modules"
+  - name: "Processors"
+    description: "Create and manage stream processing topologies"
+  - name: "DLQ"
+    description: "Inspect, replay, preview, and export dead-letter queue entries"
+  - name: "Tenants"
+    description: "Multi-tenant management with quotas and usage tracking"
+  - name: "Exchanges"
+    description: "AMQP-style exchanges with bindings and routing"
+  - name: "System"
+    description: "Health, metrics, cluster, and configuration"
+  - name: "Debug"
+    description: "Go pprof profiling endpoints"
 
 paths:
-  /v1/health:
-    get:
-      summary: Health check
-      operationId: getHealth
-      responses:
-        "200":
-          description: Broker health status
-          content:
-            application/json:
-              schema:
-                type: object
-                properties:
-                  status:
-                    type: string
-                    example: healthy
-                  node_id:
-                    type: integer
-                  name:
-                    type: string
-                  uptime:
-                    type: string
+  # ═══════════════════════════════════════════════════════════
+  # TOPICS
+  # ═══════════════════════════════════════════════════════════
 
-  /v1/metrics:
-    get:
-      summary: Prometheus metrics
-      operationId: getMetrics
-      responses:
-        "200":
-          description: Prometheus text format metrics
-          content:
-            text/plain:
-              schema:
-                type: string
-
-  # --- Topics ---
   /v1/topics:
     post:
-      summary: Create a topic
+      tags: ["Topics"]
+      summary: "Create topic"
       operationId: createTopic
       requestBody:
         required: true
         content:
           application/json:
             schema:
-              type: object
-              required: [name]
-              properties:
-                name:
-                  type: string
-                mode:
-                  type: string
-                  enum: [stream, queue, unified]
-                  default: unified
-                partitions:
-                  type: integer
-                  minimum: 1
-                  default: 8
-                schema_enforcement:
-                  type: boolean
-                  default: false
-                default_ttl:
-                  type: string
-                transform_pipeline:
-                  type: object
+              $ref: "#/components/schemas/CreateTopicRequest"
+            example:
+              name: "orders"
+              mode: "unified"
+              partitions: 4
+              retention_time: "24h"
+              dlq_topic: "orders.dlq"
+              max_retries: 3
       responses:
         "201":
-          description: Topic created
+          description: "Topic created"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CreateTopicResponse"
+              example:
+                name: "orders"
+                mode: "unified"
+                partitions: 4
+        "400":
+          $ref: "#/components/responses/BadRequest"
         "409":
-          description: Topic already exists
-      tags: [Topics]
-
+          $ref: "#/components/responses/Conflict"
     get:
-      summary: List all topics
+      tags: ["Topics"]
+      summary: "List topics"
       operationId: listTopics
+      parameters:
+        - $ref: "#/components/parameters/Limit"
+        - $ref: "#/components/parameters/Offset"
       responses:
         "200":
-          description: Topic list
-      tags: [Topics]
+          description: "List of topics"
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/TopicInfo"
+              example:
+                - name: "orders"
+                  mode: "unified"
+                  partitions: 4
+                  created_at: "2025-01-01T00:00:00Z"
 
   /v1/topics/{name}:
     get:
-      summary: Get topic details
+      tags: ["Topics"]
+      summary: "Get topic details"
       operationId: getTopic
       parameters:
         - name: name
@@ -105,13 +126,22 @@ paths:
             type: string
       responses:
         "200":
-          description: Topic details
+          description: "Topic details"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/TopicDetails"
+              example:
+                name: "orders"
+                partitions:
+                  - id: 0
+                    high_watermark: 1024
+                    log_start_offset: 0
         "404":
-          description: Topic not found
-      tags: [Topics]
-
+          $ref: "#/components/responses/NotFound"
     delete:
-      summary: Delete a topic
+      tags: ["Topics"]
+      summary: "Delete topic"
       operationId: deleteTopic
       parameters:
         - name: name
@@ -121,15 +151,26 @@ paths:
             type: string
       responses:
         "200":
-          description: Topic deleted
+          description: "Topic deleted"
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status:
+                    type: string
+                    example: "deleted"
         "404":
-          description: Topic not found
-      tags: [Topics]
+          $ref: "#/components/responses/NotFound"
 
-  # --- Messages ---
+  # ═══════════════════════════════════════════════════════════
+  # MESSAGES
+  # ═══════════════════════════════════════════════════════════
+
   /v1/messages/{topic}:
     post:
-      summary: Publish a message
+      tags: ["Messages"]
+      summary: "Publish message"
       operationId: publishMessage
       parameters:
         - name: topic
@@ -137,35 +178,40 @@ paths:
           required: true
           schema:
             type: string
+        - name: X-Routing-Key
+          in: header
+          required: false
+          schema:
+            type: string
+          description: "Routing key for exchange-style routing"
       requestBody:
         required: true
+        description: "Raw message body (any content type)"
         content:
           application/octet-stream:
             schema:
               type: string
               format: binary
+          application/json:
+            schema:
+              type: object
+          text/plain:
+            schema:
+              type: string
       responses:
         "200":
-          description: Message published
+          description: "Message published"
           content:
             application/json:
               schema:
-                type: object
-                properties:
-                  offset:
-                    type: integer
-                    format: uint64
-                  partition:
-                    type: integer
-                    format: uint32
-                  topic:
-                    type: string
-        "503":
-          description: Broker overloaded (flow control)
-      tags: [Messages]
-
+                $ref: "#/components/schemas/PublishResponse"
+              example:
+                offset: 1024
+                partition: 0
+                topic: "orders"
     get:
-      summary: Fetch messages
+      tags: ["Messages"]
+      summary: "Fetch messages from stream"
       operationId: fetchMessages
       parameters:
         - name: topic
@@ -177,31 +223,46 @@ paths:
           in: query
           schema:
             type: integer
+            format: int32
             default: 0
         - name: offset
           in: query
           schema:
             type: integer
+            format: int64
             default: 0
         - name: limit
           in: query
           schema:
             type: integer
-            default: 10
+            default: 100
         - name: timeout
           in: query
-          description: Long-poll timeout in milliseconds
           schema:
-            type: integer
-            default: 5000
+            type: string
+            default: "5s"
+          description: "Long-poll timeout (Go duration, e.g. 5s, 100ms)"
       responses:
         "200":
-          description: Fetched messages
-      tags: [Messages]
+          description: "Fetched messages"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/FetchResponse"
+              example:
+                messages:
+                  - offset: 1024
+                    content_type: "application/json"
+                    payload: "eyJvcmRlciI6MX0="
+                    headers:
+                      x-key: "YWJjMTIz"
+                next_offset: 1025
+                count: 1
 
   /v1/messages/{topic}/ack:
     post:
-      summary: Acknowledge messages
+      tags: ["Messages"]
+      summary: "Acknowledge messages (queue engine)"
       operationId: ackMessages
       parameters:
         - name: topic
@@ -210,24 +271,33 @@ paths:
           schema:
             type: string
       requestBody:
+        required: true
         content:
           application/json:
             schema:
-              type: object
-              properties:
-                offsets:
-                  type: array
-                  items:
-                    type: integer
-                    format: uint64
+              $ref: "#/components/schemas/AckNackRequest"
+            example:
+              offsets: [100, 101, 102]
       responses:
         "200":
-          description: Ack result
-      tags: [Messages]
+          description: "Ack result"
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  acked:
+                    type: integer
+                  total:
+                    type: integer
+              example:
+                acked: 3
+                total: 3
 
   /v1/messages/{topic}/nack:
     post:
-      summary: Negative acknowledge messages
+      tags: ["Messages"]
+      summary: "Negative acknowledge messages (may route to DLQ)"
       operationId: nackMessages
       parameters:
         - name: topic
@@ -236,35 +306,67 @@ paths:
           schema:
             type: string
       requestBody:
+        required: true
         content:
           application/json:
             schema:
-              type: object
-              properties:
-                offsets:
-                  type: array
-                  items:
-                    type: integer
-                    format: uint64
+              $ref: "#/components/schemas/AckNackRequest"
+            example:
+              offsets: [100, 101]
       responses:
         "200":
-          description: Nack result
-      tags: [Messages]
+          description: "Nack result"
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  nacked:
+                    type: integer
+                  dlq_routed:
+                    type: integer
+                  total:
+                    type: integer
+              example:
+                nacked: 2
+                dlq_routed: 1
+                total: 2
 
-  # --- Consumer Groups ---
+  # ═══════════════════════════════════════════════════════════
+  # CONSUMER GROUPS
+  # ═══════════════════════════════════════════════════════════
+
   /v1/consumers:
     get:
-      summary: List consumer groups
+      tags: ["Consumer Groups"]
+      summary: "List consumer groups"
       operationId: listConsumers
+      parameters:
+        - $ref: "#/components/parameters/Limit"
+        - $ref: "#/components/parameters/Offset"
       responses:
         "200":
-          description: Group list
-      tags: [Consumer Groups]
+          description: "List of consumer groups"
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  groups:
+                    type: array
+                    items:
+                      type: string
+                  count:
+                    type: integer
+              example:
+                groups: ["group-alpha", "group-beta"]
+                count: 2
 
   /v1/consumers/{group}:
     get:
-      summary: Get consumer group details
-      operationId: getConsumer
+      tags: ["Consumer Groups"]
+      summary: "Get consumer group details"
+      operationId: getConsumerGroup
       parameters:
         - name: group
           in: path
@@ -273,15 +375,29 @@ paths:
             type: string
       responses:
         "200":
-          description: Group details with members and assignments
+          description: "Consumer group details"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ConsumerGroupInfo"
+              example:
+                group: "group-alpha"
+                members:
+                  - id: "consumer-1"
+                    partitions: [0, 1]
+                  - id: "consumer-2"
+                    partitions: [2, 3]
+                assignments:
+                  consumer-1: [0, 1]
+                  consumer-2: [2, 3]
         "404":
-          description: Group not found
-      tags: [Consumer Groups]
+          $ref: "#/components/responses/NotFound"
 
   /v1/consumers/{group}/join:
     post:
-      summary: Join a consumer group
-      operationId: consumerJoin
+      tags: ["Consumer Groups"]
+      summary: "Join consumer group"
+      operationId: joinConsumerGroup
       parameters:
         - name: group
           in: path
@@ -293,29 +409,34 @@ paths:
         content:
           application/json:
             schema:
-              type: object
-              required: [member_id, topic]
-              properties:
-                member_id:
-                  type: string
-                topic:
-                  type: string
-                partitions:
-                  type: integer
-                  default: 1
-                strategy:
-                  type: string
-                  enum: [range, round_robin]
-                  default: range
+              $ref: "#/components/schemas/JoinGroupRequest"
+            example:
+              member_id: "consumer-1"
+              topic: "orders"
+              partitions: 4
+              strategy: "range"
       responses:
         "200":
-          description: Joined with current assignments
-      tags: [Consumer Groups]
+          description: "Joined group"
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  group:
+                    type: string
+                  member_id:
+                    type: string
+                  assignments:
+                    $ref: "#/components/schemas/AssignmentsMap"
+        "400":
+          $ref: "#/components/responses/BadRequest"
 
   /v1/consumers/{group}/leave:
     post:
-      summary: Leave a consumer group
-      operationId: consumerLeave
+      tags: ["Consumer Groups"]
+      summary: "Leave consumer group"
+      operationId: leaveConsumerGroup
       parameters:
         - name: group
           in: path
@@ -328,18 +449,32 @@ paths:
           application/json:
             schema:
               type: object
-              required: [member_id]
+              required: ["member_id"]
               properties:
                 member_id:
                   type: string
+            example:
+              member_id: "consumer-1"
       responses:
         "200":
-          description: Left group
-      tags: [Consumer Groups]
+          description: "Left group"
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status:
+                    type: string
+                    example: "left"
+                  group:
+                    type: string
+                  member_id:
+                    type: string
 
   /v1/consumers/{group}/heartbeat:
     post:
-      summary: Send consumer heartbeat
+      tags: ["Consumer Groups"]
+      summary: "Consumer heartbeat"
       operationId: consumerHeartbeat
       parameters:
         - name: group
@@ -353,20 +488,30 @@ paths:
           application/json:
             schema:
               type: object
-              required: [member_id]
+              required: ["member_id"]
               properties:
                 member_id:
                   type: string
+            example:
+              member_id: "consumer-1"
       responses:
         "200":
-          description: Heartbeat accepted
+          description: "Heartbeat OK"
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status:
+                    type: string
+                    example: "ok"
         "404":
-          description: Member not in group
-      tags: [Consumer Groups]
+          $ref: "#/components/responses/NotFound"
 
   /v1/consumers/{group}/offsets:
     get:
-      summary: Get committed offsets
+      tags: ["Consumer Groups"]
+      summary: "Get committed offsets"
       operationId: getConsumerOffsets
       parameters:
         - name: group
@@ -376,13 +521,26 @@ paths:
             type: string
       responses:
         "200":
-          description: Offset map
+          description: "Committed offsets"
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  group:
+                    type: string
+                  offsets:
+                    $ref: "#/components/schemas/OffsetMap"
+              example:
+                group: "group-alpha"
+                offsets:
+                  "0": 1024
+                  "1": 980
         "404":
-          description: Group not found
-      tags: [Consumer Groups]
-
+          $ref: "#/components/responses/NotFound"
     post:
-      summary: Commit offsets
+      tags: ["Consumer Groups"]
+      summary: "Commit offsets"
       operationId: commitConsumerOffsets
       parameters:
         - name: group
@@ -395,24 +553,35 @@ paths:
         content:
           application/json:
             schema:
-              type: object
-              required: [offsets]
-              properties:
-                offsets:
-                  type: object
-                  additionalProperties:
-                    type: integer
-                    format: uint64
-                  description: '"partitionID" → offset'
+              $ref: "#/components/schemas/CommitOffsetsRequest"
+            example:
+              offsets:
+                "0": 1025
+                "1": 981
       responses:
         "200":
-          description: Commit result
-      tags: [Consumer Groups]
+          description: "Commit result"
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  committed:
+                    type: integer
+                  total:
+                    type: integer
+              example:
+                committed: 2
+                total: 2
 
-  # --- Schema Registry ---
+  # ═══════════════════════════════════════════════════════════
+  # SCHEMA REGISTRY
+  # ═══════════════════════════════════════════════════════════
+
   /v1/schemas/{subject}:
     post:
-      summary: Register a schema
+      tags: ["Schema Registry"]
+      summary: "Register schema version"
       operationId: registerSchema
       parameters:
         - name: subject
@@ -425,21 +594,31 @@ paths:
         content:
           application/json:
             schema:
-              type: object
-              required: [type, definition]
-              properties:
-                type:
-                  type: string
-                  enum: [json]
-                definition:
-                  type: string
+              $ref: "#/components/schemas/RegisterSchemaRequest"
+            example:
+              type: "JSON"
+              schema: |
+                {
+                  "type": "object",
+                  "properties": {
+                    "order_id": {"type": "string"},
+                    "amount": {"type": "number"}
+                  }
+                }
       responses:
         "200":
-          description: Schema registered
-      tags: [Schemas]
-
+          description: "Schema registered"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SchemaVersion"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "409":
+          $ref: "#/components/responses/Conflict"
     get:
-      summary: List schemas for a subject
+      tags: ["Schema Registry"]
+      summary: "List schema versions for subject"
       operationId: listSchemas
       parameters:
         - name: subject
@@ -449,11 +628,18 @@ paths:
             type: string
       responses:
         "200":
-          description: Schema versions
-      tags: [Schemas]
-
+          description: "Schema versions"
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/SchemaVersion"
+        "404":
+          $ref: "#/components/responses/NotFound"
     delete:
-      summary: Delete all schemas for a subject
+      tags: ["Schema Registry"]
+      summary: "Delete schema subject"
       operationId: deleteSubject
       parameters:
         - name: subject
@@ -462,13 +648,13 @@ paths:
           schema:
             type: string
       responses:
-        "200":
-          description: Subject deleted
-      tags: [Schemas]
+        "204":
+          description: "Subject deleted"
 
   /v1/schemas/{subject}/latest:
     get:
-      summary: Get latest schema version
+      tags: ["Schema Registry"]
+      summary: "Get latest schema version"
       operationId: getLatestSchema
       parameters:
         - name: subject
@@ -478,14 +664,18 @@ paths:
             type: string
       responses:
         "200":
-          description: Latest schema
+          description: "Latest schema"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SchemaVersion"
         "404":
-          description: No schemas found
-      tags: [Schemas]
+          $ref: "#/components/responses/NotFound"
 
   /v1/schemas/{subject}/versions/{version}:
     get:
-      summary: Get specific schema version
+      tags: ["Schema Registry"]
+      summary: "Get schema by version number"
       operationId: getSchemaVersion
       parameters:
         - name: subject
@@ -500,14 +690,20 @@ paths:
             type: integer
       responses:
         "200":
-          description: Schema version
+          description: "Schema version"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SchemaVersion"
+        "400":
+          $ref: "#/components/responses/BadRequest"
         "404":
-          description: Version not found
-      tags: [Schemas]
+          $ref: "#/components/responses/NotFound"
 
   /v1/schemas/{subject}/compatibility:
     put:
-      summary: Set compatibility mode
+      tags: ["Schema Registry"]
+      summary: "Set compatibility mode"
       operationId: setCompatibility
       parameters:
         - name: subject
@@ -516,24 +712,285 @@ paths:
           schema:
             type: string
       requestBody:
+        required: true
         content:
           application/json:
             schema:
               type: object
+              required: ["mode"]
               properties:
                 mode:
                   type: string
-                  enum: [none, backward, forward, full]
+                  enum: ["none", "backward", "forward", "full"]
+            example:
+              mode: "backward"
       responses:
         "200":
-          description: Compatibility updated
-      tags: [Schemas]
+          description: "Compatibility mode updated"
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status:
+                    type: string
+                    example: "updated"
 
-  # --- Dead Letter Queue ---
+  # ═══════════════════════════════════════════════════════════
+  # WASM
+  # ═══════════════════════════════════════════════════════════
+
+  /v1/wasm/modules:
+    post:
+      tags: ["WASM"]
+      summary: "Upload WASM module"
+      operationId: uploadWasmModule
+      parameters:
+        - name: name
+          in: query
+          required: true
+          schema:
+            type: string
+          description: "Module name"
+      requestBody:
+        required: true
+        description: "WASM binary (.wasm)"
+        content:
+          application/wasm:
+            schema:
+              type: string
+              format: binary
+          application/octet-stream:
+            schema:
+              type: string
+              format: binary
+      responses:
+        "201":
+          description: "Module compiled"
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  name:
+                    type: string
+                  status:
+                    type: string
+                    example: "compiled"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+    get:
+      tags: ["WASM"]
+      summary: "List WASM modules"
+      operationId: listWasmModules
+      parameters:
+        - $ref: "#/components/parameters/Limit"
+        - $ref: "#/components/parameters/Offset"
+      responses:
+        "200":
+          description: "List of WASM modules"
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  modules:
+                    type: array
+                    items:
+                      type: string
+                  count:
+                    type: integer
+              example:
+                modules: ["transform-orders", "enrich-events"]
+                count: 2
+
+  /v1/wasm/modules/{name}:
+    delete:
+      tags: ["WASM"]
+      summary: "Delete WASM module"
+      operationId: deleteWasmModule
+      parameters:
+        - name: name
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "204":
+          description: "Module deleted"
+        "404":
+          $ref: "#/components/responses/NotFound"
+
+  # ═══════════════════════════════════════════════════════════
+  # PROCESSORS
+  # ═══════════════════════════════════════════════════════════
+
+  /v1/processors:
+    post:
+      tags: ["Processors"]
+      summary: "Create stream processing topology"
+      operationId: createTopology
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/TopologySpec"
+            example:
+              name: "order-enricher"
+              auto_start: true
+              parallelism: 2
+              source:
+                topic: "raw-orders"
+              sink:
+                topic: "enriched-orders"
+              operators:
+                - type: "map"
+                  wasm: "transform-orders"
+      responses:
+        "201":
+          description: "Topology created"
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  name:
+                    type: string
+                  status:
+                    type: string
+                    example: "created"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "409":
+          $ref: "#/components/responses/Conflict"
+    get:
+      tags: ["Processors"]
+      summary: "List processing topologies"
+      operationId: listTopologies
+      parameters:
+        - $ref: "#/components/parameters/Limit"
+        - $ref: "#/components/parameters/Offset"
+      responses:
+        "200":
+          description: "List of topology names"
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  topologies:
+                    type: array
+                    items:
+                      type: string
+                  count:
+                    type: integer
+              example:
+                topologies: ["order-enricher", "event-aggregator"]
+                count: 2
+
+  /v1/processors/{name}:
+    get:
+      tags: ["Processors"]
+      summary: "Get topology details"
+      operationId: getTopology
+      parameters:
+        - name: name
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: "Topology details"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/TopologyInfo"
+              example:
+                name: "order-enricher"
+                state: "1"
+                parallelism: 2
+                source_topic: "raw-orders"
+                sink_topic: "enriched-orders"
+                operators: 1
+        "404":
+          $ref: "#/components/responses/NotFound"
+    delete:
+      tags: ["Processors"]
+      summary: "Delete topology"
+      operationId: deleteTopology
+      parameters:
+        - name: name
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "204":
+          description: "Topology deleted"
+        "409":
+          $ref: "#/components/responses/Conflict"
+
+  /v1/processors/{name}/start:
+    post:
+      tags: ["Processors"]
+      summary: "Start topology"
+      operationId: startTopology
+      parameters:
+        - name: name
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: "Topology started"
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status:
+                    type: string
+                    example: "running"
+        "404":
+          $ref: "#/components/responses/NotFound"
+
+  /v1/processors/{name}/stop:
+    post:
+      tags: ["Processors"]
+      summary: "Stop topology"
+      operationId: stopTopology
+      parameters:
+        - name: name
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: "Topology stopped"
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status:
+                    type: string
+                    example: "stopped"
+        "404":
+          $ref: "#/components/responses/NotFound"
+
+  # ═══════════════════════════════════════════════════════════
+  # DLQ
+  # ═══════════════════════════════════════════════════════════
+
   /v1/dlq/{topic}:
     get:
-      summary: Peek DLQ entries
-      operationId: dlqPeek
+      tags: ["DLQ"]
+      summary: "Peek DLQ entries"
+      operationId: peekDLQ
       parameters:
         - name: topic
           in: path
@@ -546,14 +1003,25 @@ paths:
             type: integer
       responses:
         "200":
-          description: DLQ entries
-        "503":
-          description: DLQ not enabled
-      tags: [DLQ]
-
+          description: "DLQ entries"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DLQPeekResponse"
+              example:
+                topic: "orders"
+                count: 2
+                entries:
+                  - id: "uuid-1"
+                    original_topic: "orders"
+                    body: "eyJpZCI6MX0="
+                    error: "timeout"
+                    retries: 3
+                    timestamp: "2025-01-01T00:00:00Z"
     delete:
-      summary: Clear DLQ for a topic
-      operationId: dlqClear
+      tags: ["DLQ"]
+      summary: "Clear DLQ"
+      operationId: clearDLQ
       parameters:
         - name: topic
           in: path
@@ -562,133 +1030,425 @@ paths:
             type: string
       responses:
         "200":
-          description: DLQ cleared
-      tags: [DLQ]
+          description: "DLQ cleared"
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status:
+                    type: string
+                    example: "cleared"
 
   /v1/dlq/{topic}/replay:
     post:
-      summary: Replay all DLQ entries
-      operationId: dlqReplay
+      tags: ["DLQ"]
+      summary: "Replay DLQ messages"
+      operationId: replayDLQ
       parameters:
         - name: topic
           in: path
           required: true
           schema:
             type: string
-      responses:
-        "200":
-          description: Replay result with count
-      tags: [DLQ]
-
-  # --- Cluster ---
-  /v1/cluster/members:
-    get:
-      summary: List cluster members
-      operationId: listClusterMembers
-      responses:
-        "200":
-          description: Member list
-      tags: [Cluster]
-
-  # --- WASM ---
-  /v1/wasm/modules:
-    post:
-      summary: Upload a WASM module
-      operationId: uploadWasm
       requestBody:
+        required: false
         content:
-          application/octet-stream:
+          application/json:
             schema:
-              type: string
-              format: binary
+              $ref: "#/components/schemas/ReplayRequest"
+            example:
+              dry_run: false
+              max_messages: 100
+              target_topic: "orders"
+              delete_after_replay: true
+              add_dlq_metadata: true
+              condition:
+                reason: "timeout"
+                min_retries: 3
       responses:
         "200":
-          description: Module uploaded
-      tags: [WASM]
+          description: "Replay result"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ReplayResponse"
+              example:
+                replayed: 95
+                failed: 5
+                matched: 100
+                total: 120
+                skipped: 20
+                dry_run: false
+                topic: "orders"
+                errors: 0
 
-    get:
-      summary: List WASM modules
-      operationId: listWasm
-      responses:
-        "200":
-          description: Module list
-      tags: [WASM]
-
-  /v1/wasm/modules/{name}:
-    delete:
-      summary: Delete a WASM module
-      operationId: deleteWasm
+  /v1/dlq/{topic}/preview:
+    post:
+      tags: ["DLQ"]
+      summary: "Preview DLQ entries matching conditions"
+      operationId: previewDLQ
       parameters:
-        - name: name
+        - name: topic
           in: path
           required: true
           schema:
             type: string
-      responses:
-        "200":
-          description: Module deleted
-        "404":
-          description: Module not found
-      tags: [WASM]
-
-  # --- Stream Processing ---
-  /v1/processors:
-    post:
-      summary: Create a stream processor topology
-      operationId: createProcessor
       requestBody:
+        required: false
         content:
           application/json:
             schema:
               type: object
+              properties:
+                max_messages:
+                  type: integer
+                  default: 100
+                condition:
+                  type: object
+                  properties:
+                    reason:
+                      type: string
+                    min_retries:
+                      type: integer
+                    reason_pattern:
+                      type: string
+                    payload_contains:
+                      type: string
+            example:
+              max_messages: 50
+              condition:
+                reason: "timeout"
       responses:
         "200":
-          description: Topology created
-      tags: [Processors]
+          description: "Preview entries"
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  entries:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/DLQEntry"
+                  count:
+                    type: integer
+                  topic:
+                    type: string
 
+  /v1/dlq/{topic}/export:
     get:
-      summary: List stream processor topologies
-      operationId: listProcessors
-      responses:
-        "200":
-          description: Topology list
-      tags: [Processors]
-
-  /v1/processors/{name}:
-    get:
-      summary: Get topology details
-      operationId: getProcessor
+      tags: ["DLQ"]
+      summary: "Export DLQ entries as JSON file"
+      operationId: exportDLQ
       parameters:
-        - name: name
+        - name: topic
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: max_messages
+          in: query
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: "JSON file download"
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/DLQEntry"
+
+  # ═══════════════════════════════════════════════════════════
+  # TENANTS
+  # ═══════════════════════════════════════════════════════════
+
+  /v1/tenants:
+    post:
+      tags: ["Tenants"]
+      summary: "Create tenant"
+      operationId: createTenant
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateTenantRequest"
+            example:
+              id: "tenant-alpha"
+              name: "Alpha Corp"
+              description: "Alpha Corporation tenant"
+              max_storage_bytes: 10737418240
+              max_topics: 50
+              max_connections: 100
+              max_publish_rate: 10000
+              max_fetch_rate: 50000
+              labels:
+                environment: "production"
+                team: "alpha"
+      responses:
+        "201":
+          description: "Tenant created"
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  id:
+                    type: string
+                  name:
+                    type: string
+                  status:
+                    type: string
+                    example: "created"
+                  enabled:
+                    type: boolean
+              example:
+                id: "tenant-alpha"
+                name: "Alpha Corp"
+                status: "created"
+                enabled: true
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "409":
+          $ref: "#/components/responses/Conflict"
+    get:
+      tags: ["Tenants"]
+      summary: "List tenants"
+      operationId: listTenants
+      parameters:
+        - $ref: "#/components/parameters/Limit"
+        - $ref: "#/components/parameters/Offset"
+      responses:
+        "200":
+          description: "List of tenants"
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  tenants:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/TenantInfo"
+                  count:
+                    type: integer
+
+  /v1/tenants/{id}:
+    get:
+      tags: ["Tenants"]
+      summary: "Get tenant"
+      operationId: getTenant
+      parameters:
+        - name: id
           in: path
           required: true
           schema:
             type: string
       responses:
         "200":
-          description: Topology details
+          description: "Tenant details"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/TenantDetails"
+              example:
+                id: "tenant-alpha"
+                name: "Alpha Corp"
+                description: "Alpha Corporation tenant"
+                enabled: true
+                created_at: "2025-01-01T00:00:00Z"
+                quotas:
+                  max_storage_bytes: 10737418240
+                  max_topics: 50
+                  max_connections: 100
+                  max_publish_rate: 10000
+                  max_fetch_rate: 50000
+                labels:
+                  environment: "production"
         "404":
-          description: Not found
-      tags: [Processors]
-
+          $ref: "#/components/responses/NotFound"
     delete:
-      summary: Delete a topology
-      operationId: deleteProcessor
+      tags: ["Tenants"]
+      summary: "Delete tenant"
+      operationId: deleteTenant
       parameters:
-        - name: name
+        - name: id
           in: path
           required: true
           schema:
             type: string
       responses:
         "200":
-          description: Topology deleted
-      tags: [Processors]
+          description: "Tenant deleted"
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  id:
+                    type: string
+                  status:
+                    type: string
+                    example: "deleted"
+        "404":
+          $ref: "#/components/responses/NotFound"
 
-  /v1/processors/{name}/start:
+  /v1/tenants/{id}/usage:
+    get:
+      tags: ["Tenants"]
+      summary: "Get tenant usage statistics"
+      operationId: getTenantUsage
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: "Usage statistics"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/TenantUsage"
+
+  /v1/tenants/{id}/quotas:
+    get:
+      tags: ["Tenants"]
+      summary: "Get tenant quotas"
+      operationId: getTenantQuotas
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: "Tenant quotas"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/TenantQuotas"
+              example:
+                tenant_id: "tenant-alpha"
+                quotas:
+                  max_storage_bytes: 10737418240
+                  max_topics: 50
+                  max_connections: 100
+                  max_publish_rate: 10000
+                  max_fetch_rate: 50000
+        "404":
+          $ref: "#/components/responses/NotFound"
+    put:
+      tags: ["Tenants"]
+      summary: "Update tenant quotas"
+      operationId: updateTenantQuotas
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/UpdateQuotasRequest"
+            example:
+              max_storage_bytes: 21474836480
+              max_topics: 100
+              max_connections: 200
+              max_publish_rate: 20000
+              max_fetch_rate: 100000
+      responses:
+        "200":
+          description: "Quotas updated"
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  tenant_id:
+                    type: string
+                  status:
+                    type: string
+                    example: "quotas updated"
+        "404":
+          $ref: "#/components/responses/NotFound"
+
+  # ═══════════════════════════════════════════════════════════
+  # EXCHANGES
+  # ═══════════════════════════════════════════════════════════
+
+  /v1/exchanges:
     post:
-      summary: Start a topology
-      operationId: startProcessor
+      tags: ["Exchanges"]
+      summary: "Create exchange"
+      operationId: createExchange
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateExchangeRequest"
+            example:
+              name: "orders-exchange"
+              type: "topic"
+              durable: true
+      responses:
+        "201":
+          description: "Exchange created"
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  name:
+                    type: string
+                  type:
+                    type: string
+                  durable:
+                    type: boolean
+              example:
+                name: "orders-exchange"
+                type: "topic"
+                durable: true
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "409":
+          $ref: "#/components/responses/Conflict"
+    get:
+      tags: ["Exchanges"]
+      summary: "List exchanges"
+      operationId: listExchanges
+      parameters:
+        - $ref: "#/components/parameters/Limit"
+        - $ref: "#/components/parameters/Offset"
+      responses:
+        "200":
+          description: "List of exchanges"
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  exchanges:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/ExchangeInfo"
+                  count:
+                    type: integer
+
+  /v1/exchanges/{name}:
+    get:
+      tags: ["Exchanges"]
+      summary: "Get exchange details"
+      operationId: getExchange
       parameters:
         - name: name
           in: path
@@ -697,30 +1457,1035 @@ paths:
             type: string
       responses:
         "200":
-          description: Topology started
-      tags: [Processors]
+          description: "Exchange details"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ExchangeDetails"
+              example:
+                name: "orders-exchange"
+                type: "topic"
+                bindings:
+                  - key: "order.*"
+                    destination: "orders-queue"
+                  - key: "order.created"
+                    destination: "notifications"
+        "404":
+          $ref: "#/components/responses/NotFound"
+    delete:
+      tags: ["Exchanges"]
+      summary: "Delete exchange"
+      operationId: deleteExchange
+      parameters:
+        - name: name
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: "Exchange deleted"
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status:
+                    type: string
+                    example: "deleted"
+        "404":
+          $ref: "#/components/responses/NotFound"
 
-  /v1/processors/{name}/stop:
+  /v1/exchanges/{name}/bindings:
     post:
-      summary: Stop a topology
-      operationId: stopProcessor
+      tags: ["Exchanges"]
+      summary: "Bind exchange to destination"
+      operationId: bindExchange
       parameters:
         - name: name
           in: path
           required: true
           schema:
             type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/BindingRequest"
+            example:
+              key: "order.created"
+              destination: "notifications"
+              arguments:
+                x-match: "all"
       responses:
         "200":
-          description: Topology stopped
-      tags: [Processors]
+          description: "Exchange bound"
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status:
+                    type: string
+                    example: "bound"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "404":
+          $ref: "#/components/responses/NotFound"
+    delete:
+      tags: ["Exchanges"]
+      summary: "Unbind exchange"
+      operationId: unbindExchange
+      parameters:
+        - name: name
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: ["key", "destination"]
+              properties:
+                key:
+                  type: string
+                destination:
+                  type: string
+            example:
+              key: "order.created"
+              destination: "notifications"
+      responses:
+        "200":
+          description: "Exchange unbound"
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status:
+                    type: string
+                    example: "unbound"
 
-tags:
-  - name: Topics
-  - name: Messages
-  - name: Consumer Groups
-  - name: Schemas
-  - name: DLQ
-  - name: Cluster
-  - name: WASM
-  - name: Processors
+  /v1/exchanges/{name}/publish:
+    post:
+      tags: ["Exchanges"]
+      summary: "Publish message to exchange"
+      operationId: publishToExchange
+      parameters:
+        - name: name
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ExchangePublishRequest"
+            example:
+              routing_key: "order.created"
+              headers:
+                priority: "high"
+              payload: "eyJvcmRlcl9pZCI6MTIzfQ=="
+      responses:
+        "200":
+          description: "Publish result"
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  routed:
+                    type: integer
+                  published:
+                    type: integer
+              example:
+                routed: 2
+                published: 2
+
+  # ═══════════════════════════════════════════════════════════
+  # SYSTEM
+  # ═══════════════════════════════════════════════════════════
+
+  /v1/health:
+    get:
+      tags: ["System"]
+      summary: "Health check"
+      operationId: healthCheck
+      security: []
+      responses:
+        "200":
+          description: "Health status"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/HealthResponse"
+              example:
+                status: "healthy"
+                node_id: "node-1"
+                name: "chimera-1"
+                uptime: "24h15m30s"
+
+  /v1/metrics:
+    get:
+      tags: ["System"]
+      summary: "Prometheus metrics"
+      operationId: getMetrics
+      responses:
+        "200":
+          description: "Prometheus metrics in text format"
+          content:
+            text/plain:
+              schema:
+                type: string
+
+  /v1/cluster/members:
+    get:
+      tags: ["System"]
+      summary: "Cluster members"
+      operationId: clusterMembers
+      responses:
+        "200":
+          description: "Cluster membership"
+          content:
+            application/json:
+              oneOf:
+                - $ref: "#/components/schemas/ClusterResponse"
+                - $ref: "#/components/schemas/SingleNodeResponse"
+              examples:
+                cluster:
+                  summary: "Cluster mode"
+                  value:
+                    mode: "cluster"
+                    is_leader: true
+                    leader_id: "node-1"
+                    alive_count: 3
+                    members:
+                      - id: "node-1"
+                        addr: "192.168.1.10"
+                        port: 7946
+                        state: "Alive"
+                        incarnation: 1
+                      - id: "node-2"
+                        addr: "192.168.1.11"
+                        port: 7946
+                        state: "Alive"
+                        incarnation: 2
+                single_node:
+                  summary: "Single-node mode"
+                  value:
+                    mode: "single-node"
+                    members: null
+
+  /v1/config/reload:
+    post:
+      tags: ["System"]
+      summary: "Reload configuration from file"
+      operationId: reloadConfig
+      responses:
+        "200":
+          description: "Configuration reloaded"
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status:
+                    type: string
+                    example: "ok"
+                  message:
+                    type: string
+                    example: "configuration reloaded"
+        "500":
+          description: "Reload failed"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+  # ═══════════════════════════════════════════════════════════
+  # DEBUG (pprof)
+  # ═══════════════════════════════════════════════════════════
+
+  /debug/pprof:
+    get:
+      tags: ["Debug"]
+      summary: "pprof index"
+      operationId: pprofIndex
+      description: "HTML index of available pprof endpoints"
+      responses:
+        "200":
+          description: "HTML index page"
+          content:
+            text/html:
+              schema:
+                type: string
+
+  /debug/pprof/{profile}:
+    get:
+      tags: ["Debug"]
+      summary: "pprof profiles"
+      operationId: pprofProfile
+      description: |
+        Go pprof profiling endpoints. Available profiles:
+        `allocs`, `block`, `cmdline`, `goroutine`, `heap`,
+        `mutex`, `profile`, `threadcreate`, `trace`.
+      parameters:
+        - name: profile
+          in: path
+          required: true
+          schema:
+            type: string
+            enum: ["allocs", "block", "cmdline", "goroutine", "heap", "mutex", "profile", "threadcreate", "trace"]
+        - name: seconds
+          in: query
+          schema:
+            type: integer
+            default: 30
+            maximum: 5
+          description: "Duration for profile/trace endpoints"
+      responses:
+        "200":
+          description: "Profile data"
+          content:
+            application/octet-stream:
+              schema:
+                type: string
+                format: binary
+
+# ═════════════════════════════════════════════════════════════
+# COMPONENTS
+# ═════════════════════════════════════════════════════════════
+
+components:
+  securitySchemes:
+    BearerAuth:
+      type: http
+      scheme: bearer
+      description: "API token authentication"
+    BasicAuth:
+      type: http
+      scheme: basic
+      description: "Username/password authentication"
+
+  parameters:
+    Limit:
+      name: limit
+      in: query
+      schema:
+        type: integer
+        default: 100
+        maximum: 1000
+      description: "Maximum items to return"
+    Offset:
+      name: offset
+      in: query
+      schema:
+        type: integer
+        default: 0
+        minimum: 0
+      description: "Number of items to skip"
+
+  responses:
+    BadRequest:
+      description: "Invalid request"
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ErrorResponse"
+          example:
+            error: "invalid request body"
+    NotFound:
+      description: "Resource not found"
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ErrorResponse"
+          example:
+            error: "topic not found"
+    Conflict:
+      description: "Resource conflict"
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ErrorResponse"
+          example:
+            error: "topic already exists"
+    Unauthorized:
+      description: "Authentication required"
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ErrorResponse"
+          example:
+            error: "unauthorized"
+    Forbidden:
+      description: "Insufficient permissions"
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ErrorResponse"
+          example:
+            error: "forbidden"
+    ServiceUnavailable:
+      description: "Subsystem not available"
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ErrorResponse"
+          example:
+            error: "topic manager not available"
+
+  schemas:
+    # ─── Error ─────────────────────────────────────────────
+
+    ErrorResponse:
+      type: object
+      required: ["error"]
+      properties:
+        error:
+          type: string
+          description: "Error message"
+
+    # ─── Topics ────────────────────────────────────────────
+
+    CreateTopicRequest:
+      type: object
+      required: ["name"]
+      properties:
+        name:
+          type: string
+          maxLength: 255
+          description: "Topic name (no path traversal characters)"
+        mode:
+          type: string
+          enum: ["unified", "stream", "queue"]
+          default: "unified"
+        partitions:
+          type: integer
+          format: int32
+          minimum: 1
+        retention_time:
+          type: string
+          description: "Retention period (Go duration, e.g. 24h)"
+        dlq_topic:
+          type: string
+          description: "Associated DLQ topic name"
+        max_retries:
+          type: integer
+          format: int32
+          minimum: 0
+          description: "Max delivery retries before DLQ"
+
+    CreateTopicResponse:
+      type: object
+      properties:
+        name:
+          type: string
+        mode:
+          type: string
+        partitions:
+          type: integer
+          format: int32
+
+    TopicInfo:
+      type: object
+      properties:
+        name:
+          type: string
+        mode:
+          type: string
+          enum: ["unified", "stream", "queue"]
+        partitions:
+          type: integer
+          format: int32
+        created_at:
+          type: string
+          format: date-time
+
+    TopicDetails:
+      type: object
+      properties:
+        name:
+          type: string
+        partitions:
+          type: array
+          items:
+            $ref: "#/components/schemas/PartitionStat"
+
+    PartitionStat:
+      type: object
+      properties:
+        id:
+          type: integer
+          format: int32
+        high_watermark:
+          type: integer
+          format: int64
+          description: "Highest committed offset"
+        log_start_offset:
+          type: integer
+          format: int64
+          description: "Earliest available offset"
+
+    # ─── Messages ──────────────────────────────────────────
+
+    PublishResponse:
+      type: object
+      properties:
+        offset:
+          type: integer
+          format: int64
+        partition:
+          type: integer
+          format: int32
+        topic:
+          type: string
+
+    FetchResponse:
+      type: object
+      properties:
+        messages:
+          type: array
+          items:
+            $ref: "#/components/schemas/FetchedMessage"
+        next_offset:
+          type: integer
+          format: int64
+        count:
+          type: integer
+
+    FetchedMessage:
+      type: object
+      properties:
+        offset:
+          type: integer
+          format: int64
+        content_type:
+          type: string
+        payload:
+          type: string
+          format: byte
+          description: "Base64-encoded payload"
+        headers:
+          type: object
+          additionalProperties:
+            type: string
+            format: byte
+
+    AckNackRequest:
+      type: object
+      required: ["offsets"]
+      properties:
+        offsets:
+          type: array
+          items:
+            type: integer
+            format: int64
+
+    # ─── Consumer Groups ───────────────────────────────────
+
+    ConsumerGroupInfo:
+      type: object
+      properties:
+        group:
+          type: string
+        members:
+          type: array
+          items:
+            $ref: "#/components/schemas/ConsumerMember"
+        assignments:
+          $ref: "#/components/schemas/AssignmentsMap"
+
+    ConsumerMember:
+      type: object
+      properties:
+        id:
+          type: string
+        partitions:
+          type: array
+          items:
+            type: integer
+            format: int32
+
+    AssignmentsMap:
+      type: object
+      additionalProperties:
+        type: array
+        items:
+          type: integer
+          format: int32
+      description: "Map of member ID to assigned partition IDs"
+
+    JoinGroupRequest:
+      type: object
+      required: ["member_id", "topic"]
+      properties:
+        member_id:
+          type: string
+          maxLength: 255
+        topic:
+          type: string
+        partitions:
+          type: integer
+          format: int32
+          minimum: 1
+          default: 1
+        strategy:
+          type: string
+          enum: ["range", "round_robin"]
+          default: "range"
+
+    OffsetMap:
+      type: object
+      additionalProperties:
+        type: integer
+        format: int64
+      description: 'Map of partition ID (string key) to committed offset'
+
+    CommitOffsetsRequest:
+      type: object
+      required: ["offsets"]
+      properties:
+        offsets:
+          $ref: "#/components/schemas/OffsetMap"
+
+    # ─── Schema Registry ───────────────────────────────────
+
+    RegisterSchemaRequest:
+      type: object
+      required: ["schema"]
+      properties:
+        type:
+          type: string
+          enum: ["JSON", "Avro", "Protobuf"]
+          description: "Schema type (auto-inferred if omitted)"
+        schema:
+          type: string
+          description: "Schema definition string"
+
+    SchemaVersion:
+      type: object
+      properties:
+        subject:
+          type: string
+        version:
+          type: integer
+        type:
+          type: string
+          enum: ["JSON", "Avro", "Protobuf"]
+        schema:
+          type: string
+        compatibility:
+          type: string
+          enum: ["none", "backward", "forward", "full"]
+
+    # ─── WASM ──────────────────────────────────────────────
+
+    WasmModuleInfo:
+      type: object
+      properties:
+        name:
+          type: string
+        status:
+          type: string
+
+    # ─── Processors ────────────────────────────────────────
+
+    TopologySpec:
+      type: object
+      required: ["name", "source", "sink"]
+      properties:
+        name:
+          type: string
+          maxLength: 255
+        auto_start:
+          type: boolean
+          default: false
+        parallelism:
+          type: integer
+          format: int32
+          minimum: 1
+          default: 1
+        source:
+          $ref: "#/components/schemas/TopologyEndpoint"
+        sink:
+          $ref: "#/components/schemas/TopologyEndpoint"
+        operators:
+          type: array
+          items:
+            $ref: "#/components/schemas/Operator"
+
+    TopologyEndpoint:
+      type: object
+      required: ["topic"]
+      properties:
+        topic:
+          type: string
+
+    Operator:
+      type: object
+      properties:
+        type:
+          type: string
+          enum: ["filter", "map", "flatMap", "aggregate", "window"]
+        wasm:
+          type: string
+          description: "WASM module name"
+        config:
+          type: object
+          additionalProperties: true
+
+    TopologyInfo:
+      type: object
+      properties:
+        name:
+          type: string
+        state:
+          type: string
+        parallelism:
+          type: integer
+          format: int32
+        source_topic:
+          type: string
+        sink_topic:
+          type: string
+        operators:
+          type: integer
+
+    # ─── DLQ ───────────────────────────────────────────────
+
+    DLQEntry:
+      type: object
+      properties:
+        id:
+          type: string
+        original_topic:
+          type: string
+        body:
+          type: string
+          format: byte
+        error:
+          type: string
+        retries:
+          type: integer
+        timestamp:
+          type: string
+          format: date-time
+
+    DLQPeekResponse:
+      type: object
+      properties:
+        topic:
+          type: string
+        count:
+          type: integer
+        entries:
+          type: array
+          items:
+            $ref: "#/components/schemas/DLQEntry"
+
+    ReplayRequest:
+      type: object
+      properties:
+        dry_run:
+          type: boolean
+          default: false
+        max_messages:
+          type: integer
+          minimum: 0
+        target_topic:
+          type: string
+        delete_after_replay:
+          type: boolean
+          default: false
+        add_dlq_metadata:
+          type: boolean
+          default: false
+        condition:
+          type: object
+          properties:
+            reason:
+              type: string
+            min_retries:
+              type: integer
+            reason_pattern:
+              type: string
+            payload_contains:
+              type: string
+
+    ReplayResponse:
+      type: object
+      properties:
+        replayed:
+          type: integer
+        failed:
+          type: integer
+        matched:
+          type: integer
+        total:
+          type: integer
+        skipped:
+          type: integer
+        dry_run:
+          type: boolean
+        topic:
+          type: string
+        errors:
+          type: integer
+
+    # ─── Tenants ───────────────────────────────────────────
+
+    CreateTenantRequest:
+      type: object
+      required: ["id"]
+      properties:
+        id:
+          type: string
+        name:
+          type: string
+        description:
+          type: string
+        max_storage_bytes:
+          type: integer
+          format: int64
+        max_topics:
+          type: integer
+        max_connections:
+          type: integer
+        max_publish_rate:
+          type: integer
+          format: int64
+        max_fetch_rate:
+          type: integer
+          format: int64
+        labels:
+          type: object
+          additionalProperties:
+            type: string
+
+    TenantInfo:
+      type: object
+      properties:
+        id:
+          type: string
+        name:
+          type: string
+        enabled:
+          type: boolean
+        created_at:
+          type: string
+          format: date-time
+        description:
+          type: string
+
+    TenantDetails:
+      type: object
+      properties:
+        id:
+          type: string
+        name:
+          type: string
+        description:
+          type: string
+        enabled:
+          type: boolean
+        created_at:
+          type: string
+          format: date-time
+        quotas:
+          $ref: "#/components/schemas/TenantQuotasObject"
+        labels:
+          type: object
+          additionalProperties:
+            type: string
+
+    TenantQuotas:
+      type: object
+      properties:
+        tenant_id:
+          type: string
+        quotas:
+          $ref: "#/components/schemas/TenantQuotasObject"
+
+    TenantQuotasObject:
+      type: object
+      properties:
+        max_storage_bytes:
+          type: integer
+          format: int64
+        max_topics:
+          type: integer
+        max_connections:
+          type: integer
+          format: int64
+        max_publish_rate:
+          type: integer
+          format: int64
+        max_fetch_rate:
+          type: integer
+          format: int64
+
+    UpdateQuotasRequest:
+      type: object
+      properties:
+        max_storage_bytes:
+          type: integer
+          format: int64
+        max_topics:
+          type: integer
+        max_connections:
+          type: integer
+        max_publish_rate:
+          type: integer
+          format: int64
+        max_fetch_rate:
+          type: integer
+          format: int64
+
+    TenantUsage:
+      type: object
+      description: "Tenant usage statistics (structure varies)"
+      additionalProperties: true
+
+    # ─── Exchanges ─────────────────────────────────────────
+
+    CreateExchangeRequest:
+      type: object
+      required: ["name"]
+      properties:
+        name:
+          type: string
+          maxLength: 255
+        type:
+          type: string
+          enum: ["direct", "fanout", "topic", "headers"]
+          default: "direct"
+        durable:
+          type: boolean
+          default: false
+
+    ExchangeInfo:
+      type: object
+      properties:
+        name:
+          type: string
+        type:
+          type: string
+        bindings:
+          type: integer
+
+    ExchangeDetails:
+      type: object
+      properties:
+        name:
+          type: string
+        type:
+          type: string
+        bindings:
+          type: array
+          items:
+            $ref: "#/components/schemas/BindingInfo"
+
+    BindingInfo:
+      type: object
+      properties:
+        key:
+          type: string
+        destination:
+          type: string
+        arguments:
+          type: object
+          additionalProperties:
+            type: string
+
+    BindingRequest:
+      type: object
+      required: ["key", "destination"]
+      properties:
+        key:
+          type: string
+        destination:
+          type: string
+        arguments:
+          type: object
+          additionalProperties:
+            type: string
+
+    ExchangePublishRequest:
+      type: object
+      required: ["payload"]
+      properties:
+        routing_key:
+          type: string
+        headers:
+          type: object
+          additionalProperties:
+            type: string
+        payload:
+          type: string
+          format: byte
+
+    # ─── System ────────────────────────────────────────────
+
+    HealthResponse:
+      type: object
+      properties:
+        status:
+          type: string
+          example: "healthy"
+        node_id:
+          type: string
+        name:
+          type: string
+        uptime:
+          type: string
+          description: "Human-readable uptime"
+
+    ClusterResponse:
+      type: object
+      properties:
+        mode:
+          type: string
+          example: "cluster"
+        is_leader:
+          type: boolean
+        leader_id:
+          type: string
+        alive_count:
+          type: integer
+        members:
+          type: array
+          items:
+            $ref: "#/components/schemas/ClusterMember"
+
+    SingleNodeResponse:
+      type: object
+      properties:
+        mode:
+          type: string
+          example: "single-node"
+        members:
+          type: "null"
+
+    ClusterMember:
+      type: object
+      properties:
+        id:
+          type: string
+        addr:
+          type: string
+          description: "IP address"
+        port:
+          type: integer
+        state:
+          type: string
+          enum: ["Alive", "Dead", "Suspect", "Left"]
+        incarnation:
+          type: integer
+          format: int64

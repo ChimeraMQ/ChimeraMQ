@@ -37,9 +37,13 @@ type Migrator struct {
 
 // ColdManager manages cold archive files.
 type ColdManager struct {
-	mu       sync.RWMutex
-	dir      string
-	archives map[string]*cold.ColdArchive
+	mu            sync.RWMutex
+	dir           string
+	archives      map[string]*cold.ColdArchive
+	archiveCount  int
+	trainer       *cold.ZstdDictTrainer
+	compressor    *cold.DictCompressor
+	compressorMu  sync.RWMutex
 }
 
 // NewColdManager creates a cold archive manager.
@@ -50,8 +54,22 @@ func NewColdManager(dir string) (*ColdManager, error) {
 	cm := &ColdManager{
 		dir:      dir,
 		archives: make(map[string]*cold.ColdArchive),
+		trainer:  cold.NewZstdDictTrainer(dir),
 	}
 	cm.loadExisting()
+
+	// Load trained dictionary if available
+	if cm.trainer.HasDict() {
+		dict, err := cm.trainer.LoadDict()
+		if err == nil {
+			comp, err := cold.NewDictCompressor(dict)
+			if err == nil {
+				cm.compressor = comp
+				log.Printf("cold: loaded zstd dictionary from %s", cm.trainer.DictPath())
+			}
+		}
+	}
+
 	return cm, nil
 }
 
@@ -67,6 +85,12 @@ func (cm *ColdManager) loadExisting() {
 			continue
 		}
 		cm.archives[path] = ca
+		cm.archiveCount++
+
+		// Apply compressor if archive is compressed and we have a dictionary
+		if ca.IsCompressed() && cm.compressor != nil {
+			ca.SetCompressor(cm.compressor)
+		}
 	}
 }
 
@@ -244,6 +268,11 @@ func (m *Migrator) migrateWarmToCold() {
 		return
 	}
 
+	// Collect samples for dictionary training before archiving
+	if m.cold.trainer != nil {
+		m.cold.trainer.AddSamples(oldSSTs)
+	}
+
 	batchSize := 10
 	archivedCount := 0
 	for i := 0; i < len(oldSSTs); i += batchSize {
@@ -264,6 +293,7 @@ func (m *Migrator) migrateWarmToCold() {
 
 		m.cold.mu.Lock()
 		m.cold.archives[archivePath] = ca
+		m.cold.archiveCount++
 		m.cold.mu.Unlock()
 
 		for _, sst := range batch {
@@ -272,6 +302,52 @@ func (m *Migrator) migrateWarmToCold() {
 
 		archivedCount += len(batch)
 		log.Printf("tier: archived %d SSTables to %s", len(batch), archiveName)
+	}
+
+	// Check if dictionary training should trigger
+	if archivedCount > 0 && m.cold.trainer != nil {
+		m.cold.mu.RLock()
+		count := m.cold.archiveCount
+		m.cold.mu.RUnlock()
+
+		if m.cold.trainer.ShouldTrain(count) {
+			// Train may panic due to a bug in klauspost/compress zstd.BuildDict
+			var dict []byte
+			var trainErr error
+			func() {
+				defer func() {
+					if r := recover(); r != nil {
+						trainErr = fmt.Errorf("dictionary training panicked: %v", r)
+					}
+				}()
+				dict, trainErr = m.cold.trainer.Train()
+			}()
+			if trainErr != nil {
+				log.Printf("cold: dictionary training failed: %v", trainErr)
+			} else {
+				// Activate new compressor with trained dictionary
+				m.cold.compressorMu.Lock()
+				if m.cold.compressor != nil {
+					m.cold.compressor.Close()
+				}
+				comp, err := cold.NewDictCompressor(dict)
+				if err != nil {
+					log.Printf("cold: new compressor failed: %v", err)
+				} else {
+					m.cold.compressor = comp
+					// Apply to existing compressed archives
+					m.cold.mu.RLock()
+					for _, ca := range m.cold.archives {
+						if ca.IsCompressed() {
+							ca.SetCompressor(comp)
+						}
+					}
+					m.cold.mu.RUnlock()
+					log.Printf("cold: dictionary trained and activated (%d samples)", len(dict))
+				}
+				m.cold.compressorMu.Unlock()
+			}
+		}
 	}
 
 	if archivedCount > 0 && m.metrics != nil {
@@ -302,6 +378,9 @@ func (cm *ColdManager) Close() {
 	defer cm.mu.Unlock()
 	for _, ca := range cm.archives {
 		ca.Close()
+	}
+	if cm.compressor != nil {
+		cm.compressor.Close()
 	}
 }
 

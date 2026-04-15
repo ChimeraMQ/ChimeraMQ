@@ -20,7 +20,7 @@ func TestSSTableFlushAndRead(t *testing.T) {
 	}
 	mt.Freeze()
 
-	sst, err := FlushMemTable(mt, dir)
+	sst, err := FlushMemTable(mt, dir, 0)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -61,7 +61,7 @@ func TestSSTableTombstone(t *testing.T) {
 	mt.Delete(key)
 	mt.Freeze()
 
-	sst, err := FlushMemTable(mt, dir)
+	sst, err := FlushMemTable(mt, dir, 0)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -86,7 +86,7 @@ func TestSSTableReopen(t *testing.T) {
 	}
 	mt.Freeze()
 
-	sst1, err := FlushMemTable(mt, dir)
+	sst1, err := FlushMemTable(mt, dir, 0)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -116,7 +116,7 @@ func TestSSTableBloomRejection(t *testing.T) {
 	}
 	mt.Freeze()
 
-	sst, err := FlushMemTable(mt, dir)
+	sst, err := FlushMemTable(mt, dir, 0)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -140,7 +140,7 @@ func TestSSTableMetadata(t *testing.T) {
 	}
 	mt.Freeze()
 
-	sst, err := FlushMemTable(mt, dir)
+	sst, err := FlushMemTable(mt, dir, 0)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -219,7 +219,7 @@ func TestSSTableFilesCreated(t *testing.T) {
 	mt.Put([]byte("k"), []byte("v"))
 	mt.Freeze()
 
-	sst, err := FlushMemTable(mt, dir)
+	sst, err := FlushMemTable(mt, dir, 0)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -273,7 +273,7 @@ func TestSSTableBlockCacheHits(t *testing.T) {
 	}
 	mt.Freeze()
 
-	sst, err := FlushMemTable(mt, dir)
+	sst, err := FlushMemTable(mt, dir, 0)
 	if err != nil {
 		t.Fatal(err)
 	}

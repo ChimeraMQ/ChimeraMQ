@@ -8,7 +8,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [0.1.0] - 2026-04-12
 
 ### Initial Release
-- **8 Protocol Adapters** — HTTP, native TCP, MQTT, AMQP 1.0, WebSocket, STOMP, NATS, gRPC
+- **7 Protocol Adapters** — HTTP, native TCP, MQTT, AMQP 1.0, WebSocket, STOMP, NATS
 - **3 Storage Tiers** — Hot (mmap segments), Warm (LSM-tree), Cold (archives)
 - **Clustering** — Raft consensus, SWIM gossip, ISR replication
 - **Security** — Auth (static/file/OAuth/LDAP/mTLS), ACL, FIPS 140-2, TLS 1.2+

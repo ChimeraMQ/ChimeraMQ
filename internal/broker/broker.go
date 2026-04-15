@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"net"
+	"net/http"
 	"os"
 	"path/filepath"
 	"sync"
@@ -72,8 +73,11 @@ type Broker struct {
 	handoff       *HandoffManager
 	auditLogger   *audit.Logger
 	geoManager    *geo.Manager
+	geoReceiver   *geo.Receiver
 	mainListener  net.Listener
 	protocolMux   interface{ Stop() }
+
+	drainMode atomic.Bool // true when server is in graceful drain mode
 
 	startTime time.Time
 	ctx       context.Context
@@ -412,6 +416,19 @@ func (b *Broker) Start() error {
 				Region:        dc.Region,
 				Topics:        dc.Topics,
 				ExcludeTopics: dc.ExcludeTopics,
+				TLS: geo.TLSConfig{
+					Enabled:    dc.TLS.Enabled,
+					CertFile:   dc.TLS.CertFile,
+					KeyFile:    dc.TLS.KeyFile,
+					CAFile:     dc.TLS.CAFile,
+					SkipVerify: dc.TLS.SkipVerify,
+				},
+				Auth: geo.AuthConfig{
+					Type:  dc.Auth.Type,
+					Token: dc.Auth.Token,
+					User:  dc.Auth.User,
+					Pass:  dc.Auth.Pass,
+				},
 			})
 		}
 
@@ -419,6 +436,20 @@ func (b *Broker) Start() error {
 		if err := b.geoManager.Start(); err != nil {
 			return fmt.Errorf("geo-replication manager: %w", err)
 		}
+
+		// Start geo receiver on admin port for incoming replication batches
+		receiverAddr := fmt.Sprintf("%s:%d", b.config.Listener.Bind, b.config.Listener.GeoPort)
+		receiver, err := geo.NewReceiver(b, b.logger, geoCfg.LocalDC, receiverAddr)
+		if err != nil {
+			return fmt.Errorf("geo-replication receiver listen: %w", err)
+		}
+		b.geoReceiver = receiver
+		go func() {
+			if err := receiver.Serve(); err != nil && err != http.ErrServerClosed {
+				b.logger.Error("geo-replication receiver error", "error", err)
+			}
+		}()
+
 		b.logger.Info("geo-replication enabled",
 			"mode", b.config.GeoReplication.ReplicationMode,
 			"remote_dcs", len(geoCfg.RemoteDCs),
@@ -578,7 +609,11 @@ func (b *Broker) Stop() error {
 
 	b.cancel()
 
-	// Stop geo-replication manager
+	// Stop geo-replication receiver and manager
+	if b.geoReceiver != nil {
+		b.geoReceiver.Stop()
+		b.logger.Info("geo-replication receiver stopped")
+	}
 	if b.geoManager != nil {
 		b.geoManager.Stop()
 		b.logger.Info("geo-replication manager stopped")
@@ -911,11 +946,22 @@ func (b *Broker) Exchanges() *exchange.Registry { return b.exchanges }
 // GeoManager returns the geo-replication manager (nil if disabled).
 func (b *Broker) GeoManager() *geo.Manager { return b.geoManager }
 
+// GeoReceiver returns the geo-replication receiver (nil if disabled).
+func (b *Broker) GeoReceiver() *geo.Receiver { return b.geoReceiver }
+
 // IsFIPSEnabled returns true if FIPS 140-2 mode is enabled.
 func (b *Broker) IsFIPSEnabled() bool { return fips.IsEnabled() }
 
 // IsClustered returns true if clustering is enabled.
 func (b *Broker) IsClustered() bool { return b.cluster != nil }
+
+// SetDrainMode sets or clears graceful drain mode.
+// When draining, the server stops accepting new connections and waits for
+// existing connections to close. Health check reports "draining" status.
+func (b *Broker) SetDrainMode(drain bool) { b.drainMode.Store(drain) }
+
+// IsDrainMode returns true if the server is in graceful drain mode.
+func (b *Broker) IsDrainMode() bool { return b.drainMode.Load() }
 
 func acquireLockFile(dataDir string) (*os.File, error) {
 	lockPath := filepath.Join(dataDir, "chimera.lock")

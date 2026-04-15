@@ -37,20 +37,20 @@ func (b *Broker) Publish(env *message.Envelope) (uint64, error) {
 		return 0, fmt.Errorf("rate limited for topic %q", env.Topic)
 	}
 
-	// Tenant quota check
+	// Single tenant lookup — reused for quota and quota recording
+	var tenantID string
 	if b.tenantMgr != nil {
 		if t := b.tenantMgr.GetTenant(env.Topic); t != nil {
-			if !b.tenantMgr.CheckQuota(t.ID, "publish") {
-				return 0, fmt.Errorf("tenant %q publish rate exceeded", t.ID)
+			tenantID = t.ID
+			if !b.tenantMgr.CheckQuota(tenantID, "publish") {
+				return 0, fmt.Errorf("tenant %q publish rate exceeded", tenantID)
 			}
 		}
 	}
 
 	// Record publish for quota tracking
-	if b.quotaEnforcer != nil {
-		if t := b.tenantMgr.GetTenant(env.Topic); t != nil {
-			b.quotaEnforcer.RecordPublish(t.ID, int64(len(env.Payload)))
-		}
+	if b.quotaEnforcer != nil && tenantID != "" {
+		b.quotaEnforcer.RecordPublish(tenantID, int64(len(env.Payload)))
 	}
 
 	// Schema enforcement
@@ -94,8 +94,12 @@ func (b *Broker) Publish(env *message.Envelope) (uint64, error) {
 	partID := b.topics.ResolvePartition(env.Topic, env.RoutingKey, topicCfg.Partitions)
 	env.PartitionID = partID
 
+	// Capture timestamp once — reused for delay check and identity
+	now := time.Now()
+	nowNano := now.UnixNano()
+
 	// Handle delayed messages
-	if env.DeliverAt > 0 && time.Unix(0, env.DeliverAt).After(time.Now()) {
+	if env.DeliverAt > 0 && time.Unix(0, env.DeliverAt).After(now) {
 		if topicCfg.Mode == ModeQueue || topicCfg.Mode == ModeUnified {
 			b.queueEngine.ScheduleDelayed(env.Topic, env)
 			return 0, nil
@@ -105,7 +109,7 @@ func (b *Broker) Publish(env *message.Envelope) (uint64, error) {
 	// Assign identity
 	env.MessageID = message.NewUUIDv7()
 	if env.Timestamp == 0 {
-		env.Timestamp = time.Now().UnixNano()
+		env.Timestamp = nowNano
 	}
 
 	// Serialize

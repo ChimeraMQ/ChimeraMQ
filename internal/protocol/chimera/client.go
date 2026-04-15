@@ -77,6 +77,24 @@ type CreateTopicPayload struct {
 	Partitions uint32
 }
 
+// BatchPublishBatch holds the results of decoding a batch publish request.
+type BatchPublishBatch struct {
+	Messages []PublishPayload
+}
+
+// BatchPubAckResult holds one message's publish result.
+type BatchPubAckResult struct {
+	PartitionID uint32
+	Offset      uint64
+	OK          bool
+}
+
+// BatchPublishResult holds encoded results for batch publish ack.
+type BatchPublishResult struct {
+	Results []BatchPubAckResult
+	OKCount int
+}
+
 // Payload encode/decode helpers
 
 func decodeConnect(data []byte) ConnectPayload {
@@ -119,6 +137,81 @@ func decodePublish(data []byte) PublishPayload {
 		copy(p.Body, r.data[r.pos:])
 	}
 	return p
+}
+
+// encodePublishSerial serializes a PublishPayload to wire format (same as decodePublish expects).
+func encodePublishSerial(p PublishPayload) []byte {
+	var buf []byte
+	buf = appendUint16(buf, uint16(len(p.Topic)))
+	buf = append(buf, p.Topic...)
+	buf = appendUint16(buf, uint16(len(p.RoutingKey)))
+	buf = append(buf, p.RoutingKey...)
+	buf = append(buf, p.Priority)
+	buf = appendUint64(buf, uint64(p.TTL))
+	buf = appendUint64(buf, uint64(p.DeliverAt))
+	buf = append(buf, p.Body...)
+	return buf
+}
+
+// decodeBatchPublish decodes a batch publish request.
+// Wire format: [count:uint32] [for each: PublishPayload in serial format]
+func decodeBatchPublish(data []byte) BatchPublishBatch {
+	r := newReader(data)
+	if r.len() < 4 {
+		return BatchPublishBatch{}
+	}
+	count := binary.BigEndian.Uint32(r.read(4))
+	batch := BatchPublishBatch{Messages: make([]PublishPayload, 0, count)}
+	for i := uint32(0); i < count && r.len() > 0; i++ {
+		if r.len() < 2 {
+			break
+		}
+		topicLen := int(binary.BigEndian.Uint16(r.read(2)))
+		if r.len() < topicLen {
+			break
+		}
+		topic := string(r.read(topicLen))
+
+		if r.len() < 2 {
+			break
+		}
+		rkLen := int(binary.BigEndian.Uint16(r.read(2)))
+		var routingKey string
+		if r.len() >= rkLen {
+			routingKey = string(r.read(rkLen))
+		}
+
+		var priority uint8
+		if r.len() > 0 {
+			priority = r.read(1)[0]
+		}
+
+		var ttl int64
+		if r.len() >= 8 {
+			ttl = int64(binary.BigEndian.Uint64(r.read(8)))
+		}
+
+		var deliverAt int64
+		if r.len() >= 8 {
+			deliverAt = int64(binary.BigEndian.Uint64(r.read(8)))
+		}
+
+		var body []byte
+		if r.len() > 0 {
+			body = make([]byte, r.len())
+			copy(body, r.data[r.pos:])
+		}
+
+		batch.Messages = append(batch.Messages, PublishPayload{
+			Topic:      topic,
+			RoutingKey: routingKey,
+			Priority:   priority,
+			TTL:        ttl,
+			DeliverAt:  deliverAt,
+			Body:       body,
+		})
+	}
+	return batch
 }
 
 func encodePubAck(topic string, partitionID uint32, offset uint64) []byte {

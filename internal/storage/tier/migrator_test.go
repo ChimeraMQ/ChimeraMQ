@@ -203,7 +203,7 @@ func TestMigrateWarmToCold(t *testing.T) {
 		mt.Put(key, []byte(fmt.Sprintf("direct-cold-%d", i)))
 	}
 	mt.Freeze()
-	sst, err := warm.FlushMemTable(mt, coldDir)
+	sst, err := warm.FlushMemTable(mt, coldDir, 0)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -260,7 +260,7 @@ func TestReadFromColdTier(t *testing.T) {
 		mt.Put(key, []byte(fmt.Sprintf("cold-data-%d", i)))
 	}
 	mt.Freeze()
-	sst, err := warm.FlushMemTable(mt, coldDir)
+	sst, err := warm.FlushMemTable(mt, coldDir, 0)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -301,7 +301,7 @@ func TestPurgeExpiredCold(t *testing.T) {
 		mt.Put(key, []byte("data"))
 	}
 	mt.Freeze()
-	sst, err := warm.FlushMemTable(mt, coldDir)
+	sst, err := warm.FlushMemTable(mt, coldDir, 0)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -343,7 +343,7 @@ func TestColdManagerLoadExisting(t *testing.T) {
 		mt.Put(key, []byte("persist-data"))
 	}
 	mt.Freeze()
-	sst, err := warm.FlushMemTable(mt, coldDir)
+	sst, err := warm.FlushMemTable(mt, coldDir, 0)
 	if err != nil {
 		t.Fatal(err)
 	}

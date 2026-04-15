@@ -167,6 +167,33 @@ protocols:
   #   enabled: false
   #   max_frame_size: 131072           # 128KB max frame size
 
+# --- Geo-Replication (Phase 2) — opt-in ---
+# geo_replication:
+#   enabled: false
+#   local_dc: "us-east-1"              # This datacenter's identifier
+#   remote_dcs:                        # Remote datacenters to replicate to
+#     - id: "eu-west-1"
+#       name: "Europe West"
+#       address: "eu-west-1.example.com:5675"  # Remote geo listener address
+#       region: "eu-west-1"
+#       topics: []                     # Whitelist: empty = replicate all topics
+#       exclude_topics: ["__internal"] # Blacklist: never replicate these
+#       tls:
+#         enabled: false
+#         cert_file: ""                # Client cert (mTLS)
+#         key_file: ""                 # Client key (mTLS)
+#         ca_file: ""                  # CA to verify server cert
+#         skip_verify: false           # Skip TLS verification (testing only)
+#       auth:
+#         type: ""                     # token | basic | "" (none)
+#         token: ""                    # Bearer token (type: token)
+#         user: ""                     # Basic auth username (type: basic)
+#         pass: ""                     # Basic auth password (type: basic)
+#   replication_mode: "async"          # async | sync
+#   batch_size: 100                    # Events per batch to remote DC
+#   flush_interval: "1s"               # Max time before flushing buffer
+#   max_lag: "30s"                     # Alert threshold for replication lag
+
 # --- Clustering (Phase 3) ---
 # cluster:
 #   enabled: false                     # Enable clustered mode

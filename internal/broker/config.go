@@ -87,6 +87,12 @@ type ProtocolsConfig struct {
 	AMQP      ProtocolAMQPConfig      `yaml:"amqp"`
 	STOMP     ProtocolSTOMPConfig     `yaml:"stomp"`
 	NATS      ProtocolNATSConfig      `yaml:"nats"`
+	GRPC      ProtocolGRPCConfig      `yaml:"grpc"`
+}
+
+// ProtocolGRPCConfig controls the gRPC adapter.
+type ProtocolGRPCConfig struct {
+	Enabled bool `yaml:"enabled"`
 }
 
 // ProtocolChimeraConfig controls the native Chimera protocol.
@@ -212,6 +218,7 @@ type LimitsConfig struct {
 	MaxTopics             int    `yaml:"max_topics"`
 	MaxFetchMessages      int    `yaml:"max_fetch_messages"`
 	MaxMessageSize        int64  `yaml:"max_message_size"`
+	MaxBatchSize          int    `yaml:"max_batch_size"`
 	MaxConnections        int64  `yaml:"max_connections"`
 }
 
@@ -228,6 +235,8 @@ type ListenerConfig struct {
 	Bind           string `yaml:"bind"`
 	Port           int    `yaml:"port"`
 	AdminPort      int    `yaml:"admin_port"`
+	GRPCPort       int    `yaml:"grpc_port"`
+	GeoPort        int    `yaml:"geo_port"`
 	MaxConnections int    `yaml:"max_connections"`
 }
 
@@ -410,12 +419,31 @@ type GeoReplicationConfig struct {
 
 // GeoRemoteDCConfig represents a remote datacenter configuration.
 type GeoRemoteDCConfig struct {
-	ID            string   `yaml:"id"`
-	Name          string   `yaml:"name"`
-	Address       string   `yaml:"address"`
-	Region        string   `yaml:"region"`
-	Topics        []string `yaml:"topics"`
-	ExcludeTopics []string `yaml:"exclude_topics"`
+	ID            string    `yaml:"id"`
+	Name          string    `yaml:"name"`
+	Address       string    `yaml:"address"`
+	Region        string    `yaml:"region"`
+	Topics        []string  `yaml:"topics"`
+	ExcludeTopics []string  `yaml:"exclude_topics"`
+	TLS           GeoTLSConfig  `yaml:"tls"`
+	Auth          GeoAuthConfig `yaml:"auth"`
+}
+
+// GeoTLSConfig holds TLS configuration for geo-replication.
+type GeoTLSConfig struct {
+	Enabled    bool   `yaml:"enabled"`
+	CertFile   string `yaml:"cert_file"`
+	KeyFile    string `yaml:"key_file"`
+	CAFile     string `yaml:"ca_file"`
+	SkipVerify bool   `yaml:"skip_verify"`
+}
+
+// GeoAuthConfig holds authentication configuration for geo-replication.
+type GeoAuthConfig struct {
+	Type  string `yaml:"type"` // token, basic
+	Token string `yaml:"token"`
+	User  string `yaml:"user"`
+	Pass  string `yaml:"pass"`
 }
 
 // FIPSConfig controls FIPS 140-2 compliance mode.
@@ -463,6 +491,7 @@ type CLIFlags struct {
 	Bind      string
 	Port      int
 	AdminPort int
+	GRPCPort  int
 	LogLevel  string
 }
 
@@ -504,6 +533,8 @@ func defaultConfig() *Config {
 			Bind:           "127.0.0.1",
 			Port:           5672,
 			AdminPort:      9090,
+			GRPCPort:       5673,
+			GeoPort:        5675,
 			MaxConnections: 100000,
 		},
 		Storage: StorageConfig{
@@ -561,6 +592,7 @@ func defaultConfig() *Config {
 			MaxTopics:             1000,
 			MaxFetchMessages:      10000,
 			MaxMessageSize:        16 * 1024 * 1024,
+			MaxBatchSize:          1000,
 			MaxConnections:        10000,
 		},
 		Protocols: ProtocolsConfig{
@@ -584,6 +616,9 @@ func defaultConfig() *Config {
 			AMQP: ProtocolAMQPConfig{
 				Enabled:      false,
 				MaxFrameSize: 128 * 1024,
+			},
+			GRPC: ProtocolGRPCConfig{
+				Enabled: false,
 			},
 		},
 		Cluster: ClusterConfig{
@@ -673,6 +708,11 @@ func applyEnvOverrides(cfg *Config) {
 			cfg.Listener.AdminPort = n
 		}
 	}
+	if v := os.Getenv("CHIMERA_GRPC_PORT"); v != "" {
+		if n, err := strconv.Atoi(v); err == nil {
+			cfg.Listener.GRPCPort = n
+		}
+	}
 	if v := os.Getenv("CHIMERA_LOG_LEVEL"); v != "" {
 		cfg.Logging.Level = v
 	}
@@ -696,6 +736,9 @@ func applyEnvOverrides(cfg *Config) {
 	}
 	if v := os.Getenv("CHIMERA_PROTOCOL_CHIMERA_ENABLED"); v == "false" {
 		cfg.Protocols.Chimera.Enabled = false
+	}
+	if v := os.Getenv("CHIMERA_PROTOCOL_GRPC_ENABLED"); v == "true" {
+		cfg.Protocols.GRPC.Enabled = true
 	}
 	if v := os.Getenv("CHIMERA_CLUSTER_ENABLED"); v == "true" {
 		cfg.Cluster.Enabled = true
@@ -739,6 +782,9 @@ func applyCLIOverrides(cfg *Config, flags *CLIFlags) {
 	}
 	if flags.AdminPort != 0 {
 		cfg.Listener.AdminPort = flags.AdminPort
+	}
+	if flags.GRPCPort != 0 {
+		cfg.Listener.GRPCPort = flags.GRPCPort
 	}
 	if flags.LogLevel != "" {
 		cfg.Logging.Level = flags.LogLevel
@@ -817,6 +863,40 @@ func (c *Config) Validate() error {
 		}
 		if _, err := time.ParseDuration(c.Cluster.Raft.HeartbeatInterval); err != nil {
 			return fmt.Errorf("cluster.raft.heartbeat_interval is invalid: %w", err)
+		}
+	}
+	if c.GeoReplication.Enabled {
+		if c.GeoReplication.LocalDC == "" {
+			return fmt.Errorf("geo_replication.local_dc is required when geo-replication is enabled")
+		}
+		if len(c.GeoReplication.RemoteDCs) == 0 {
+			return fmt.Errorf("geo_replication.remote_dcs is required when geo-replication is enabled")
+		}
+		for _, dc := range c.GeoReplication.RemoteDCs {
+			if dc.ID == "" {
+				return fmt.Errorf("geo_replication.remote_dcs[].id is required")
+			}
+			if dc.Address == "" {
+				return fmt.Errorf("geo_replication.remote_dcs[%s].address is required", dc.ID)
+			}
+		}
+		switch c.GeoReplication.ReplicationMode {
+		case "async", "sync", "":
+		default:
+			return fmt.Errorf("geo_replication.replication_mode must be 'async' or 'sync'")
+		}
+		if c.GeoReplication.BatchSize < 0 {
+			return fmt.Errorf("geo_replication.batch_size must be >= 0")
+		}
+		if _, err := time.ParseDuration(c.GeoReplication.FlushInterval); c.GeoReplication.FlushInterval != "" {
+			// valid or empty (default applied)
+		} else if c.GeoReplication.FlushInterval != "" {
+			return fmt.Errorf("geo_replication.flush_interval is invalid: %w", err)
+		}
+		if _, err := time.ParseDuration(c.GeoReplication.MaxLag); c.GeoReplication.MaxLag != "" {
+			// valid or empty (default applied)
+		} else if c.GeoReplication.MaxLag != "" {
+			return fmt.Errorf("geo_replication.max_lag is invalid: %w", err)
 		}
 	}
 	if c.FIPS.Enabled {

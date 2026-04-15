@@ -24,7 +24,7 @@ func createTestSSTables(t *testing.T, dir string, ranges []struct{ min, max uint
 			mt.Put(key, []byte(fmt.Sprintf("value-%d", off)))
 		}
 		mt.Freeze()
-		sst, err := warm.FlushMemTable(mt, dir)
+		sst, err := warm.FlushMemTable(mt, dir, 0)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -149,7 +149,7 @@ func TestColdArchiveTombstone(t *testing.T) {
 	mt.Delete(key5)
 	mt.Freeze()
 
-	sst, err := warm.FlushMemTable(mt, sstDir)
+	sst, err := warm.FlushMemTable(mt, sstDir, 0)
 	if err != nil {
 		t.Fatal(err)
 	}

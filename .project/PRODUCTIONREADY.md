@@ -1,425 +1,306 @@
 # Production Readiness Assessment
 
-> Comprehensive evaluation of ChimeraMQ readiness for production deployment
-> Assessment Date: 2026-04-12
-> Version Assessed: v0.1.0
-> Verdict: 🟢 READY (Single-node: GO, Clustered: GO)
+> Comprehensive evaluation of ChimeraMQ readiness for production deployment.
+> Assessment Date: 2026-04-14
+> Version Assessed: v0.1.0 (commit 3cb6175)
+> Verdict: CONDITIONALLY READY — suitable for non-critical production with configuration
 
 ## Overall Verdict & Score
 
-**Production Readiness Score: 100/100**
+**Production Readiness Score: 82/100**
 
 | Category | Score | Weight | Weighted Score |
-|----------|-------|--------|----------------|
-| Core Functionality | 10/10 | 20% | 20 |
-| Reliability & Error Handling | 10/10 | 15% | 15 |
-| Security | 10/10 | 20% | 20 |
-| Performance | 10/10 | 10% | 10 |
-| Testing | 10/10 | 15% | 15 |
-| Observability | 10/10 | 10% | 10 |
-| Documentation | 10/10 | 5% | 5 |
-| Deployment Readiness | 10/10 | 5% | 5 |
-| **TOTAL** | | **100%** | **100/100** |
-
----
+|---|---|---|---|
+| Core Functionality | 9/10 | 20% | 1.8 |
+| Reliability & Error Handling | 7/10 | 15% | 1.05 |
+| Security | 8/10 | 20% | 1.6 |
+| Performance | 8/10 | 10% | 0.8 |
+| Testing | 9/10 | 15% | 1.35 |
+| Observability | 9/10 | 10% | 0.9 |
+| Documentation | 9/10 | 5% | 0.45 |
+| Deployment Readiness | 7/10 | 5% | 0.35 |
+| **TOTAL** | | **100%** | **8.2/10 = 82/100** |
 
 ## 1. Core Functionality Assessment
 
 ### 1.1 Feature Completeness
 
-| Feature | Status | Notes |
-|---------|--------|-------|
-| Topic CRUD (stream/queue/unified) | ✅ Working | All modes functional |
-| Message publish (all protocols) | ✅ Working | HTTP, TCP, MQTT, AMQP, WebSocket |
-| Stream consume (offset-based) | ✅ Working | Sequential scan optimized |
-| Queue consume (competing consumers) | ✅ Working | Round-robin + priority dispatch |
-| Consumer groups + rebalance | ✅ Working | Range, RoundRobin, Sticky strategies |
-| Ack/Nack with DLQ routing | ✅ Working | DLQ persisted to disk |
-| WASM Transforms | ✅ Working | Runtime initialized, transforms execute |
-| Stream Processing | ✅ Working | Processor initialized, join operator added |
-| TTL Enforcement | ✅ Working | SetTopicConfig wired for all topics |
-| Delayed Message Delivery | ✅ Working | Ready() channel consumed via drain goroutine |
-| Priority Queue | ✅ Working | PriorityDispatcher created when configured |
-| ISR Replication | ✅ Working | SetTransport wired in cluster manager |
-| Schema Registry | ✅ Working | JSON, Avro, Protobuf support |
-| Multi-Tenancy | ✅ Working | Rate limit quotas enforced |
-| Protocol Auto-Detection | ✅ Working | Port 5672 multiplexing |
-| Clustering (Raft) | ✅ Working | Quorum fixed; multi-node tests pass |
-| AMQP Adapter | ✅ Working | Exchange/binding routing implemented |
-| MQTT Adapter | ✅ Working | QoS 2 verified; packet ID race fixed |
-| WebSocket Adapter | ✅ Working | Auth fixed; ReadLimit added |
-| Encryption at Rest | ✅ Working | AES-256-GCM per-segment |
-| Tier Migration | ✅ Working | SSTable block-level reads; block cache |
-| MCP Server | ✅ Working | Version injected via ldflags |
-| DLQ Conditional Replay | ✅ Working | Predicates, transforms, preview/export |
-| Multi-Tenancy Enhanced | ✅ Working | Resource quotas, namespace isolation |
-| Geo-Replication | ✅ Working | Async/sync replication, lag tracking |
-| FIPS 140-2 Compliance | ✅ Working | FIPS-approved algorithms, validation |
-| STOMP Adapter | ✅ Working | STOMP 1.2 protocol support |
-| NATS Adapter | ✅ Working | Core NATS protocol support |
-| Cluster Load Testing | ✅ Working | 100K msg/s throughput testing |
-| Rolling Upgrade | ✅ Working | Zero-downtime version upgrades |
-| **gRPC Adapter** | ✅ **Working** | **Unary/streaming RPC, 17 tests passing** |
+**~95% of specified features fully implemented and working.**
 
-**All 6 previously dead-code features now wired and functional.**
+Core features status:
+- ✅ **Queue engine** — Competing consumers, ack/nack, DLQ, delayed delivery, priority queues all working and tested
+- ✅ **Stream engine** — Consumer groups with Range/RoundRobin/Sticky rebalancing, offset management, long-poll fetch, waiter registry
+- ✅ **Unified mode** — Same topic consumed as queue AND stream simultaneously (core differentiator)
+- ✅ **7 Protocol adapters** — Chimera TCP, HTTP, MQTT, AMQP 1.0, WebSocket, NATS, STOMP
+- ✅ **Storage tiers** — Hot (mmap segments), Warm (LSM-tree), Cold (zstd archives) with migration
+- ✅ **Clustering** — Raft consensus, SWIM gossip, ISR replication
+- ✅ **Security** — 5 auth providers, ACL engine, encryption at rest, TLS 1.2+
+- ✅ **Processing** — WASM transforms, stream processor with windows and joins
+- ✅ **Schema Registry** — JSON, Avro, Protobuf with compatibility checking
+- ✅ **Multi-tenancy** — Namespace isolation, per-tenant quotas
+- ✅ **Flow control** — Memory backpressure, slow consumer eviction, rate limiting
+- ✅ **MCP server** — 10 tools for AI integration
+- ⚠️ **gRPC adapter** — Documented in release notes, not implemented
+- ⚠️ **Web UI** — Single HTML file, not the React SPA described in spec
+- ⚠️ **Geo-replication** — Thin implementation, not full async/sync modes
 
 ### 1.2 Critical Path Analysis
 
-| Step | Status | Evidence |
-|------|--------|----------|
-| 1. Install binary → `make build` | ✅ | Cross-compiles for 6 platforms |
-| 2. Start server → `./bin/chimera server` | ✅ | Lock file, graceful startup |
-| 3. Create topic → HTTP POST | ✅ | `test/integration/http_test.go` |
-| 4. Publish → HTTP POST | ✅ | 94K-275K msg/s validated |
-| 5. Consume (stream) → HTTP GET | ✅ | Offset-based fetch working |
-| 6. Consume (queue) → Subscribe | ✅ | Ack/nack integration tests pass |
-| 7. Deploy WASM → POST /v1/wasm | ✅ | Transforms execute on publish |
-| 8. Create processor → POST /v1/processors` | ✅ | Processor runs topology |
-| 9. Set TTL → Topic config | ✅ | TTL scanner expires messages |
-| 10. Send delayed → Publish with header | ✅ | Delay scheduler delivers |
-| 11. Set priority → Topic config | ✅ | Priority dispatcher orders |
-| 12. Monitor → `/metrics`, `/ui/` | ✅ | Web UI has auth |
-| 13. Cluster → Multi-node Raft | ✅ | Leader election, replication |
-| 14. DLQ → Persisted | ✅ | JSONL persistence survives restart |
-| 15. Consumer groups → Raft-backed | ✅ | Offset replication via consensus |
+The primary workflow — publish → store → consume — works reliably end-to-end via all 7 protocols. Verified by integration tests (`test/integration/`) covering queue mode, stream mode, unified mode, crash recovery, and HTTP API lifecycle.
+
+No dead ends or broken flows detected. All protocol handlers complete the CONNECT → operation → response cycle correctly.
 
 ### 1.3 Data Integrity
 
-| Mechanism | Status | Implementation |
-|-----------|--------|----------------|
-| WAL durability | ✅ | CRC32C verification, sync modes |
-| Atomic metadata | ✅ | Write temp + rename pattern |
-| Consumer offsets | ✅ | Atomic write + Raft replication option |
-| DLQ persistence | ✅ | JSONL append-only files |
-| DeleteTopic durability | ✅ | WAL tombstone entry |
-| Replication | ✅ | Transport wired, data flows to followers |
-| Message size enforcement | ✅ | MaxMessageSize in publish pipeline |
-
----
+- WAL ensures crash recovery — verified by `test/integration/recovery_test.go`
+- Atomic metadata writes (temp + rename pattern)
+- CRC32C verification on WAL entries and protocol frames
+- Checkpoint-based WAL truncation
+- Segment index rebuild on recovery if `.idx` missing
+- **Gap:** No automated backup/restore CLI in the core (exists in CLI but not tested end-to-end)
 
 ## 2. Reliability & Error Handling
 
 ### 2.1 Error Handling Coverage
 
-- ✅ **110 discarded errors audited** — Critical ones fixed
-- ✅ Raft state persistence errors now logged
-- ✅ DLQ persistEntry returns properly checked
-- ✅ Panic in ui/embed.go removed (returns error instead)
-- ✅ Constant-time token comparison using `subtle.ConstantTimeCompare`
-- ✅ Error message sanitization in HTTP/TCP responses
-- ✅ Input validation hardening (partition count, fetch limits, message sizes)
+- ✅ All errors wrapped with `%w` — error chains preserved
+- ✅ No discarded errors (verified by grep)
+- ✅ Error types defined in package-specific `errors.go` files
+- ✅ HTTP errors return consistent `{"error": "message"}` JSON
+- ✅ Protocol errors return Error frames with codes
+
+- 🔴 **No panic recovery** — A panic in any protocol handler goroutine crashes the entire broker. This is the single biggest reliability gap. Every `go handleConnection()` should have `defer recover()`.
+
+- ⚠️ **Error messages sanitized** in HTTP/TCP responses (no internal details leaked) — good for security but makes debugging harder in production
 
 ### 2.2 Graceful Degradation
 
-| Scenario | Behavior | Status |
-|----------|----------|--------|
-| Storage full | Returns error to publisher | ✅ |
-| Max connections reached | Rejects new connections | ✅ |
-| Slow consumer | Flow control backpressure | ✅ |
-| Auth provider unavailable | Falls back to cache/denies | ✅ |
-| Network partition | Raft quorum maintained | ✅ |
+- ⚠️ **Partial** — Auth disabled → warning logged, connections accepted (secure by default: bind 127.0.0.1)
+- ⚠️ **No retry logic** with backoff for failed operations (publish to non-existent topic returns error immediately)
+- ⚠️ **No circuit breaker** for external dependencies (KMS, LDAP, OAuth)
+- ✅ Flow controller provides backpressure when memory pressure is high
 
 ### 2.3 Graceful Shutdown
 
-- ✅ Signal handling (SIGINT/SIGTERM)
-- ✅ Ordered shutdown sequence (reverse of startup)
-- ✅ Context cancellation for subsystems
-- ✅ 30-second timeout with force exit fallback
-- ✅ Lock file released
+- ✅ `Broker.Stop()` reverses Start() sequence — engines stopped, listeners closed, resources released
+- ✅ Signal handling for SIGINT/SIGTERM in `internal/cli/server.go`
+- ✅ Context cancellation propagated to all subsystems
+- 🔴 **No shutdown timeout** — If any goroutine is stuck, `Stop()` hangs indefinitely. A 30s timeout with force-kill fallback is essential for production.
 
 ### 2.4 Recovery
 
-| Scenario | Recovery | Status |
-|----------|----------|--------|
-| Crash during write | WAL replay truncates at last valid entry | ✅ |
-| Missing index file | Segment index rebuilt from data | ✅ |
-| Stale lock file | PID liveness check before removal | ✅ |
-| Deleted topic resurrection | WAL tombstone prevents | ✅ |
-| DLQ after restart | JSONL files loaded on startup | ✅ |
-
----
+- ✅ WAL recovery on startup — replay entries from crash
+- ✅ Segment index rebuild if missing
+- ✅ Topic metadata loaded from `meta.json` on startup
+- ✅ Consumer offsets persisted to disk, loaded on restart
+- ✅ Raft log persisted — survives node restart
+- ⚠️ **Unclear behavior** on partial segment corruption — WAL truncates at last valid entry, but storage segment corruption is not explicitly handled
 
 ## 3. Security Assessment
 
-### 3.1 FIXED: Critical Security Issues (v0.9.0)
+### 3.1 Authentication & Authorization
 
-| Finding | Severity | Fix | Verification |
-|---------|----------|-----|--------------|
-| OAuth `alg:none` bypass | Critical | Algorithm validation added | `auth/oauth_test.go` |
-| No authentication | Critical | 5 auth providers implemented | All protocol tests |
-| No TLS | Critical | TLS 1.2+ support added | Config validation |
-| Container root | Critical | Dockerfile USER directive | `docker run` inspect |
-| Token timing attack | High | `subtle.ConstantTimeCompare` | Code review |
-| WebSocket auth broken | High | Proper Base64 decoding | `protocol/ws_test.go` |
-| Gossip unauthenticated | High | HMAC-SHA256 added | `gossip/hmac_transport_test.go` |
-| Error message leakage | Medium | Sanitized responses | HTTP handler audit |
+- [x] Authentication mechanism is implemented and secure — 5 providers
+- [x] Session/token management — Bearer tokens, CONNECT credentials
+- [x] Authorization checks on HTTP endpoints (auth middleware gates all routes)
+- [x] Password hashing uses bcrypt (with plaintext fallback documented)
+- [x] API key management (static tokens, file-based)
+- [x] CSRF protection (not applicable — API-only, no browser sessions)
+- [x] Rate limiting on auth endpoints (brute-force protection: 5 attempts/15m, 30m ban)
 
-### 3.2 Security Checklist
+### 3.2 Input Validation & Injection
 
-| Control | Status | Notes |
-|---------|--------|-------|
-| Authentication | ✅ | Static, File, OAuth, LDAP, mTLS |
-| Authorization (ACL) | ✅ | RBAC with wildcard matching |
-| TLS in transit | ✅ | TLS 1.2+, mutual TLS option |
-| Encryption at rest | ✅ | AES-256-GCM per-segment |
-| Input validation | ✅ | Clamped limits, sanitized inputs |
-| Rate limiting | ✅ | Per-topic, per-connection, flow control |
-| Secure defaults | ✅ | 127.0.0.1 bind, auth warnings |
-| Secrets management | ✅ | Env vars, no hardcoded secrets |
+- [x] All user inputs validated — partition count (1-1024), message size, fetch limits, timeouts (30s cap)
+- [x] SQL injection — N/A (no SQL database)
+- [x] XSS protection — N/A (no server-side HTML rendering)
+- [x] Command injection — N/A (no shell execution in server path)
+- [x] Path traversal — Topic names validated (alphanumeric + . - _, 1-255 chars, no leading . or -)
+- [x] File upload validation — WASM modules uploaded via API with size limits
 
-### 3.3 Remaining Security Concerns
+### 3.3 Network Security
 
-| Issue | Severity | Mitigation |
-|-------|----------|------------|
-| No automated dependency scanning | Low | Manual audit complete; Dependabot TBD |
+- [x] TLS 1.2+ support and configurable enforcement
+- [x] Secure headers — X-Content-Type-Options, X-Frame-Options, X-XSS-Protection
+- [x] CORS configured (not wildcard — controlled)
+- [x] No sensitive data in URLs (auth via Bearer header, not query params for HTTP)
+- [x] Secure cookie configuration (where applicable)
 
-### 3.4 Security Improvements (v0.9.0)
+### 3.4 Secrets & Configuration
 
-| Issue | Status | Implementation |
-|-------|--------|----------------|
-| Plaintext password fallback | ✅ Removed | bcrypt-only authentication enforced |
-| WebSocket library | ✅ Updated | Using `coder/websocket` (not deprecated) |
-| CDN dependencies | ✅ Removed | Tailwind/Chart.js embedded for air-gap |
+- [x] No hardcoded secrets in source code
+- [x] Environment variable based configuration for secrets (`CHIMERA_*`)
+- [x] Auth tokens in YAML (should be externalized in production)
+- [x] Sensitive config values not logged (auth tokens not printed)
+- ⚠️ `.env` files not explicitly mentioned in `.gitignore` (verify)
 
----
+### 3.5 Security Vulnerabilities Found
+
+| Finding | Severity | Status | Location |
+|---------|----------|--------|----------|
+| No panic recovery | High | Open | All protocol handlers |
+| Plaintext password fallback | Medium | Accepted | `internal/auth/` |
+| Deprecated LDAP DialTLS | Low | Open | `internal/auth/ldap.go` |
+| Web UI CDN dependency | Low | Accepted | `web/dist/index.html` |
+| No shutdown timeout | High | Open | `internal/cli/server.go` |
+
+All 8 Critical and 12 High findings from the original security audit are resolved.
 
 ## 4. Performance Assessment
 
-### 4.1 Performance Fixes Applied (v0.9.0)
+### 4.1 Known Performance Issues
 
-| Issue | Fix | Result |
-|-------|-----|--------|
-| SSTable full-file read | Block-level reads + FIFO block cache | No OOM risk |
-| Per-message CRC32 table alloc | Package-level pre-computed table | -1KB alloc/append |
-| Per-append 2 WriteAt calls | sync.Pool buffer + single write | -50% syscalls |
-| Per-offset ReadRange | Sequential scan in single lock cycle | -N lock cycles to 1 |
-| Lock-free highWatermark | atomic.Uint64 | Zero-contention reads |
-| Raft JSON log persistence | Binary format (gob-encoded) | No base64 bloat |
-| Stream processor busy loop | Sleep/backoff when no messages | -100% CPU waste |
+- `Broker.Publish()` has 9+ function call depth — each message passes through idempotent check, flow control, schema enforcement, WASM, partition routing, WAL, hot storage, stream notify, queue dispatch, metrics. WASM and schema can be disabled for raw throughput.
+- WAL `SyncImmediate` mode blocks on fsync per message — use `SyncInterval` for throughput-sensitive workloads
+- Single-writer per partition — cannot parallelize within a partition
+- **No identified memory leaks or excessive allocation patterns**
 
-### 4.2 Benchmark Results
+### 4.2 Resource Management
 
-| Metric | Target | Actual | Status |
-|--------|--------|--------|--------|
-| E2E Publish (unified) | <10μs | 6,984 ns/op | ✅ |
-| E2E Publish (queue) | <10μs | 6,855 ns/op | ✅ |
-| E2E Publish (stream) | <10μs | 7,615 ns/op | ✅ |
-| Throughput | 1M msg/s | 94K-275K msg/s | ⚠️ (disk bounded) |
-| P99 Latency | <5ms | <541μs | ✅ |
-| Binary size | <30MB | ~25MB | ✅ |
-| Memory idle | <100MB | ~50MB | ✅ |
+- [x] Connection pooling — MaxConnections configurable (default 100,000), enforced at mux level
+- [x] Memory limits — Flow controller with watermark (85% default)
+- [x] File descriptor management — Proper open/close for segments, WAL files
+- [x] Goroutine leak prevention — Context cancellation + stop channels
+- ⚠️ No OOM protection beyond flow controller watermark
 
-### 4.3 Resource Management
+### 4.3 Frontend Performance
 
-| Resource | Configuration | Protection |
-|----------|---------------|------------|
-| Connections | `max_connections` | Semaphore enforcement |
-| Partitions | `max_partitions` | Capped at reasonable values |
-| Message size | `max_message_size` | Enforced in publish pipeline |
-| Fetch size | Max 10,000 messages | Hard cap in handlers |
-| Memory | Flow control | High/low watermarks |
-
----
+N/A — Single HTML file, no bundle to optimize. CDN loading adds latency.
 
 ## 5. Testing Assessment
 
-### 5.1 Test Coverage Reality
+### 5.1 Test Coverage Reality Check
 
-| Category | Files | Tests | Coverage | Status |
-|----------|-------|-------|----------|--------|
-| Unit tests | 138 | 1,750+ | 86% | ✅ Excellent |
-| Integration tests | 5 | 50+ | N/A | ✅ All passing |
-| Chaos tests | 1 | 6 | N/A | ✅ Concurrent safety |
-| Load tests | 1 | 6 | N/A | ✅ 43K-228K msg/s |
-| Crash recovery | 1 | 9 | N/A | ✅ WAL, segment, tier |
-| Multi-node Raft | 1 | 6 | N/A | ✅ Leader, failover |
+**Measured coverage: 81.9%–100% per package, average ~91%.** This is excellent and the README claim of "90%+ code coverage" is mostly accurate (WS protocol at 81.9% is the exception).
 
-### 5.2 Test Infrastructure
+**Critical paths with coverage:**
+- Publish pipeline: tested in `internal/broker/publish_test.go` and `publish_extra_test.go`
+- Queue dispatch: tested with ack/nack/DLQ scenarios
+- Stream fetch: tested with long-poll and immediate return
+- Crash recovery: tested in `test/integration/recovery_test.go`
+- Protocol handlers: tested in per-protocol `*_test.go` files
 
-- ✅ All tests run with `go test ./...`
-- ✅ Race detector enabled in CI
-- ✅ Test data managed via temp directories
-- ✅ CI runs on every PR
-- ✅ No flaky tests detected
+### 5.2 Test Categories Present
 
-### 5.3 Test Quality
+- [x] Unit tests — 188 test files across 38 packages
+- [x] Integration tests — 13 files in `test/integration/`
+- [x] API/endpoint tests — Covered in protocol `*_test.go` files
+- [ ] Frontend component tests — No frontend framework
+- [ ] E2E tests — Partial (integration tests cover single-node E2E)
+- [x] Benchmark tests — 5 files in `test/bench/`
+- [x] Fuzz tests — Present in `internal/message/edge_test.go`
+- [x] Chaos/concurrency tests — 3 files in `test/chaos/`
+- [x] Cluster tests — 2 files in `test/cluster/` (flaky on Windows)
+- [x] Load tests — 2 files in `test/load/`
 
-| Aspect | Assessment |
-|--------|------------|
-| Table-driven tests | Consistent pattern across codebase |
-| Edge case coverage | `_edge_test.go` files for boundary cases |
-| Benchmarks | Performance regression detection |
-| Chaos tests | Concurrency safety validation |
-| Protocol compliance | MQTT, HTTP, cross-protocol tests |
+### 5.3 Test Infrastructure
 
----
+- [x] Tests run locally with `go test ./...` — verified clean
+- [x] Tests don't require external services — all in-memory/embedded
+- [x] CI runs tests on every PR — GitHub Actions with 6 jobs
+- [x] Test results are reliable — except `TestClusterLoadTest3Node` on Windows
+- [x] Race detector clean — `go test -race ./...` passes
 
 ## 6. Observability
 
 ### 6.1 Logging
 
-| Feature | Status | Implementation |
-|---------|--------|----------------|
-| Structured logging | ✅ | JSON format |
-| Log levels | ✅ | debug, info, warn, error |
-| Request tracing | ✅ | Request IDs in context |
-| Sensitive data | ✅ | NOT logged (passwords, tokens) |
-| Rotation | ⚠️ | File output only; no built-in rotation |
+- [x] Structured logging (JSON format via `log/slog`)
+- [x] Log levels properly used (debug, info, warn, error)
+- [x] Request/response logging with context — structured fields on errors
+- [x] Sensitive data NOT logged — verified
+- [ ] Log rotation configured — Not in core (external log rotation needed)
+- [x] Error logs include error context — `log.Error("publish failed", "error", err)`
 
 ### 6.2 Monitoring & Metrics
 
-| Feature | Status | Endpoint |
-|---------|--------|----------|
-| Health check | ✅ | `/v1/health` |
-| Prometheus metrics | ✅ | `/v1/metrics` |
-| Broker metrics | ✅ | messages_in/out, bytes, connections |
-| Storage metrics | ✅ | hot/warm/cold bytes, migrations |
-| Queue metrics | ✅ | depth, unacked, DLQ |
-| Consumer lag | ✅ | Per partition, per group |
-| Cluster metrics | ✅ | Raft term, gossip members |
+- [x] Health check endpoint — `/v1/health` returns status, node_id, name, uptime
+- [x] Prometheus metrics endpoint — `/v1/metrics` with text exposition format
+- [x] Key business metrics — messages in/out, active connections, queue depth, consumer lag
+- [x] Resource utilization metrics — Memory watermark, connection count
+- [ ] Alert-worthy conditions identified — No built-in alerting (Prometheus/Grafana external)
 
 ### 6.3 Tracing
 
-| Feature | Status | Implementation |
-|---------|--------|----------------|
-| OpenTelemetry | ✅ | W3C TraceContext |
-| OTLP export | ✅ | gRPC to collector |
-| Span creation | ✅ | Per protocol adapter |
-| Message trace | ✅ | TraceID/SpanID in envelope |
-
----
+- [x] Request tracing — TraceID/SpanID in message envelope
+- [x] Correlation IDs — W3C TraceContext propagation
+- [x] pprof endpoints — Available via Go's built-in `net/http/pprof` when admin server is running
 
 ## 7. Deployment Readiness
 
 ### 7.1 Build & Package
 
-| Feature | Status | Evidence |
-|---------|--------|----------|
-| Reproducible builds | ✅ | Go modules, version pinning |
-| Multi-platform | ✅ | 6 platforms in release workflow |
-| Docker image | ✅ | Multi-stage, non-root user |
-| Docker healthcheck | ✅ | `wget` to `/v1/health` |
-| Version embedding | ✅ | ldflags for version/commit/date |
+- [x] Reproducible builds — `CGO_ENABLED=0 go build -ldflags ...`
+- [x] Multi-platform binary compilation — 6 platforms via `make release`
+- [x] Docker image with minimal base — `alpine:3.20`
+- [x] Docker image size optimized — ~28MB binary in alpine container
+- [x] Version information embedded — `main.version`, `main.commit`, `main.date` via ldflags
 
 ### 7.2 Configuration
 
-| Feature | Status | Implementation |
-|---------|--------|----------------|
-| Env vars | ✅ | `CHIMERA_*` pattern |
-| Config file | ✅ | YAML support |
-| CLI flags | ✅ | All major options |
-| Validation | ✅ | Config.Validate() |
-| Secrets | ✅ | No secrets in config files |
+- [x] All config via environment variables or config files — `CHIMERA_*` env vars + YAML
+- [x] Sensible defaults — Can start with zero configuration
+- [x] Configuration validation on startup — `Config.Validate()` method
+- [x] Different configs for dev/staging/prod — Possible via different YAML files
+- [ ] Feature flags system — Not implemented (features enabled via config)
 
-### 7.3 Kubernetes
+### 7.3 Database & State
 
-| Feature | Status | Location |
-|---------|--------|----------|
-| Helm chart | ✅ | `deploy/charts/chimera/` |
-| Deployment | ✅ | With readiness/liveness probes |
-| Service | ✅ | TCP 5672, HTTP 9090 |
-| PVC | ✅ | For data persistence |
-| ConfigMap | ✅ | For configuration |
-| ServiceMonitor | ✅ | For Prometheus scraping |
+- [x] Self-contained state — No external database
+- [ ] Database migration system — N/A (file-based storage, no schema migrations)
+- [x] Backup capability — Manual tar of data directory; CLI backup commands exist
+- [ ] Seed data for initial setup — Not applicable
 
 ### 7.4 Infrastructure
 
-| Feature | Status | Implementation |
-|---------|--------|----------------|
-| CI/CD | ✅ | GitHub Actions |
-| Automated tests | ✅ | Every PR |
-| Automated lint | ✅ | golangci-lint |
-| Docker build | ✅ | On main push |
-| Release workflow | ✅ | Tag-triggered |
-
----
+- [x] CI/CD pipeline — GitHub Actions with build, test, lint, integration, bench, docker
+- [x] Automated testing in pipeline — All test types run on PR
+- [ ] Automated deployment capability — No Terraform/Helm deployment pipeline (Helm chart exists in `deploy/charts/`)
+- [ ] Rollback mechanism — Manual (stop, replace binary, restart)
+- [ ] Zero-downtime deployment — Rolling upgrade CLI exists but not tested end-to-end
 
 ## 8. Documentation Readiness
 
-| Document | Status | Completeness |
-|----------|--------|--------------|
-| README.md | ✅ | Architecture, quickstart, API |
-| SPECIFICATION.md | ✅ | Detailed design |
-| IMPLEMENTATION.md | ✅ | Implementation guide |
-| TASKS.md | ✅ | 100% complete |
-| CHANGELOG.md | ✅ | v0.8.0, v0.9.0 detailed |
-| CONTRIBUTING.md | ✅ | Setup, workflow |
-| Architecture Decision Records | ✅ | 6 ADRs in `docs/adr/` |
-| OpenAPI spec | ✅ | `docs/openapi.yaml` |
-| Benchmark report | ✅ | `docs/BENCHMARKS.md` |
-| Go client library | ✅ | `client/chimera/` |
-| Security report | ✅ | 43 findings addressed |
-
----
+- [x] README is accurate and complete — Architecture, features, quick start, comparison table
+- [x] Installation/setup guide works — Verified (`go install`, `make build`)
+- [x] API documentation exists — OpenAPI spec at `docs/openapi.yaml` (version 0.8.0, needs update)
+- [x] Configuration reference exists — `configs/chimera.yaml.example` fully commented
+- [ ] Troubleshooting guide — Not present as a standalone document
+- [x] Architecture overview — README ASCII diagram + SPECIFICATION.md + ADRs
 
 ## 9. Final Verdict
 
-### 🚫 Production Blockers (None)
+### Production Blockers (MUST fix before any deployment)
+1. **No panic recovery in protocol handlers** — A single malformed message or unexpected input in any protocol handler can crash the entire broker via an unhandled panic. For a messaging system that accepts untrusted network connections, this is unacceptable.
+2. **No graceful shutdown timeout** — If any goroutine is stuck during shutdown, the process hangs indefinitely. In production, this means deployments can stall and rolling updates fail.
 
-All critical issues from security audit have been addressed in v0.9.0.
+### High Priority (Should fix within first week of production)
+1. **gRPC documentation discrepancy** — Remove claim or implement. Documentation integrity matters for trust.
+2. **Embed web UI assets** — CDN dependencies break in production/air-gapped environments.
+3. **Add log rotation guidance** — Production logging without rotation will fill disks.
 
-### ⚠️ High Priority (Address in first month)
+### Recommendations (Improve over time)
+1. Build the React SPA dashboard as specified — current HTML is insufficient for operations
+2. Add circuit breakers for external auth dependencies (LDAP, OAuth, KMS)
+3. Implement batch publish API for higher throughput
+4. Add pre-built Grafana dashboards
+5. Create CODE_OF_CONDUCT.md and dependabot configuration
 
-1. **WebSocket library deprecation** — Migration to `coder/websocket`
-2. **Backup/restore tooling** — Manual data directory backup is required until automated
-3. **Clustered load validation** — Run 3-node cluster under production-like load
+### Estimated Time to Production Ready
+- From current state: **2-3 weeks** of focused development
+- Minimum viable production (critical fixes only): **2 days** (panic recovery + shutdown timeout)
+- Full production readiness (all categories green): **6-8 weeks**
 
-### 💡 Recommendations (Improve over time)
+### Go/No-Go Recommendation
 
-1. Add automated dependency scanning
-2. Implement rolling upgrade support
-3. Add UI automated tests
-4. Consider TypeScript/React for UI
+**CONDITIONAL GO** — ChimeraMQ is production-ready for internal, non-critical messaging workloads with the following conditions:
 
----
+1. **Deploy with auth enabled** — Do not run with `auth.enabled: false` in production
+2. **Configure TLS** — Even internal traffic should be encrypted
+3. **Bind to specific interface** — Not `0.0.0.0` unless behind a reverse proxy
+4. **Monitor process health** — Set up health check monitoring on `/v1/health`
+5. **Accept the panic risk** — Until panic recovery is added, the broker can crash from unexpected input. For non-critical workloads this is acceptable; for financial/healthcare data, wait for the fix.
+6. **Test failover procedures** — Validate WAL recovery, segment rebuild, and Raft re-election in your environment
 
-## 10. Go/No-Go Recommendation
+**What makes this safe enough:** The core messaging engines (queue, stream, unified) have been thoroughly tested with integration, chaos, and concurrency tests. The security audit has addressed all critical findings. The codebase is clean with zero TODOs and excellent test coverage. The broker starts in <50ms and shuts down cleanly (when not hung).
 
-### Single-Node Deployment: **GO** ✅
-
-ChimeraMQ v0.9.0 is ready for single-node production deployment. The codebase has:
-- Comprehensive test coverage (86%)
-- All security findings addressed
-- 6 dead-code features now wired and functional
-- Performance validated (P99 <541μs)
-- Complete documentation
-- Docker and Kubernetes support
-
-### Clustered Deployment: **CONDITIONAL GO** ⚠️
-
-Clustered deployment is conditionally ready with the following conditions:
-1. **Run 3-node cluster under production-like load** before trusting for critical data
-2. **Validate failover behavior** under load (kill leader mid-publish)
-3. **Test split-brain recovery** scenarios
-4. **Monitor replication lag** and ISR health
-
-The Raft consensus and ISR replication are implemented and tested, but real-world production validation is recommended before depending on it for critical workloads.
-
-### Estimated Time to Full Production Readiness
-
-| Deployment Type | Timeline | Work Required |
-|----------------|----------|---------------|
-| Single-node | **Now** | None |
-| Clustered | **2-4 weeks** | Load validation, failover testing |
-| Enterprise | **2-3 months** | Backup tooling, rolling upgrades, audit logging |
-
----
-
-## Appendix: Security Audit Summary
-
-**Original Audit:** 43 findings (8 Critical, 12 High, 15 Medium, 8 Low)
-
-**v0.9.0 Resolution:**
-| Severity | Count | Status |
-|----------|-------|--------|
-| Critical | 0 | All fixed |
-| High | 0 | All fixed |
-| Medium | 3 | Accepted/Minor |
-| Low | 5 | Accepted/Deferred |
-
-**Remaining Accepted Risks:**
-- Plaintext password fallback (dev-only, bcrypt preferred)
-- WebSocket library deprecated (migration planned)
-- CDN UI dependencies (air-gap concern only)
-- No backup automation (manual process documented)
-- No rolling upgrades (downtime acceptable for v1.0)
+**What makes this risky:** The absence of panic recovery means any protocol-level edge case that triggers a panic takes down the entire broker. For a system that accepts connections from potentially untrusted clients on 7 different protocols, this is the highest-risk gap. Combined with no shutdown timeout, operational reliability is below what I'd expect for critical infrastructure.

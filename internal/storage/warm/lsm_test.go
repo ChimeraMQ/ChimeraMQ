@@ -213,7 +213,7 @@ func TestManifestBasic(t *testing.T) {
 	mt := NewMemTable(1024)
 	mt.Put([]byte("k"), []byte("v"))
 	mt.Freeze()
-	sst, _ := FlushMemTable(mt, dir)
+	sst, _ := FlushMemTable(mt, dir, 0)
 	defer sst.Close()
 
 	m.Add(0, sst)

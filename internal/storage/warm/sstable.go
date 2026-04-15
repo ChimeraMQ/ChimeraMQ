@@ -51,18 +51,30 @@ type SSTable struct {
 	blockCache blockCache
 }
 
-// blockCache is a simple LRU-eviction cache for SSTable data blocks.
+// blockCache is a Second-Chance (clock) cache for SSTable data blocks.
+// Second-Chance approximates LRU with much lower overhead: each entry has
+// a "referenced" bit; on eviction, unreferenced entries are evicted,
+// referenced entries get a second chance and the hand advances.
 type blockCache struct {
 	mu     sync.Mutex
-	blocks map[uint32][]byte // offset -> block data
-	order  []uint32          // FIFO eviction order
+	blocks map[uint32]*cacheEntry // offset -> block data
+	slots  []*cacheEntry          // circular buffer for clock sweep
+	hand   int                    // clock hand position
 	max    int
+	hits   atomic.Uint64
+	misses atomic.Uint64
+}
+
+type cacheEntry struct {
+	offset     uint32
+	data       []byte
+	referenced bool
 }
 
 func newBlockCache(max int) blockCache {
 	return blockCache{
-		blocks: make(map[uint32][]byte, max),
-		order:  make([]uint32, 0, max),
+		blocks: make(map[uint32]*cacheEntry, max),
+		slots:  make([]*cacheEntry, max),
 		max:    max,
 	}
 }
@@ -70,34 +82,81 @@ func newBlockCache(max int) blockCache {
 func (c *blockCache) get(offset uint32) ([]byte, bool) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
-	data, ok := c.blocks[offset]
-	return data, ok
+	entry, ok := c.blocks[offset]
+	if ok {
+		entry.referenced = true
+		c.hits.Add(1)
+		return entry.data, true
+	}
+	c.misses.Add(1)
+	return nil, false
 }
 
 func (c *blockCache) put(offset uint32, data []byte) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
+
 	if _, exists := c.blocks[offset]; exists {
 		return
 	}
-	if len(c.order) >= c.max {
-		evict := c.order[0]
-		c.order = c.order[1:]
-		delete(c.blocks, evict)
+
+	// Find victim using clock sweep
+	for len(c.blocks) >= c.max {
+		victim := c.slots[c.hand]
+		if victim != nil && victim.referenced {
+			victim.referenced = false
+		} else if victim != nil {
+			delete(c.blocks, victim.offset)
+			c.slots[c.hand] = nil
+			break
+		}
+		c.hand = (c.hand + 1) % c.max
 	}
-	c.blocks[offset] = data
-	c.order = append(c.order, offset)
+
+	// Find a free slot
+	slot := -1
+	for i := 0; i < c.max; i++ {
+		idx := (c.hand + i) % c.max
+		if c.slots[idx] == nil {
+			slot = idx
+			break
+		}
+	}
+	if slot == -1 {
+		victim := c.slots[c.hand]
+		if victim != nil {
+			delete(c.blocks, victim.offset)
+		}
+		slot = c.hand
+	}
+
+	entry := &cacheEntry{offset: offset, data: data, referenced: true}
+	c.blocks[offset] = entry
+	c.slots[slot] = entry
+	c.hand = (slot + 1) % c.max
+}
+
+// Stats returns cache hit/miss counts.
+func (c *blockCache) Stats() (hits, misses uint64) {
+	return c.hits.Load(), c.misses.Load()
 }
 
 func (c *blockCache) clear() {
 	c.mu.Lock()
-	c.blocks = make(map[uint32][]byte, c.max)
-	c.order = c.order[:0]
+	c.blocks = make(map[uint32]*cacheEntry, c.max)
+	for i := range c.slots {
+		c.slots[i] = nil
+	}
+	c.hand = 0
 	c.mu.Unlock()
 }
 
 // FlushMemTable writes a frozen MemTable to a new SSTable file.
-func FlushMemTable(mt *MemTable, dir string) (*SSTable, error) {
+func FlushMemTable(mt *MemTable, dir string, bloomFPRate float64) (*SSTable, error) {
+	if bloomFPRate <= 0 {
+		bloomFPRate = 0.001
+	}
+
 	it := mt.Iterator()
 	if !it.Next() {
 		// Empty memtable — create a minimal SSTable
@@ -112,7 +171,7 @@ func FlushMemTable(mt *MemTable, dir string) (*SSTable, error) {
 	}
 
 	// Build bloom filter from all keys
-	bloom := NewBloomFilter(uint32(len(entries)), 0.01)
+	bloom := NewBloomFilter(uint32(len(entries)), bloomFPRate)
 	for _, e := range entries {
 		bloom.Add(e.Key)
 	}
@@ -318,6 +377,17 @@ func (sst *SSTable) Get(key []byte) ([]byte, bool, bool) {
 
 	// Scan block for key
 	return scanBlockForKey(blockData, key)
+}
+
+// KeyRangeMayContain checks if the key falls within this SSTable's min/max offset range.
+// Keys are 8-byte big-endian uint64 offsets. Returns true if the key range overlaps,
+// allowing the caller to skip SSTables that definitely cannot contain the key.
+func (sst *SSTable) KeyRangeMayContain(key []byte) bool {
+	if len(key) != 8 {
+		return true // unknown key format, must check
+	}
+	keyOff := binary.BigEndian.Uint64(key)
+	return keyOff >= sst.meta.MinOffset && keyOff <= sst.meta.MaxOffset
 }
 
 // Metadata returns the SSTable metadata.

@@ -2,10 +2,13 @@
 .github/
 .project/
 security-report/
+docs/
+configs/
 *.out
 *_cov.*
 *.test
 *.html
+coverage/
 .env
 .env*
 .idea/
@@ -15,3 +18,4 @@ dist/
 data/
 .DS_Store
 Thumbs.db
+client_cover.html

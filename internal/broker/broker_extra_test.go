@@ -2,6 +2,8 @@ package broker
 
 import (
 	"log/slog"
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"testing"
@@ -56,10 +58,27 @@ func TestBrokerAccessorsWithExchanges(t *testing.T) {
 }
 
 func TestBrokerAccessorsWithGeo(t *testing.T) {
+	// Start a mock geo receiver server
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/v1/geo-health" {
+			w.WriteHeader(http.StatusOK)
+			_, _ = w.Write([]byte(`{"status":"ok","dc":"test-dc"}`))
+		} else {
+			w.WriteHeader(http.StatusOK)
+			_, _ = w.Write([]byte(`{"accepted":0,"failed":0}`))
+		}
+	}))
+	defer srv.Close()
+
 	dir := t.TempDir()
 	cfg := defaultConfig()
 	cfg.Node.DataDir = dir
 	cfg.GeoReplication.Enabled = true
+	cfg.GeoReplication.LocalDC = "test-dc"
+	cfg.GeoReplication.RemoteDCs = []GeoRemoteDCConfig{
+		{ID: "remote-dc", Name: "Remote DC", Address: srv.Listener.Addr().String()},
+	}
+	cfg.Listener.GeoPort = 0 // let OS pick a port
 
 	b, err := NewBroker(cfg)
 	if err != nil {

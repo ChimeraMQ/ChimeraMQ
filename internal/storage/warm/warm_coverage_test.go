@@ -73,7 +73,7 @@ func TestSSTableSize(t *testing.T) {
 	mt.Put([]byte("k1"), []byte("v1"))
 	mt.Freeze()
 
-	sst, err := FlushMemTable(mt, dir)
+	sst, err := FlushMemTable(mt, dir, 0)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -102,7 +102,7 @@ func TestSSTableSizeMissingFile(t *testing.T) {
 	mt.Put([]byte("k1"), []byte("v1"))
 	mt.Freeze()
 
-	sst, err := FlushMemTable(mt, dir)
+	sst, err := FlushMemTable(mt, dir, 0)
 	if err != nil {
 		t.Fatal(err)
 	}

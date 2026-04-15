@@ -3,6 +3,7 @@ package ui
 import (
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 )
 
@@ -78,14 +79,14 @@ func TestHandlerStaticAsset(t *testing.T) {
 	srv := httptest.NewServer(h)
 	defer srv.Close()
 
-	// Try to get a CSS file — may or may not exist in the embedded FS
-	resp, err := srv.Client().Get(srv.URL + "/assets/style.css")
+	// Vite builds produce assets/index-*.css
+	resp, err := srv.Client().Get(srv.URL + "/assets/")
 	if err != nil {
 		t.Fatal(err)
 	}
 	defer resp.Body.Close()
 
-	// Either 200 (if exists) or falls back to index.html (200)
+	// Assets directory or fallback should return 200
 	if resp.StatusCode != http.StatusOK {
 		t.Errorf("static asset status = %d, want 200", resp.StatusCode)
 	}
@@ -96,14 +97,12 @@ func TestHandlerIndexHTMLDirect(t *testing.T) {
 	srv := httptest.NewServer(h)
 	defer srv.Close()
 
-	// Direct request for index.html should serve it
 	resp, err := srv.Client().Get(srv.URL + "/index.html")
 	if err != nil {
 		t.Fatal(err)
 	}
 	defer resp.Body.Close()
 
-	// index.html hits the fallback path
 	if resp.StatusCode != http.StatusOK {
 		t.Errorf("index.html status = %d, want 200", resp.StatusCode)
 	}
@@ -114,7 +113,6 @@ func TestHandlerEmptyPath(t *testing.T) {
 	srv := httptest.NewServer(h)
 	defer srv.Close()
 
-	// Request with empty path (just /) should go directly to fallback
 	resp, err := srv.Client().Get(srv.URL + "/")
 	if err != nil {
 		t.Fatal(err)
@@ -126,19 +124,18 @@ func TestHandlerEmptyPath(t *testing.T) {
 	}
 }
 
-func TestHandlerExistingFile(t *testing.T) {
+func TestHandlerServesChimeraMQTitle(t *testing.T) {
 	h := mustHandler(t)
 	srv := httptest.NewServer(h)
 	defer srv.Close()
 
-	// Request for style.css — exercises the fsys.Open success path
-	resp, err := srv.Client().Get(srv.URL + "/style.css")
+	resp, err := srv.Client().Get(srv.URL + "/")
 	if err != nil {
 		t.Fatal(err)
 	}
 	defer resp.Body.Close()
 
-	if resp.StatusCode != http.StatusOK {
-		t.Errorf("existing file status = %d, want 200", resp.StatusCode)
+	if !strings.Contains(resp.Header.Get("Content-Type"), "text/html") {
+		t.Errorf("Content-Type = %q, want text/html", resp.Header.Get("Content-Type"))
 	}
 }

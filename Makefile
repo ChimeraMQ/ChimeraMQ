@@ -41,7 +41,12 @@ docker:
 	docker build -t ghcr.io/chimeramq/chimera:$(VERSION) -t ghcr.io/chimeramq/chimera:latest .
 
 web-build:
-	cp web/dist/index.html internal/ui/static/index.html
+	cd frontend && npm install && npm run build
+	rm -rf internal/ui/_embed/dist
+	cp -r frontend/dist internal/ui/_embed/dist
+
+web-dev:
+	cd frontend && npm run dev
 
 release: clean
 	GOOS=linux GOARCH=amd64 CGO_ENABLED=0 go build -ldflags "$(LDFLAGS)" -o bin/$(BINARY)-linux-amd64 ./cmd/chimera/

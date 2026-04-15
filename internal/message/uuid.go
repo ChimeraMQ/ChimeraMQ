@@ -1,9 +1,10 @@
 package message
 
 import (
-	"crypto/rand"
+	cr "crypto/rand"
 	"encoding/binary"
 	"fmt"
+	mrand "math/rand/v2"
 	"sync"
 	"time"
 )
@@ -13,6 +14,13 @@ type UUIDv7Generator struct {
 	mu      sync.Mutex
 	lastMS  int64
 	counter uint16
+	rng     *mrand.Rand
+}
+
+func init() {
+	var seed [32]byte
+	_, _ = cr.Read(seed[:])
+	defaultGenerator.rng = mrand.New(mrand.NewChaCha8(seed))
 }
 
 var defaultGenerator = &UUIDv7Generator{}
@@ -27,6 +35,13 @@ func NewUUIDv7() [16]byte {
 func (g *UUIDv7Generator) Generate() [16]byte {
 	g.mu.Lock()
 	defer g.mu.Unlock()
+
+	// Lazy-init RNG for test-created generators
+	if g.rng == nil {
+		var seed [32]byte
+		_, _ = cr.Read(seed[:])
+		g.rng = mrand.New(mrand.NewChaCha8(seed))
+	}
 
 	var uuid [16]byte
 
@@ -47,8 +62,8 @@ func (g *UUIDv7Generator) Generate() [16]byte {
 	binary.BigEndian.PutUint16(uuid[6:], g.counter)
 	uuid[6] = (uuid[6] & 0x0F) | 0x70 // Version 7
 
-	// Bytes 8-15: variant (10) + 62-bit random
-	_, _ = rand.Read(uuid[8:])
+	// Bytes 8-15: variant (10) + 62-bit random — use ChaCha8 instead of crypto/rand
+	binary.BigEndian.PutUint64(uuid[8:], g.rng.Uint64())
 	uuid[8] = (uuid[8] & 0x3F) | 0x80 // Variant 10
 
 	return uuid

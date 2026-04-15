@@ -15,6 +15,7 @@ import (
 	"github.com/chimeramq/chimera/internal/protocol"
 	"github.com/chimeramq/chimera/internal/protocol/amqp"
 	"github.com/chimeramq/chimera/internal/protocol/chimera"
+	grpcadapter "github.com/chimeramq/chimera/internal/protocol/grpc"
 	httpadmin "github.com/chimeramq/chimera/internal/protocol/http"
 	"github.com/chimeramq/chimera/internal/protocol/mqtt"
 	"github.com/chimeramq/chimera/internal/protocol/nats"
@@ -117,6 +118,7 @@ func RunServer(args []string) {
 	bindAddr := flags.String("bind", "", "Bind address override")
 	port := flags.Int("port", 0, "Port override")
 	adminPort := flags.Int("admin-port", 0, "Admin port override")
+	grpcPort := flags.Int("grpc-port", 0, "gRPC port override")
 	logLevel := flags.String("log-level", "", "Log level override")
 	_ = flags.Parse(args)
 
@@ -125,6 +127,7 @@ func RunServer(args []string) {
 		Bind:      *bindAddr,
 		Port:      *port,
 		AdminPort: *adminPort,
+		GRPCPort:  *grpcPort,
 		LogLevel:  *logLevel,
 	}
 
@@ -181,19 +184,48 @@ func RunServer(args []string) {
 		}
 	}()
 
+	// Start gRPC server if enabled
+	if cfg.Protocols.GRPC.Enabled {
+		grpcServer, err := grpcadapter.NewServer(b)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "Error starting gRPC server: %v\n", err)
+			os.Exit(1)
+		}
+		go func() {
+			if err := grpcServer.Serve(); err != nil {
+				fmt.Fprintf(os.Stderr, "gRPC server error: %v\n", err)
+			}
+		}()
+		defer grpcServer.Stop()
+		b.Logger().Info("gRPC adapter enabled")
+	}
+
 	sigCh := make(chan os.Signal, 1)
 	signal.Notify(sigCh, syscall.SIGINT, syscall.SIGTERM)
 	<-sigCh
 
 	fmt.Println("\nShutting down...")
 
-	// Graceful shutdown
+	// Graceful shutdown with timeout — prevents hung goroutines from blocking indefinitely
+	shutdownCtx, shutdownCancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer shutdownCancel()
+
 	mux.Stop()
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-	defer cancel()
-	_ = adminServer.Shutdown(ctx)
-	_ = b.Stop()
-	fmt.Println("Goodbye.")
+	_ = adminServer.Shutdown(shutdownCtx)
+
+	// Broker stop with timeout — log if it doesn't complete in time
+	done := make(chan struct{})
+	go func() {
+		_ = b.Stop()
+		close(done)
+	}()
+
+	select {
+	case <-done:
+		fmt.Println("Goodbye.")
+	case <-shutdownCtx.Done():
+		fmt.Println("Shutdown timed out — some subsystems may not have drained cleanly")
+	}
 }
 
 // registerProtocols registers all enabled protocol adapters with the multiplexer.

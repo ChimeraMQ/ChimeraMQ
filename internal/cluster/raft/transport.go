@@ -25,21 +25,29 @@ type RPCHandler interface {
 	HandleInstallSnapshot(req *InstallSnapshotRequest) *InstallSnapshotResponse
 }
 
+// connEntry tracks a connection and its last use time.
+type connEntry struct {
+	conn     net.Conn
+	lastUsed time.Time
+}
+
 // TCPTransport implements Transport over TCP.
 type TCPTransport struct {
-	mu        sync.RWMutex
-	conns     map[NodeID]net.Conn
-	addrs     map[NodeID]string
-	timeout   time.Duration
-	tlsConfig *tls.Config
+	mu           sync.RWMutex
+	conns        map[NodeID]*connEntry
+	addrs        map[NodeID]string
+	timeout      time.Duration
+	idleTimeout  time.Duration
+	tlsConfig    *tls.Config
 }
 
 // NewTCPTransport creates a new TCP transport.
 func NewTCPTransport() *TCPTransport {
 	return &TCPTransport{
-		conns:   make(map[NodeID]net.Conn),
-		addrs:   make(map[NodeID]string),
-		timeout: 5 * time.Second,
+		conns:       make(map[NodeID]*connEntry),
+		addrs:       make(map[NodeID]string),
+		timeout:     5 * time.Second,
+		idleTimeout: 30 * time.Second,
 	}
 }
 
@@ -80,22 +88,36 @@ func LoadTLSConfig(certFile, keyFile, caFile string) (*tls.Config, error) {
 func (t *TCPTransport) SetAddr(nodeID NodeID, addr string) {
 	t.mu.Lock()
 	defer t.mu.Unlock()
-	// Close existing connection if any
-	if conn, ok := t.conns[nodeID]; ok {
-		conn.Close()
-		delete(t.conns, nodeID)
+	// Only close existing connection if the address is actually changing
+	if currentAddr, ok := t.addrs[nodeID]; ok && currentAddr != addr {
+		if entry, ok := t.conns[nodeID]; ok {
+			entry.conn.Close()
+			delete(t.conns, nodeID)
+		}
 	}
 	t.addrs[nodeID] = addr
 }
 
 func (t *TCPTransport) getConn(nodeID NodeID) (net.Conn, error) {
 	t.mu.RLock()
-	if conn, ok := t.conns[nodeID]; ok {
+	entry, hasEntry := t.conns[nodeID]
+	if hasEntry {
+		// Check idle timeout
+		if time.Since(entry.lastUsed) > t.idleTimeout {
+			t.mu.RUnlock()
+			t.evictConn(nodeID)
+			return t.dialAndStore(nodeID)
+		}
+		conn := entry.conn
 		t.mu.RUnlock()
 		return conn, nil
 	}
 	t.mu.RUnlock()
 
+	return t.dialAndStore(nodeID)
+}
+
+func (t *TCPTransport) dialAndStore(nodeID NodeID) (net.Conn, error) {
 	t.mu.Lock()
 	defer t.mu.Unlock()
 
@@ -115,7 +137,7 @@ func (t *TCPTransport) getConn(nodeID NodeID) (net.Conn, error) {
 	if err != nil {
 		return nil, err
 	}
-	t.conns[nodeID] = conn
+	t.conns[nodeID] = &connEntry{conn: conn, lastUsed: time.Now()}
 	return conn, nil
 }
 
@@ -155,14 +177,33 @@ func (t *TCPTransport) sendRPC(nodeID NodeID, rpcType string, req, resp interfac
 		t.invalidateConn(nodeID)
 		return err
 	}
+
+	t.updateLastUsed(nodeID)
 	return nil
+}
+
+func (t *TCPTransport) updateLastUsed(nodeID NodeID) {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	if entry, ok := t.conns[nodeID]; ok {
+		entry.lastUsed = time.Now()
+	}
 }
 
 func (t *TCPTransport) invalidateConn(nodeID NodeID) {
 	t.mu.Lock()
 	defer t.mu.Unlock()
-	if conn, ok := t.conns[nodeID]; ok {
-		conn.Close()
+	if entry, ok := t.conns[nodeID]; ok {
+		entry.conn.Close()
+		delete(t.conns, nodeID)
+	}
+}
+
+func (t *TCPTransport) evictConn(nodeID NodeID) {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	if entry, ok := t.conns[nodeID]; ok {
+		entry.conn.Close()
 		delete(t.conns, nodeID)
 	}
 }

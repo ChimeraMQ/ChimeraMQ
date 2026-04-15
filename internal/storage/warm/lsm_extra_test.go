@@ -214,7 +214,7 @@ func TestCollectEntries(t *testing.T) {
 	}
 	mt.Freeze()
 
-	sst, err := FlushMemTable(mt, dir)
+	sst, err := FlushMemTable(mt, dir, 0)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -254,7 +254,7 @@ func TestCollectEntriesWithTombstone(t *testing.T) {
 	mt.Delete(key)
 	mt.Freeze()
 
-	sst, err := FlushMemTable(mt, dir)
+	sst, err := FlushMemTable(mt, dir, 0)
 	if err != nil {
 		t.Fatal(err)
 	}

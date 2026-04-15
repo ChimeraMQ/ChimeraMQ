@@ -92,6 +92,11 @@ func (s *Server) Serve() error {
 		s.wg.Add(1)
 		go func() {
 			defer s.wg.Done()
+			defer func() {
+				if r := recover(); r != nil {
+					s.broker.Logger().Error("chimera handler panic", "recover", r)
+				}
+			}()
 			defer func() { <-sem }()
 			s.handleConnection(conn)
 		}()
@@ -254,6 +259,8 @@ func (s *Server) handleConnection(conn net.Conn) {
 			_ = client.writeFrame(connackFrame)
 		case OpPublish:
 			s.handlePublish(client, frame)
+		case OpBatchPublish:
+			s.handleBatchPublish(client, frame)
 		case OpSubscribe:
 			s.handleSubscribe(client, frame)
 		case OpFetch:
@@ -323,6 +330,63 @@ func (s *Server) handlePublish(client *ClientConn, frame *Frame) {
 
 	ackPayload := encodePubAck(env.Topic, env.PartitionID, offset)
 	ackFrame, _ := EncodeFrame(&Frame{Version: FrameVersion, OpCode: OpPubAck, Payload: ackPayload})
+	_ = client.writeFrame(ackFrame)
+}
+
+func (s *Server) handleBatchPublish(client *ClientConn, frame *Frame) {
+	batch := decodeBatchPublish(frame.Payload)
+
+	results := make([]BatchPubAckResult, len(batch.Messages))
+	var okCount int
+
+	for i, msg := range batch.Messages {
+		// ACL check: write permission on topic
+		if acl := s.broker.ACLEngine(); acl != nil {
+			if !acl.Check(client.identity, auth.ResourceTopic, msg.Topic, auth.OpWrite) {
+				results[i] = BatchPubAckResult{OK: false}
+				continue
+			}
+		}
+
+		env := &message.Envelope{
+			Topic:       msg.Topic,
+			RoutingKey:  msg.RoutingKey,
+			Priority:    msg.Priority,
+			TTL:         msg.TTL,
+			DeliverAt:   msg.DeliverAt,
+			Headers:     nil, // headers not supported in batch wire format
+			Payload:     msg.Body,
+			SourceProto: message.ProtoChimera,
+		}
+
+		offset, err := s.broker.Publish(env)
+		if err != nil {
+			s.broker.Logger().Error("batch publish failed", "index", i, "error", err)
+			results[i] = BatchPubAckResult{OK: false}
+		} else {
+			results[i] = BatchPubAckResult{
+				PartitionID: env.PartitionID,
+				Offset:      offset,
+				OK:          true,
+			}
+			okCount++
+		}
+	}
+
+	var buf []byte
+	buf = appendUint32(buf, uint32(len(results)))
+	for _, r := range results {
+		buf = appendUint32(buf, r.PartitionID)
+		buf = appendUint64(buf, r.Offset)
+		if r.OK {
+			buf = append(buf, 1)
+		} else {
+			buf = append(buf, 0)
+		}
+	}
+	buf = appendUint32(buf, uint32(okCount))
+
+	ackFrame, _ := EncodeFrame(&Frame{Version: FrameVersion, OpCode: OpBatchPubAck, Payload: buf})
 	_ = client.writeFrame(ackFrame)
 }
 

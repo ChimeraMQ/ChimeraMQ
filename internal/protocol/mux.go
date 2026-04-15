@@ -142,6 +142,11 @@ func (m *ProtocolMux) Serve() error {
 		go func() {
 			defer m.wg.Done()
 			defer m.connections.Add(-1)
+			defer func() {
+				if r := recover(); r != nil {
+					slog.Error("protocol handler panic", "recover", r)
+				}
+			}()
 			defer func() { <-sem }()
 			m.routeConnection(conn)
 		}()

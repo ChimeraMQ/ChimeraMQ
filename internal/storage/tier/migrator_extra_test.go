@@ -38,7 +38,7 @@ func createSSTablesAtL1(t *testing.T, warmDir string, n, entriesPerTable int) *w
 			mt.Put(key, []byte(fmt.Sprintf("l1-data-%d", off)))
 		}
 		mt.Freeze()
-		sst, err := warm.FlushMemTable(mt, warmDir)
+		sst, err := warm.FlushMemTable(mt, warmDir, 0)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -456,7 +456,7 @@ func TestColdManagerLoadExistingIgnoresNonDatFilesWithArchive(t *testing.T) {
 		mt.Put(key, []byte("ignore-test"))
 	}
 	mt.Freeze()
-	sst, err := warm.FlushMemTable(mt, coldDir)
+	sst, err := warm.FlushMemTable(mt, coldDir, 0)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -522,7 +522,7 @@ func TestReadFromColdTierWithHotEngine(t *testing.T) {
 		mt.Put(key, []byte(fmt.Sprintf("cold-%d", i)))
 	}
 	mt.Freeze()
-	sst, err := warm.FlushMemTable(mt, coldDir)
+	sst, err := warm.FlushMemTable(mt, coldDir, 0)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -568,7 +568,7 @@ func TestPurgeExpiredColdWithColdArchive(t *testing.T) {
 		mt.Put(key, []byte("data"))
 	}
 	mt.Freeze()
-	sst, err := warm.FlushMemTable(mt, coldDir)
+	sst, err := warm.FlushMemTable(mt, coldDir, 0)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -609,7 +609,7 @@ func TestColdManagerTotalSize(t *testing.T) {
 		mt.Put(key, []byte("data"))
 	}
 	mt.Freeze()
-	sst, err := warm.FlushMemTable(mt, coldDir)
+	sst, err := warm.FlushMemTable(mt, coldDir, 0)
 	if err != nil {
 		t.Fatal(err)
 	}

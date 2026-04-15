@@ -33,6 +33,7 @@ const (
 	ProtoHTTP    ProtocolType = 4
 	ProtoSTOMP   ProtocolType = 5
 	ProtoNATS    ProtocolType = 6
+	ProtoGRPC    ProtocolType = 7
 )
 
 // String returns a human-readable protocol name.
@@ -52,6 +53,8 @@ func (p ProtocolType) String() string {
 		return "stomp"
 	case ProtoNATS:
 		return "nats"
+	case ProtoGRPC:
+		return "grpc"
 	default:
 		return "unknown"
 	}

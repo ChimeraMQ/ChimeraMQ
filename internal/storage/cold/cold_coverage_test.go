@@ -74,7 +74,7 @@ func TestColdArchiveGetNotFoundInSegment(t *testing.T) {
 	mt.Put(key, []byte("val-10"))
 	mt.Freeze()
 
-	sst, err := warm.FlushMemTable(mt, sstDir)
+	sst, err := warm.FlushMemTable(mt, sstDir, 0)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -105,7 +105,7 @@ func TestColdArchiveGetMissingOffsetInRange(t *testing.T) {
 	binary.BigEndian.PutUint64(key, 10)
 	mt1.Put(key, []byte("val-10"))
 	mt1.Freeze()
-	sst1, _ := warm.FlushMemTable(mt1, sstDir)
+	sst1, _ := warm.FlushMemTable(mt1, sstDir, 0)
 	defer sst1.Close()
 
 	mt2 := warm.NewMemTable(4096)
@@ -113,7 +113,7 @@ func TestColdArchiveGetMissingOffsetInRange(t *testing.T) {
 	binary.BigEndian.PutUint64(key2, 12)
 	mt2.Put(key2, []byte("val-12"))
 	mt2.Freeze()
-	sst2, _ := warm.FlushMemTable(mt2, sstDir)
+	sst2, _ := warm.FlushMemTable(mt2, sstDir, 0)
 	defer sst2.Close()
 
 	archivePath := filepath.Join(dir, "archive.dat")
