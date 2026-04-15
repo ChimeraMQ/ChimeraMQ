@@ -592,7 +592,7 @@ func (c *Client) Connect() error {
 	if err != nil {
 		return fmt.Errorf("health check failed: %w", err)
 	}
-	_, _ = resp.Body.Close()
+	_ = resp.Body.Close()
 
 	if resp.StatusCode != http.StatusOK {
 		return fmt.Errorf("health check returned %d", resp.StatusCode)

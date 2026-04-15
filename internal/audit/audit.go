@@ -270,7 +270,7 @@ func (l *Logger) rotate() {
 	}
 
 	// Close current file
-	_, _ = l.file.Close()
+	_ = l.file.Close()
 
 	// Rename current file with timestamp
 	timestamp := time.Now().Format("20060102-150405")
@@ -324,7 +324,7 @@ func (l *Logger) cleanupOldLogs() {
 		}
 
 		if info.ModTime().Before(cutoff) {
-			_, _ = os.Remove(filepath.Join(dir, entry.Name()))
+			_ = os.Remove(filepath.Join(dir, entry.Name()))
 		}
 	}
 }

@@ -108,7 +108,7 @@ func (s *SWIM) Start() error {
 // Stop stops the SWIM protocol.
 func (s *SWIM) Stop() {
 	close(s.stopCh)
-	_, _ = s.transport.Close()
+	_ = s.transport.Close()
 	<-s.done
 }
 
