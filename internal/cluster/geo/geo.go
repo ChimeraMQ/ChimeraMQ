@@ -197,6 +197,7 @@ type Receiver struct {
 	localDC  string
 	server   *http.Server
 	listener net.Listener
+	mu       sync.Mutex
 
 	// Stats
 	eventsReceived atomic.Int64
@@ -679,10 +680,12 @@ func (r *Receiver) Serve() error {
 	mux.HandleFunc(geoReplicatePath, r.handleReplicate)
 	mux.HandleFunc(geoHealthPath, r.handleHealth)
 
+	r.mu.Lock()
 	r.server = &http.Server{
 		Handler:  mux,
 		ErrorLog: nil, // use our own logger
 	}
+	r.mu.Unlock()
 
 	r.logger.Info("geo-replication receiver listening", "addr", r.listener.Addr().String())
 	return r.server.Serve(r.listener)
@@ -690,10 +693,13 @@ func (r *Receiver) Serve() error {
 
 // Stop gracefully shuts down the receiver.
 func (r *Receiver) Stop() {
-	if r.server != nil {
+	r.mu.Lock()
+	server := r.server
+	r.mu.Unlock()
+	if server != nil {
 		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 		defer cancel()
-		_ = r.server.Shutdown(ctx)
+		_ = server.Shutdown(ctx)
 	}
 }
 

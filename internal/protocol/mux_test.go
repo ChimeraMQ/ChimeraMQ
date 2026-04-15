@@ -251,7 +251,7 @@ func TestMuxServeAndRoute(t *testing.T) {
 	time.Sleep(50 * time.Millisecond)
 
 	// Connect and send data
-	addr := mux.listener.Addr().String()
+	addr := mux.Listener().Addr().String()
 	conn, err := net.DialTimeout("tcp", addr, 2*time.Second)
 	if err != nil {
 		t.Fatalf("dial: %v", err)
@@ -284,7 +284,7 @@ func TestMuxConnections(t *testing.T) {
 	defer mux.Stop()
 
 	time.Sleep(50 * time.Millisecond)
-	addr := mux.listener.Addr().String()
+	addr := mux.Listener().Addr().String()
 
 	if mux.Connections() != 0 {
 		t.Errorf("initial connections = %d, want 0", mux.Connections())
@@ -323,7 +323,7 @@ func TestMuxNoMatchProtocol(t *testing.T) {
 	defer mux.Stop()
 
 	time.Sleep(50 * time.Millisecond)
-	addr := mux.listener.Addr().String()
+	addr := mux.Listener().Addr().String()
 
 	conn, err := net.DialTimeout("tcp", addr, 2*time.Second)
 	if err != nil {
@@ -438,7 +438,7 @@ func TestMuxServeConnectionLimit(t *testing.T) {
 	defer mux.Stop()
 
 	time.Sleep(50 * time.Millisecond)
-	addr := mux.listener.Addr().String()
+	addr := mux.Listener().Addr().String()
 
 	// First connection should succeed
 	conn1, err := net.DialTimeout("tcp", addr, 2*time.Second)
@@ -670,7 +670,7 @@ func TestMuxRouteWithLargeBytesNeeded(t *testing.T) {
 	go func() { done <- mux.Serve() }()
 	time.Sleep(50 * time.Millisecond)
 
-	addr := mux.listener.Addr().String()
+	addr := mux.Listener().Addr().String()
 	conn, err := net.DialTimeout("tcp", addr, 2*time.Second)
 	if err != nil {
 		t.Fatalf("dial: %v", err)

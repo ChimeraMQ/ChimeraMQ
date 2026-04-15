@@ -112,7 +112,7 @@ func TestServeTLSWithRealCerts(t *testing.T) {
 	time.Sleep(100 * time.Millisecond)
 
 	// Verify it's listening with TLS
-	if mux.listener == nil {
+	if mux.Listener() == nil {
 		t.Fatal("listener should be created")
 	}
 
@@ -153,7 +153,7 @@ func TestServeTLSMutualWithRealCerts(t *testing.T) {
 
 	time.Sleep(100 * time.Millisecond)
 
-	if mux.listener == nil {
+	if mux.Listener() == nil {
 		t.Fatal("listener should be created")
 	}
 
@@ -182,13 +182,7 @@ func TestServeAcceptErrorNotContext(t *testing.T) {
 
 	time.Sleep(100 * time.Millisecond)
 
-	// Force close listener to cause accept error
-	if mux.listener != nil {
-		mux.listener.Close()
-	}
-
-	// Then stop properly
-	time.Sleep(50 * time.Millisecond)
+	// Stop the mux (this will close the listener)
 	mux.Stop()
 
 	select {

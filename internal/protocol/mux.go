@@ -43,6 +43,7 @@ type detectorEntry struct {
 type ProtocolMux struct {
 	broker    *broker.Broker
 	listener  net.Listener
+	mu        sync.Mutex
 	detectors []detectorEntry
 	tlsConfig *tls.Config
 
@@ -99,12 +100,16 @@ func (m *ProtocolMux) Serve() error {
 			m.tlsConfig.ClientCAs = clientCAs
 			m.tlsConfig.ClientAuth = tls.RequireAndVerifyClientCert
 		}
+		m.mu.Lock()
 		m.listener, err = tls.Listen("tcp", addr, m.tlsConfig)
+		m.mu.Unlock()
 		if err != nil {
 			return fmt.Errorf("listen TLS: %w", err)
 		}
 	} else {
+		m.mu.Lock()
 		m.listener, err = net.Listen("tcp", addr)
+		m.mu.Unlock()
 		if err != nil {
 			return fmt.Errorf("listen: %w", err)
 		}
@@ -197,8 +202,11 @@ func (m *ProtocolMux) routeConnection(conn net.Conn) {
 // Stop gracefully shuts down the multiplexer and all handlers.
 func (m *ProtocolMux) Stop() {
 	m.cancel()
-	if m.listener != nil {
-		m.listener.Close()
+	m.mu.Lock()
+	listener := m.listener
+	m.mu.Unlock()
+	if listener != nil {
+		listener.Close()
 	}
 	for _, entry := range m.detectors {
 		entry.handler.Stop()
@@ -209,6 +217,13 @@ func (m *ProtocolMux) Stop() {
 // Connections returns the current number of active connections.
 func (m *ProtocolMux) Connections() int64 {
 	return m.connections.Load()
+}
+
+// Listener returns the mux listener (protected by mutex for race-safe access).
+func (m *ProtocolMux) Listener() net.Listener {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	return m.listener
 }
 
 // bufferedConn wraps a net.Conn with a buffered reader.
