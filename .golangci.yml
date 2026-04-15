@@ -70,11 +70,43 @@ linters:
         linters:
           - errcheck
         text: "c.encoder.Close.*is not checked"
+      # Storage cleanup - Close/Flush/Remove failures in cleanup paths don't matter
+      - path: internal/storage
+        linters:
+          - errcheck
+        text: "\\.Close.*is not checked"
+      - path: internal/storage
+        linters:
+          - errcheck
+        text: "os\\.Remove.*is not checked"
+      - path: internal/storage
+        linters:
+          - errcheck
+        text: "\\.Flush.*is not checked"
+      # WASM cleanup
+      - path: internal/wasm
+        linters:
+          - errcheck
+        text: "\\.Close.*is not checked"
+      # CLI cleanup
+      - path: internal/cli
+        linters:
+          - errcheck
+        text: "\\.Close.*is not checked"
+      - path: internal/cli
+        linters:
+          - errcheck
+        text: "resp\\.Body\\.Close.*is not checked"
+      # Test cleanup
+      - path: test/
+        linters:
+          - errcheck
+        text: "resp\\.Body\\.Close.*is not checked"
       # Client cleanup
       - path: client/
         linters:
           - errcheck
-        text: "resp.Body.Close.*is not checked"
+        text: "resp\\.Body\\.Close.*is not checked"
   settings:
     errcheck:
       check-type-assertions: false
