@@ -34,7 +34,7 @@ func (g *gcpProvider) Encrypt(ctx context.Context, plaintext []byte, keyID strin
 }
 
 func (g *gcpProvider) Decrypt(ctx context.Context, ciphertext []byte, keyID string) ([]byte, error) {
-	return nil, fmt.Errorf("Google Cloud KMS support requires GCP SDK: go get cloud.google.com/go/kms/apiv1")
+	return nil, fmt.Errorf("google Cloud KMS support requires GCP SDK: go get cloud.google.com/go/kms/apiv1")
 }
 
 func (g *gcpProvider) Close() error {

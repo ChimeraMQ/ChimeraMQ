@@ -84,7 +84,7 @@ func (v *vaultProvider) GenerateDataKey(ctx context.Context, keyID string, keySp
 	//     KeyID:      keyID,
 	// }, nil
 
-	return nil, fmt.Errorf("Vault support requires HashiCorp Vault SDK: go get github.com/hashicorp/vault/api")
+	return nil, fmt.Errorf("vault support requires HashiCorp Vault SDK: go get github.com/hashicorp/vault/api")
 }
 
 // DecryptDataKey decrypts an encrypted data key using Vault Transit engine.
@@ -113,7 +113,7 @@ func (v *vaultProvider) DecryptDataKey(ctx context.Context, encryptedKey []byte,
 	//
 	// return base64.StdEncoding.DecodeString(plaintext)
 
-	return nil, fmt.Errorf("Vault support requires HashiCorp Vault SDK: go get github.com/hashicorp/vault/api")
+	return nil, fmt.Errorf("vault support requires HashiCorp Vault SDK: go get github.com/hashicorp/vault/api")
 }
 
 // Encrypt encrypts plaintext using Vault Transit engine.
@@ -142,7 +142,7 @@ func (v *vaultProvider) Encrypt(ctx context.Context, plaintext []byte, keyID str
 	//
 	// return []byte(ciphertext), nil
 
-	return nil, fmt.Errorf("Vault support requires HashiCorp Vault SDK: go get github.com/hashicorp/vault/api")
+	return nil, fmt.Errorf("vault support requires HashiCorp Vault SDK: go get github.com/hashicorp/vault/api")
 }
 
 // Decrypt decrypts ciphertext using Vault Transit engine.
@@ -171,7 +171,7 @@ func (v *vaultProvider) Decrypt(ctx context.Context, ciphertext []byte, keyID st
 	//
 	// return base64.StdEncoding.DecodeString(plaintext)
 
-	return nil, fmt.Errorf("Vault support requires HashiCorp Vault SDK: go get github.com/hashicorp/vault/api")
+	return nil, fmt.Errorf("vault support requires HashiCorp Vault SDK: go get github.com/hashicorp/vault/api")
 }
 
 // Close closes the Vault provider.

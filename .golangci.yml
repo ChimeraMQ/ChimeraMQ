@@ -122,6 +122,16 @@ linters:
         linters:
           - errcheck
         text: "\\.Close.*is not checked"
+      # False positive: strings.Builder doesn't implement io.Writer, can't use fmt.Fprintf
+      - path: internal/metrics/collector\.go
+        linters:
+          - staticcheck
+        text: "QF1012"
+      # Test file suggestions
+      - path: _test\.go
+        linters:
+          - staticcheck
+        text: "QF1003"
   settings:
     errcheck:
       check-type-assertions: false
