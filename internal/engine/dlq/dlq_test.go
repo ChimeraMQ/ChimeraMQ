@@ -312,7 +312,7 @@ func TestByReasonPatternTooLong(t *testing.T) {
 }
 
 func TestCompileRegexWithTimeoutValid(t *testing.T) {
-	re, err := compileRegexWithTimeout("^test$", 1)
+	re, err := compileRegexWithTimeout("^test$", 1*time.Second)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -322,7 +322,7 @@ func TestCompileRegexWithTimeoutValid(t *testing.T) {
 }
 
 func TestCompileRegexWithTimeoutInvalid(t *testing.T) {
-	_, err := compileRegexWithTimeout("(", 1)
+	_, err := compileRegexWithTimeout("(", 1*time.Second)
 	if err == nil {
 		t.Error("expected error for invalid pattern")
 	}
@@ -330,10 +330,10 @@ func TestCompileRegexWithTimeoutInvalid(t *testing.T) {
 
 func TestMatchWithTimeout(t *testing.T) {
 	re := regexp.MustCompile("hello")
-	if !matchWithTimeout(re, "hello world", 1) {
+	if !matchWithTimeout(re, "hello world", 1*time.Second) {
 		t.Error("should match")
 	}
-	if matchWithTimeout(re, "goodbye", 1) {
+	if matchWithTimeout(re, "goodbye", 1*time.Second) {
 		t.Error("should not match")
 	}
 }
