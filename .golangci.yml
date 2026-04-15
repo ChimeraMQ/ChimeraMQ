@@ -1,4 +1,4 @@
-version: 2
+version: "2"
 
 run:
   timeout: 5m
@@ -22,7 +22,7 @@ linters-settings:
     enable-all: false
 
 issues:
-  exclude-rules:
+  exclude:
     - path: _test\.go
       linters:
         - errcheck
