@@ -11,6 +11,12 @@ import (
 	"time"
 )
 
+func TestMain(m *testing.M) {
+	// Set temp data dir for all tests to avoid /var/lib/chimera permission issues
+	os.Setenv("CHIMERA_DATA_DIR", m.TempDir())
+	os.Exit(m.Run())
+}
+
 func TestMainNoArgsSubprocess(t *testing.T) {
 	if os.Getenv("TEST_MAIN_NOARGS") == "1" {
 		os.Args = []string{"chimera"}
