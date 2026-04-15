@@ -19,6 +19,7 @@ listener:
   port: 5672                         # Chimera native protocol (TCP)
   admin_port: 9090                   # HTTP admin API
   max_connections: 100000            # Max concurrent TCP connections
+  trusted_proxy_cidr: ""             # Trusted proxy CIDR (e.g. "10.0.0.0/8"); empty = no proxy trust
 
 # --- Authentication (opt-in) ---
 # auth:
