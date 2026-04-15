@@ -296,7 +296,7 @@ func (r *Registry) DeleteSubject(subject string) error {
 
 	// Remove directory
 	dir := filepath.Join(r.schemasDir, subject)
-	os.RemoveAll(dir)
+	_ = os.RemoveAll(dir)
 
 	return nil
 }
@@ -415,7 +415,7 @@ func (r *Registry) saveSubject(subject string) error {
 	if err := os.WriteFile(tmpPath, data, 0640); err != nil {
 		return err
 	}
-	os.Remove(metaPath) // Windows: remove before rename
+	_ = os.Remove(metaPath) // Windows: remove before rename
 	return os.Rename(tmpPath, metaPath)
 }
 
@@ -439,7 +439,7 @@ func (r *Registry) saveCompat(subject string) error {
 	if err := os.WriteFile(tmpPath, data, 0640); err != nil {
 		return err
 	}
-	os.Remove(compatPath)
+	_ = os.Remove(compatPath)
 	return os.Rename(tmpPath, compatPath)
 }
 
@@ -456,7 +456,7 @@ func (r *Registry) saveGlobalID() {
 	path := filepath.Join(r.schemasDir, "_global_id.json")
 	tmpPath := path + ".tmp"
 	if os.WriteFile(tmpPath, data, 0640) == nil {
-		os.Remove(path)
+	_ = os.Remove(path)
 		if err := os.Rename(tmpPath, path); err != nil {
 			slog.Error("schema global id rename", "err", err)
 		}

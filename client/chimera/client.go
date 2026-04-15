@@ -158,7 +158,7 @@ func (c *Client) doRequest(method, path string, body interface{}) ([]byte, int, 
 	if err != nil {
 		return nil, 0, err
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	data, err := io.ReadAll(resp.Body)
 	if err != nil {
@@ -267,7 +267,7 @@ func (c *Client) Publish(topic string, payload []byte) (*PublishResult, error) {
 	if err != nil {
 		return nil, err
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	data, _ := io.ReadAll(resp.Body)
 	if resp.StatusCode >= 400 {

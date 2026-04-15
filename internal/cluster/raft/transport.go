@@ -253,7 +253,7 @@ func serveRPC(ln net.Listener, handler RPCHandler) error {
 }
 
 func handleRPCConn(conn net.Conn, handler RPCHandler) {
-	defer conn.Close()
+	defer func() { _ = conn.Close() }()
 	decoder := json.NewDecoder(conn)
 	for {
 		var msg rpcMessage
