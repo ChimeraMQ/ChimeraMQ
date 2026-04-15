@@ -477,6 +477,9 @@ func TestFullMigrationPipeline(t *testing.T) {
 	// Phase 2: Warm → Cold (may be no-op if no L1+ SSTables, that's OK)
 	m.migrateWarmToCold()
 
+	// Give background compaction time to settle before reading
+	time.Sleep(100 * time.Millisecond)
+
 	found := 0
 	for i := uint64(0); i < 50; i++ {
 		data, err := m.Read("pipeline-test", 0, i)
