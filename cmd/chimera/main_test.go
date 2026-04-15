@@ -13,7 +13,8 @@ import (
 
 func TestMain(m *testing.M) {
 	// Set temp data dir for all tests to avoid /var/lib/chimera permission issues
-	os.Setenv("CHIMERA_DATA_DIR", m.TempDir())
+	tmpDir, _ := os.MkdirTemp("", "chimera-test-*")
+	os.Setenv("CHIMERA_DATA_DIR", tmpDir)
 	os.Exit(m.Run())
 }
 
