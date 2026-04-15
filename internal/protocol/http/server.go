@@ -431,6 +431,24 @@ func (s *AdminServer) auth(next http.HandlerFunc) http.HandlerFunc {
 // identityKey is the context key for storing auth identity.
 type identityKey struct{}
 
+// identityFromContext extracts the authenticated identity from a request context.
+func identityFromContext(r *http.Request) *auth.Identity {
+	if ident, ok := r.Context().Value(identityKey{}).(*auth.Identity); ok {
+		return ident
+	}
+	return nil
+}
+
+// hasClusterAdminRole returns true if identity has a cluster-admin role.
+func hasClusterAdminRole(ident *auth.Identity) bool {
+	for _, role := range ident.Roles {
+		if role == "admin" || role == "cluster-admin" {
+			return true
+		}
+	}
+	return false
+}
+
 // methodToOp maps HTTP methods to auth operations.
 func methodToOp(method string) auth.Operation {
 	switch method {
@@ -1090,6 +1108,13 @@ func (s *AdminServer) handleGetConsumer(w http.ResponseWriter, r *http.Request) 
 	}
 
 	group := r.PathValue("group")
+
+	// Tenant isolation: only the owner or a cluster admin can inspect consumer groups
+	if ident := identityFromContext(r); ident != nil && ident.TenantID != "" && !hasClusterAdminRole(ident) {
+		writeError(w, http.StatusForbidden, "tenant cannot access other tenant's consumer groups")
+		return
+	}
+
 	cg := s.broker.StreamEngine().GetGroup(group)
 	if cg == nil {
 		writeError(w, http.StatusNotFound, "consumer group not found")
@@ -2057,6 +2082,13 @@ func (s *AdminServer) handleUpdateTenantQuotas(w http.ResponseWriter, r *http.Re
 	t := tm.GetTenantByID(id)
 	if t == nil {
 		writeError(w, http.StatusNotFound, "tenant not found")
+		return
+	}
+
+	// Tenant isolation: only the tenant itself or a cluster-scoped admin can modify quotas
+	ident := identityFromContext(r)
+	if ident != nil && ident.TenantID != id && !hasClusterAdminRole(ident) {
+		writeError(w, http.StatusForbidden, "cannot modify another tenant's quotas")
 		return
 	}
 

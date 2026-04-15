@@ -4,11 +4,12 @@ import "context"
 
 // Identity represents an authenticated user or service.
 type Identity struct {
-	UserID string
-	Roles  []string
-	Groups []string
-	Source string            // "static", "file", "oauth", "ldap", "mtls"
-	Claims map[string]string // additional claims (e.g., from JWT)
+	UserID   string
+	TenantID string // tenant this identity belongs to; empty = no tenant restriction
+	Roles    []string
+	Groups   []string
+	Source   string            // "static", "file", "oauth", "ldap", "mtls"
+	Claims   map[string]string // additional claims (e.g., from JWT)
 }
 
 // Credentials holds the authentication credentials presented by a client.
