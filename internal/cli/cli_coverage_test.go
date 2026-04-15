@@ -355,7 +355,7 @@ func TestRunWASMRemoveHTTPErrorSubprocess(t *testing.T) {
 	}
 
 	cmd := exec.Command(os.Args[0], "-test.run=TestRunWASMRemoveHTTPErrorSubprocess", "-test.v")
-	cmd.Env = append(os.Environ(), "TEST_WASM_REMOVE_HTTP_SUB=1", "CHIMERA_ADMIN_ADDR=http://127.0.0.1:1")
+	cmd.Env = append(os.Environ(), "TEST_WASM_REMOVE_HTTP_SUB=1", "CHIMERA_ADMIN_ADDR=http://127.0.0.1:0")
 	err := cmd.Run()
 	if err == nil {
 		t.Fatal("expected exit error for HTTP failure")
@@ -523,7 +523,7 @@ func TestRunProduceCLIHTTPErrorSubprocess(t *testing.T) {
 	}
 
 	cmd := exec.Command(os.Args[0], "-test.run=TestRunProduceCLIHTTPErrorSubprocess", "-test.v")
-	cmd.Env = append(os.Environ(), "TEST_PRODUCE_HTTP_SUB=1", "CHIMERA_ADMIN_ADDR=http://127.0.0.1:1")
+	cmd.Env = append(os.Environ(), "TEST_PRODUCE_HTTP_SUB=1", "CHIMERA_ADMIN_ADDR=http://127.0.0.1:0")
 	err := cmd.Run()
 	if err == nil {
 		t.Fatal("expected exit error for HTTP failure")
@@ -556,7 +556,7 @@ func TestRunConsumeCLIHTTPErrorSubprocess(t *testing.T) {
 	}
 
 	cmd := exec.Command(os.Args[0], "-test.run=TestRunConsumeCLIHTTPErrorSubprocess", "-test.v")
-	cmd.Env = append(os.Environ(), "TEST_CONSUME_HTTP_SUB=1", "CHIMERA_ADMIN_ADDR=http://127.0.0.1:1")
+	cmd.Env = append(os.Environ(), "TEST_CONSUME_HTTP_SUB=1", "CHIMERA_ADMIN_ADDR=http://127.0.0.1:0")
 	err := cmd.Run()
 	if err == nil {
 		t.Fatal("expected exit error for HTTP failure")
@@ -736,7 +736,7 @@ func TestRunWASMListHTTPErrorSubprocess(t *testing.T) {
 	}
 
 	cmd := exec.Command(os.Args[0], "-test.run=TestRunWASMListHTTPErrorSubprocess", "-test.v")
-	cmd.Env = append(os.Environ(), "TEST_WASM_LIST_HTTP_SUB=1", "CHIMERA_ADMIN_ADDR=http://127.0.0.1:1")
+	cmd.Env = append(os.Environ(), "TEST_WASM_LIST_HTTP_SUB=1", "CHIMERA_ADMIN_ADDR=http://127.0.0.1:0")
 	err := cmd.Run()
 	if err == nil {
 		t.Fatal("expected exit error for HTTP failure")
@@ -839,7 +839,7 @@ func TestRunClusterCLIStatusHTTPErrorSubprocess(t *testing.T) {
 	}
 
 	cmd := exec.Command(os.Args[0], "-test.run=TestRunClusterCLIStatusHTTPErrorSubprocess", "-test.v")
-	cmd.Env = append(os.Environ(), "TEST_CLUSTER_STATUS_HTTP_SUB=1", "CHIMERA_ADMIN_ADDR=http://127.0.0.1:1")
+	cmd.Env = append(os.Environ(), "TEST_CLUSTER_STATUS_HTTP_SUB=1", "CHIMERA_ADMIN_ADDR=http://127.0.0.1:0")
 	err := cmd.Run()
 	if err == nil {
 		t.Fatal("expected exit error for HTTP failure")
@@ -856,7 +856,7 @@ func TestRunClusterCLIMembersHTTPErrorSubprocess(t *testing.T) {
 	}
 
 	cmd := exec.Command(os.Args[0], "-test.run=TestRunClusterCLIMembersHTTPErrorSubprocess", "-test.v")
-	cmd.Env = append(os.Environ(), "TEST_CLUSTER_MEMBERS_HTTP_SUB=1", "CHIMERA_ADMIN_ADDR=http://127.0.0.1:1")
+	cmd.Env = append(os.Environ(), "TEST_CLUSTER_MEMBERS_HTTP_SUB=1", "CHIMERA_ADMIN_ADDR=http://127.0.0.1:0")
 	err := cmd.Run()
 	if err == nil {
 		t.Fatal("expected exit error for HTTP failure")
@@ -904,7 +904,7 @@ func TestRunTopicCLICreateHTTPErrorSubprocess(t *testing.T) {
 	}
 
 	cmd := exec.Command(os.Args[0], "-test.run=TestRunTopicCLICreateHTTPErrorSubprocess", "-test.v")
-	cmd.Env = append(os.Environ(), "TEST_TOPIC_CREATE_HTTP_SUB=1", "CHIMERA_ADMIN_ADDR=http://127.0.0.1:1")
+	cmd.Env = append(os.Environ(), "TEST_TOPIC_CREATE_HTTP_SUB=1", "CHIMERA_ADMIN_ADDR=http://127.0.0.1:0")
 	err := cmd.Run()
 	if err == nil {
 		t.Fatal("expected exit error for HTTP failure")
@@ -921,7 +921,7 @@ func TestRunTopicCLIDescribeHTTPErrorSubprocess(t *testing.T) {
 	}
 
 	cmd := exec.Command(os.Args[0], "-test.run=TestRunTopicCLIDescribeHTTPErrorSubprocess", "-test.v")
-	cmd.Env = append(os.Environ(), "TEST_TOPIC_DESCRIBE_HTTP_SUB=1", "CHIMERA_ADMIN_ADDR=http://127.0.0.1:1")
+	cmd.Env = append(os.Environ(), "TEST_TOPIC_DESCRIBE_HTTP_SUB=1", "CHIMERA_ADMIN_ADDR=http://127.0.0.1:0")
 	err := cmd.Run()
 	if err == nil {
 		t.Fatal("expected exit error for HTTP failure")
@@ -938,7 +938,7 @@ func TestRunTopicCLIDeleteHTTPErrorSubprocess(t *testing.T) {
 	}
 
 	cmd := exec.Command(os.Args[0], "-test.run=TestRunTopicCLIDeleteHTTPErrorSubprocess", "-test.v")
-	cmd.Env = append(os.Environ(), "TEST_TOPIC_DELETE_HTTP_SUB=1", "CHIMERA_ADMIN_ADDR=http://127.0.0.1:1")
+	cmd.Env = append(os.Environ(), "TEST_TOPIC_DELETE_HTTP_SUB=1", "CHIMERA_ADMIN_ADDR=http://127.0.0.1:0")
 	err := cmd.Run()
 	if err == nil {
 		t.Fatal("expected exit error for HTTP failure")
@@ -980,7 +980,7 @@ func TestRunConsumeCLIFollowSubprocess(t *testing.T) {
 	}
 
 	cmd := exec.Command(os.Args[0], "-test.run=TestRunConsumeCLIFollowSubprocess", "-test.v")
-	cmd.Env = append(os.Environ(), "TEST_CONSUME_FOLLOW_SUB=1", "CHIMERA_ADMIN_ADDR=http://127.0.0.1:1")
+	cmd.Env = append(os.Environ(), "TEST_CONSUME_FOLLOW_SUB=1", "CHIMERA_ADMIN_ADDR=http://127.0.0.1:0")
 	// It will retry indefinitely in follow mode with HTTP errors.
 	// We need to kill it after a short delay.
 	err := cmd.Start()
