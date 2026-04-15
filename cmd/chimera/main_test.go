@@ -343,7 +343,7 @@ func TestMainMCPServerServeSubprocess(t *testing.T) {
 		return
 	}
 	cmd := exec.Command(os.Args[0], "-test.run=TestMainMCPServerServeSubprocess", "-test.v")
-	cmd.Env = append(os.Environ(), "TEST_MAIN_MCP_SERVE=1")
+	cmd.Env = append(os.Environ(), "TEST_MAIN_MCP_SERVE=1", "CHIMERA_DATA_DIR="+t.TempDir())
 	output, err := cmd.CombinedOutput()
 	if err != nil {
 		t.Fatalf("mcp-server failed: %v\noutput: %s", err, string(output))
