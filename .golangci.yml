@@ -107,6 +107,21 @@ linters:
         linters:
           - errcheck
         text: "resp\\.Body\\.Close.*is not checked"
+      # Broker cleanup
+      - path: internal/broker
+        linters:
+          - errcheck
+        text: "os\\.Remove.*is not checked"
+      # Engine cleanup
+      - path: internal/engine
+        linters:
+          - errcheck
+        text: "\\.Close.*is not checked"
+      # UI cleanup
+      - path: internal/ui
+        linters:
+          - errcheck
+        text: "\\.Close.*is not checked"
   settings:
     errcheck:
       check-type-assertions: false
