@@ -23,30 +23,30 @@ type Manager struct {
 
 // ClusterConfig holds cluster configuration from the broker.
 type ClusterConfig struct {
-	NodeID            string
-	DataDir           string
-	Peers             []string
-	ElectionTimeout   time.Duration
-	HeartbeatInterval time.Duration
-	SnapshotInterval  time.Duration
-	MaxLogEntries     int
-	RaftTLSEnabled    bool
-	RaftCertFile      string
-	RaftKeyFile       string
-	RaftCAFile        string
-	GossipBindPort    int
-	GossipSeeds       []string
-	GossipHMACKey     []byte
+	NodeID             string
+	DataDir            string
+	Peers              []string
+	ElectionTimeout    time.Duration
+	HeartbeatInterval  time.Duration
+	SnapshotInterval   time.Duration
+	MaxLogEntries      int
+	RaftTLSEnabled     bool
+	RaftCertFile       string
+	RaftKeyFile        string
+	RaftCAFile         string
+	GossipBindPort     int
+	GossipSeeds        []string
+	GossipHMACKey      []byte
 	GossipAllowedNodes []string // expected node IDs; if set, only listed nodes may join
-	ProbeInterval     time.Duration
-	ProbeTimeout      time.Duration
-	IndirectNodes     int
-	SuspicionTimeout  time.Duration
-	ReplicationFactor int
-	MinISR            int
-	AckPolicy         string
-	SyncMode          string
-	MaxLag            int64
+	ProbeInterval      time.Duration
+	ProbeTimeout       time.Duration
+	IndirectNodes      int
+	SuspicionTimeout   time.Duration
+	ReplicationFactor  int
+	MinISR             int
+	AckPolicy          string
+	SyncMode           string
+	MaxLag             int64
 }
 
 // NewManager creates a new cluster manager.

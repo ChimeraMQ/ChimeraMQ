@@ -139,20 +139,6 @@ func decodePublish(data []byte) PublishPayload {
 	return p
 }
 
-// encodePublishSerial serializes a PublishPayload to wire format (same as decodePublish expects).
-func encodePublishSerial(p PublishPayload) []byte {
-	var buf []byte
-	buf = appendUint16(buf, uint16(len(p.Topic)))
-	buf = append(buf, p.Topic...)
-	buf = appendUint16(buf, uint16(len(p.RoutingKey)))
-	buf = append(buf, p.RoutingKey...)
-	buf = append(buf, p.Priority)
-	buf = appendUint64(buf, uint64(p.TTL))
-	buf = appendUint64(buf, uint64(p.DeliverAt))
-	buf = append(buf, p.Body...)
-	return buf
-}
-
 // decodeBatchPublish decodes a batch publish request.
 // Wire format: [count:uint32] [for each: PublishPayload in serial format]
 func decodeBatchPublish(data []byte) BatchPublishBatch {

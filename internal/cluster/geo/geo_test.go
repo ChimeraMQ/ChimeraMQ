@@ -378,7 +378,7 @@ func TestManagerReplicateStopped(t *testing.T) {
 	m.replicas["dc1"] = &Replica{
 		cfg:     RemoteDCConfig{ID: "dc1"},
 		client:  &Client{},
-		buffer:  make(chan *ReplicationEvent, 0), // size 0 so send blocks
+		buffer:  make(chan *ReplicationEvent), // size 0 so send blocks
 		stopCh:  make(chan struct{}),
 		lagInfo: make(map[string]*LagInfo),
 	}
@@ -531,8 +531,8 @@ func TestManagerReplicateTopicFiltering(t *testing.T) {
 	defer srv.Close()
 
 	cfg := Config{
-		Enabled:   true,
-		BatchSize: 1,
+		Enabled:       true,
+		BatchSize:     1,
 		FlushInterval: 50 * time.Millisecond,
 		RemoteDCs: []RemoteDCConfig{
 			{
@@ -669,10 +669,10 @@ func TestSendBatchWithRetry_AllFail(t *testing.T) {
 		t.Fatal(err)
 	}
 	replica := &Replica{
-		cfg:     cfg,
-		client:  client,
-		buffer:  make(chan *ReplicationEvent, 100),
-		stopCh:  make(chan struct{}),
+		cfg:    cfg,
+		client: client,
+		buffer: make(chan *ReplicationEvent, 100),
+		stopCh: make(chan struct{}),
 		lagInfo: map[string]*LagInfo{
 			"t1/0": {DC: "dc1", Topic: "t1", Partition: 0},
 		},
@@ -744,8 +744,8 @@ func TestReplicationSyncMode(t *testing.T) {
 func TestManagerStats(t *testing.T) {
 	m := NewManager(Config{Enabled: true})
 	replica := &Replica{
-		cfg:    RemoteDCConfig{ID: "dc1"},
-		stopCh: make(chan struct{}),
+		cfg:     RemoteDCConfig{ID: "dc1"},
+		stopCh:  make(chan struct{}),
 		lagInfo: make(map[string]*LagInfo),
 	}
 	replica.eventsSent.Store(42)
@@ -764,7 +764,7 @@ func TestManagerStats(t *testing.T) {
 func TestManagerLagInfos(t *testing.T) {
 	m := NewManager(Config{Enabled: true})
 	m.replicas["dc1"] = &Replica{
-		cfg:  RemoteDCConfig{ID: "dc1"},
+		cfg:    RemoteDCConfig{ID: "dc1"},
 		stopCh: make(chan struct{}),
 		lagInfo: map[string]*LagInfo{
 			"t1/0": {DC: "dc1", Topic: "t1", Partition: 0, RemoteOffset: 100},

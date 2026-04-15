@@ -192,8 +192,8 @@ func TestParseCondition(t *testing.T) {
 
 	// Composite AND condition
 	cond = parseCondition(map[string]interface{}{
-		"reason":         "timeout",
-		"min_retries":    float64(2),
+		"reason":           "timeout",
+		"min_retries":      float64(2),
 		"payload_contains": "err",
 	})
 	entry = &dlq.DLQEntry{Reason: "timeout", Retries: 3, OriginalMsg: &message.Envelope{Payload: []byte("error")}}

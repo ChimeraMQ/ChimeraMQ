@@ -37,13 +37,13 @@ type Migrator struct {
 
 // ColdManager manages cold archive files.
 type ColdManager struct {
-	mu            sync.RWMutex
-	dir           string
-	archives      map[string]*cold.ColdArchive
-	archiveCount  int
-	trainer       *cold.ZstdDictTrainer
-	compressor    *cold.DictCompressor
-	compressorMu  sync.RWMutex
+	mu           sync.RWMutex
+	dir          string
+	archives     map[string]*cold.ColdArchive
+	archiveCount int
+	trainer      *cold.ZstdDictTrainer
+	compressor   *cold.DictCompressor
+	compressorMu sync.RWMutex
 }
 
 // NewColdManager creates a cold archive manager.

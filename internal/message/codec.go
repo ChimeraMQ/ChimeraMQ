@@ -9,7 +9,7 @@ import (
 var bufferPool = sync.Pool{
 	New: func() any {
 		buf := make([]byte, 0, 16384) // 16KB — handles most real-world messages
-		return buf
+		return &buf
 	},
 }
 
@@ -43,7 +43,8 @@ func Marshal(e *Envelope) ([]byte, error) {
 		return nil, fmt.Errorf("message too large: %d bytes (max %d)", size, MaxMessageSize)
 	}
 
-	buf := bufferPool.Get().([]byte)
+	bufPtr := bufferPool.Get().(*[]byte)
+	buf := *bufPtr
 	if cap(buf) < size {
 		buf = make([]byte, size)
 	} else {
@@ -159,7 +160,7 @@ func Marshal(e *Envelope) ([]byte, error) {
 
 // ReleaseBuffer returns a buffer to the pool for reuse.
 func ReleaseBuffer(buf []byte) {
-	bufferPool.Put(buf)
+	bufferPool.Put(&buf)
 }
 
 // Unmarshal deserializes binary data into an Envelope.

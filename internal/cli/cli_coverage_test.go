@@ -162,7 +162,7 @@ func TestRunProduceCLIMultipleMessages(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		callCount++
 		w.WriteHeader(http.StatusOK)
-		fmt.Fprint(w, fmt.Sprintf(`{"partition":0,"offset":%d}`, callCount))
+		fmt.Fprintf(w, `{"partition":0,"offset":%d}`, callCount)
 	}))
 	defer server.Close()
 

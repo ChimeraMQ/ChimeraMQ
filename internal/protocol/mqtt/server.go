@@ -398,7 +398,7 @@ func (s *Server) handleAuth(writer *bufio.Writer, session *Session, pkt *Packet)
 	authPkt, err := ParseAuth(pkt)
 	if err != nil {
 		// Send AUTH with error reason code
-		writer.Write(BuildAuth(0x80, "", nil)) // 0x80 = Unspecified error
+		_, _ = writer.Write(BuildAuth(0x80, "", nil)) // 0x80 = Unspecified error
 		writer.Flush()
 		return
 	}
@@ -406,7 +406,7 @@ func (s *Server) handleAuth(writer *bufio.Writer, session *Session, pkt *Packet)
 	// Check if this is reauthentication
 	if session.ProtocolLevel() != ProtocolLevel50 {
 		// AUTH only supported in MQTT 5.0
-		writer.Write(BuildAuth(0x8C, "", nil)) // 0x8C = Protocol error
+		_, _ = writer.Write(BuildAuth(0x8C, "", nil)) // 0x8C = Protocol error
 		writer.Flush()
 		return
 	}
@@ -416,21 +416,21 @@ func (s *Server) handleAuth(writer *bufio.Writer, session *Session, pkt *Packet)
 	switch authPkt.ReasonCode {
 	case 0x00: // Continue authentication
 		// Re-authentication success
-		writer.Write(BuildAuth(0x00, "", nil)) // 0x00 = Success
+		_, _ = writer.Write(BuildAuth(0x00, "", nil)) // 0x00 = Success
 	case 0x18: // Re-authentication
 		// Client is re-authenticating
 		// Validate credentials if auth method/data provided
 		if s.broker.Config().Auth.Enabled {
 			// In a full implementation, validate against auth provider
 			// For now, accept re-auth
-			writer.Write(BuildAuth(0x00, "", nil))
+			_, _ = writer.Write(BuildAuth(0x00, "", nil))
 		} else {
 			// Auth disabled, re-auth successful
-			writer.Write(BuildAuth(0x00, "", nil))
+			_, _ = writer.Write(BuildAuth(0x00, "", nil))
 		}
 	default:
 		// Unknown reason code
-		writer.Write(BuildAuth(0x80, "", nil))
+		_, _ = writer.Write(BuildAuth(0x80, "", nil))
 	}
 	writer.Flush()
 }

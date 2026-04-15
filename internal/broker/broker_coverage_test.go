@@ -793,4 +793,3 @@ func TestApplyDynamicConfigFormatUpdate(t *testing.T) {
 		t.Errorf("format = %q, want json", b.Config().Logging.Format)
 	}
 }
-

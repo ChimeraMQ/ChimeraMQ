@@ -1,10 +1,8 @@
-version: "2"
-
 run:
   timeout: 5m
-  go: "1.25"
 
 linters:
+  disable-all: true
   enable:
     - govet
     - errcheck
@@ -14,17 +12,18 @@ linters:
     - ineffassign
     - misspell
     - gofmt
+  exclusions:
+    rules:
+      - path: _test\.go
+        linters:
+          - errcheck
 
-linters-settings:
+settings:
   errcheck:
     check-type-assertions: false
   govet:
     enable-all: false
 
 issues:
-  exclude:
-    - path: _test\.go
-      linters:
-        - errcheck
   max-issues-per-linter: 50
   max-same-issues: 5

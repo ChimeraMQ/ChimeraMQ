@@ -33,12 +33,12 @@ type connEntry struct {
 
 // TCPTransport implements Transport over TCP.
 type TCPTransport struct {
-	mu           sync.RWMutex
-	conns        map[NodeID]*connEntry
-	addrs        map[NodeID]string
-	timeout      time.Duration
-	idleTimeout  time.Duration
-	tlsConfig    *tls.Config
+	mu          sync.RWMutex
+	conns       map[NodeID]*connEntry
+	addrs       map[NodeID]string
+	timeout     time.Duration
+	idleTimeout time.Duration
+	tlsConfig   *tls.Config
 }
 
 // NewTCPTransport creates a new TCP transport.

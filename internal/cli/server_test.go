@@ -457,4 +457,3 @@ func TestRunClusterBenchmark(t *testing.T) {
 		t.Errorf("expected results in output, got: %s", output)
 	}
 }
-

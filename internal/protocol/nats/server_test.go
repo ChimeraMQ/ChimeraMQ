@@ -3,6 +3,7 @@ package nats
 import (
 	"bufio"
 	"bytes"
+	"context"
 	"net"
 	"os"
 	"strings"
@@ -309,7 +310,7 @@ func TestAuthProviderIntegration(t *testing.T) {
 		t.Fatal("expected auth provider")
 	}
 
-	_, err := provider.Authenticate(nil, auth.Credentials{Username: "admin", Password: "secret"})
+	_, err := provider.Authenticate(context.TODO(), auth.Credentials{Username: "admin", Password: "secret"})
 	if err != nil {
 		t.Errorf("expected auth success, got: %v", err)
 	}

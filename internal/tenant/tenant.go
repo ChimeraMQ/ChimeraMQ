@@ -29,7 +29,7 @@ type Tenant struct {
 	Enabled     bool
 
 	// Rate tracking
-	quotaMu      sync.Mutex // protects reset+check atomicity
+	quotaMu      sync.Mutex   // protects reset+check atomicity
 	publishCount atomic.Int64 // current window count
 	fetchCount   atomic.Int64
 	connCount    atomic.Int64

@@ -164,4 +164,3 @@ func TestReplicationTransportAdapterFetchEntries(t *testing.T) {
 		t.Fatal("expected non-nil response")
 	}
 }
-

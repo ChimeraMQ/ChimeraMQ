@@ -30,10 +30,10 @@ import (
 var version = "dev"
 
 const (
-	maxFetchTimeout     = 30 * time.Second
-	maxJSONBodySize     = 10 << 20 // 10 MB default max JSON body size
-	maxListLimit        = 1000     // maximum items returned per list request
-	defaultListLimit    = 100      // default items returned per list request
+	maxFetchTimeout  = 30 * time.Second
+	maxJSONBodySize  = 10 << 20 // 10 MB default max JSON body size
+	maxListLimit     = 1000     // maximum items returned per list request
+	defaultListLimit = 100      // default items returned per list request
 )
 
 // parsePagination extracts limit/offset from query params with sane defaults.
@@ -831,13 +831,13 @@ func (s *AdminServer) handleHealth(w http.ResponseWriter, r *http.Request) {
 	}
 
 	resp := map[string]interface{}{
-		"status":      status,
-		"node_id":     s.broker.Config().Node.ID,
-		"name":        s.broker.Config().Node.Name,
-		"version":     version,
-		"uptime":      time.Since(s.broker.StartTime()).String(),
-		"drain_mode":  s.broker.IsDrainMode(),
-		"fips":        s.broker.IsFIPSEnabled(),
+		"status":     status,
+		"node_id":    s.broker.Config().Node.ID,
+		"name":       s.broker.Config().Node.Name,
+		"version":    version,
+		"uptime":     time.Since(s.broker.StartTime()).String(),
+		"drain_mode": s.broker.IsDrainMode(),
+		"fips":       s.broker.IsFIPSEnabled(),
 	}
 
 	// Raft state (if clustered)
@@ -1849,8 +1849,8 @@ func (s *AdminServer) handleGeoStatus(w http.ResponseWriter, r *http.Request) {
 		"mode":       s.broker.Config().GeoReplication.ReplicationMode,
 		"remote_dcs": len(s.broker.Config().GeoReplication.RemoteDCs),
 		"sender": map[string]interface{}{
-			"events_sent":    replicated,
-			"events_failed":  failed,
+			"events_sent":   replicated,
+			"events_failed": failed,
 		},
 		"receiver": map[string]interface{}{
 			"events_received": received,

@@ -193,5 +193,3 @@ func TestRestoreBackupNonExistentFile(t *testing.T) {
 		t.Error("expected error for non-existent backup file")
 	}
 }
-
-

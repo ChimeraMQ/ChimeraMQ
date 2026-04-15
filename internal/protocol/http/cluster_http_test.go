@@ -1,9 +1,9 @@
 package http
 
 import (
+	"net/http"
 	"os"
 	"testing"
-	"net/http"
 
 	"github.com/chimeramq/chimera/internal/broker"
 )

@@ -232,12 +232,12 @@ type NodeConfig struct {
 
 // ListenerConfig controls network listeners.
 type ListenerConfig struct {
-	Bind            string `yaml:"bind"`
-	Port            int    `yaml:"port"`
-	AdminPort       int    `yaml:"admin_port"`
-	GRPCPort        int    `yaml:"grpc_port"`
-	GeoPort         int    `yaml:"geo_port"`
-	MaxConnections  int    `yaml:"max_connections"`
+	Bind             string `yaml:"bind"`
+	Port             int    `yaml:"port"`
+	AdminPort        int    `yaml:"admin_port"`
+	GRPCPort         int    `yaml:"grpc_port"`
+	GeoPort          int    `yaml:"geo_port"`
+	MaxConnections   int    `yaml:"max_connections"`
 	TrustedProxyCIDR string `yaml:"trusted_proxy_cidr"` // CIDR range of trusted proxies; empty = no proxy trust
 }
 
@@ -339,7 +339,7 @@ type ObservabilityConfig struct {
 
 // PProfConfig controls profiling endpoints.
 type PProfConfig struct {
-	Enabled        bool `yaml:"enabled"`
+	Enabled         bool `yaml:"enabled"`
 	AllowProduction bool `yaml:"allow_production"` // must be true when auth is disabled
 }
 
@@ -420,12 +420,12 @@ type GeoReplicationConfig struct {
 
 // GeoRemoteDCConfig represents a remote datacenter configuration.
 type GeoRemoteDCConfig struct {
-	ID            string    `yaml:"id"`
-	Name          string    `yaml:"name"`
-	Address       string    `yaml:"address"`
-	Region        string    `yaml:"region"`
-	Topics        []string  `yaml:"topics"`
-	ExcludeTopics []string  `yaml:"exclude_topics"`
+	ID            string        `yaml:"id"`
+	Name          string        `yaml:"name"`
+	Address       string        `yaml:"address"`
+	Region        string        `yaml:"region"`
+	Topics        []string      `yaml:"topics"`
+	ExcludeTopics []string      `yaml:"exclude_topics"`
 	TLS           GeoTLSConfig  `yaml:"tls"`
 	Auth          GeoAuthConfig `yaml:"auth"`
 }

@@ -20,7 +20,7 @@ import (
 // --- mtls.go: genuinely nil context (extra_test uses context.TODO) ---
 
 func TestPeerCertsFromContextTrulyNil(t *testing.T) {
-	certs := PeerCertsFromContext(nil)
+	certs := PeerCertsFromContext(context.TODO()) //nolint:staticcheck // testing nil context behavior
 	if certs != nil {
 		t.Error("expected nil for truly nil context")
 	}
