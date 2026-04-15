@@ -48,7 +48,7 @@ func (h *HandoffManager) Start() error {
 // Stop stops the handoff manager.
 func (h *HandoffManager) Stop() {
 	if h.listener != nil {
-		h.listener.Close()
+		_ = h.listener.Close()
 	}
 	_ = os.Remove(h.handoffSock)
 }
@@ -71,7 +71,7 @@ func (h *HandoffManager) run() {
 
 // handleHandoffRequest processes a handoff request from the new version.
 func (h *HandoffManager) handleHandoffRequest(conn net.Conn) {
-	defer conn.Close()
+	defer func() { _ = conn.Close() }()
 
 	// Read command (exactly 4 bytes)
 	buf := make([]byte, 4)
@@ -120,7 +120,7 @@ func (h *HandoffManager) DrainConnections() error {
 
 	// Stop the main listener
 	if h.b.mainListener != nil {
-		h.b.mainListener.Close()
+		_ = h.b.mainListener.Close()
 	}
 
 	// Wait for active connections with timeout

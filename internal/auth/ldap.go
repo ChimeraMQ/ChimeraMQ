@@ -141,7 +141,7 @@ func (p *LDAPProvider) dial() (*ldap.Conn, error) {
 			MinVersion:         tls.VersionTLS12,
 			InsecureSkipVerify: false,
 		}); err != nil {
-			conn.Close()
+			_ = conn.Close()
 			return nil, fmt.Errorf("ldap StartTLS: %w", err)
 		}
 	}

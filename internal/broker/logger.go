@@ -87,7 +87,7 @@ func (l *Logger) rotate() error {
 // doRotate performs the actual rotation.
 func (l *Logger) doRotate() error {
 	// Close current file
-	l.file.Close()
+	_ = l.file.Close()
 
 	// Rename with timestamp
 	timestamp := time.Now().Format("20060102-150405")

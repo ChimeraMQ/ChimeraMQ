@@ -62,7 +62,7 @@ func (s *Server) Stop() {
 }
 
 func (s *Server) handleConnection(conn net.Conn) {
-	defer conn.Close()
+	defer func() { _ = conn.Close() }()
 
 	reader := bufio.NewReaderSize(conn, 64*1024)
 	writer := bufio.NewWriterSize(conn, 64*1024)
@@ -89,7 +89,7 @@ func (s *Server) handleConnection(conn net.Conn) {
 			clientIP := auth.ExtractIP(conn)
 			if !lim.IsAllowed(clientIP) {
 				s.writePacket(writer, PacketConnAck, 0, BuildConnAck(false, ConnAckBadCredentials))
-				writer.Flush()
+				_ = writer.Flush()
 				return
 			}
 		}
@@ -100,7 +100,7 @@ func (s *Server) handleConnection(conn net.Conn) {
 				lim.RecordFailed(auth.ExtractIP(conn))
 			}
 			s.writePacket(writer, PacketConnAck, 0, BuildConnAck(false, ConnAckBadCredentials))
-			writer.Flush()
+			_ = writer.Flush()
 			return
 		}
 		if lim := s.broker.AuthLimiter(); lim != nil {
@@ -116,7 +116,7 @@ func (s *Server) handleConnection(conn net.Conn) {
 			clientID = fmt.Sprintf("mqtt-auto-%d", time.Now().UnixNano())
 		} else {
 			s.writePacket(writer, PacketConnAck, 0, BuildConnAck(false, ConnAckBadClientID))
-			writer.Flush()
+			_ = writer.Flush()
 			return
 		}
 	}
@@ -183,7 +183,7 @@ func (s *Server) handleConnection(conn net.Conn) {
 			if s.broker.Config().Auth.Enabled {
 				if identity, ok := s.authenticate(newConnect.Username, newConnect.Password); !ok {
 					s.writePacket(writer, PacketConnAck, 0, BuildConnAck(false, ConnAckBadCredentials))
-					writer.Flush()
+					_ = writer.Flush()
 					return
 				} else {
 					session.identity = identity
@@ -205,7 +205,7 @@ func (s *Server) handleConnection(conn net.Conn) {
 				session.SetInflightState(pid, statePubRel)
 				// Send PUBREL
 				s.writePacket(writer, PacketPubRel, 0x02, []byte{pkt.Remaining[0], pkt.Remaining[1]})
-				writer.Flush()
+				_ = writer.Flush()
 			}
 
 		case PacketPubRel:
@@ -214,7 +214,7 @@ func (s *Server) handleConnection(conn net.Conn) {
 				session.AckInflight(pid)
 				// Send PUBCOMP
 				s.writePacket(writer, PacketPubComp, 0, []byte{pkt.Remaining[0], pkt.Remaining[1]})
-				writer.Flush()
+				_ = writer.Flush()
 			}
 
 		case PacketPubComp:
@@ -231,7 +231,7 @@ func (s *Server) handleConnection(conn net.Conn) {
 
 		case PacketPingReq:
 			s.writePacket(writer, PacketPingResp, 0, nil)
-			writer.Flush()
+			_ = writer.Flush()
 
 		case PacketDisconnect:
 			// Graceful disconnect — clear will
@@ -283,7 +283,7 @@ func (s *Server) handlePublish(writer *bufio.Writer, session *Session, pkt *Pack
 	case QoS1:
 		if pub.PacketID != 0 {
 			s.writePacket(writer, PacketPubAck, 0, BuildPubAck(pub.PacketID))
-			writer.Flush()
+			_ = writer.Flush()
 		}
 	case QoS2:
 		if pub.PacketID != 0 {
@@ -294,7 +294,7 @@ func (s *Server) handlePublish(writer *bufio.Writer, session *Session, pkt *Pack
 			pid[0] = byte(pub.PacketID >> 8)
 			pid[1] = byte(pub.PacketID)
 			s.writePacket(writer, PacketPubRec, 0, pid)
-			writer.Flush()
+			_ = writer.Flush()
 		}
 	}
 
@@ -344,7 +344,7 @@ func (s *Server) handleSubscribe(writer *bufio.Writer, session *Session, pkt *Pa
 	}
 
 	s.writePacket(writer, PacketSubAck, 0, BuildSubAck(sub.PacketID, returnCodes))
-	writer.Flush()
+	_ = writer.Flush()
 }
 
 func (s *Server) handleUnsubscribe(writer *bufio.Writer, session *Session, pkt *Packet) {
@@ -358,7 +358,7 @@ func (s *Server) handleUnsubscribe(writer *bufio.Writer, session *Session, pkt *
 	}
 
 	s.writePacket(writer, PacketUnsubAck, 0, BuildUnsubAck(packetID))
-	writer.Flush()
+	_ = writer.Flush()
 }
 
 func (s *Server) publishWill(will *willMessage) {
@@ -399,7 +399,7 @@ func (s *Server) handleAuth(writer *bufio.Writer, session *Session, pkt *Packet)
 	if err != nil {
 		// Send AUTH with error reason code
 		_, _ = writer.Write(BuildAuth(0x80, "", nil)) // 0x80 = Unspecified error
-		writer.Flush()
+		_ = writer.Flush()
 		return
 	}
 
@@ -407,7 +407,7 @@ func (s *Server) handleAuth(writer *bufio.Writer, session *Session, pkt *Packet)
 	if session.ProtocolLevel() != ProtocolLevel50 {
 		// AUTH only supported in MQTT 5.0
 		_, _ = writer.Write(BuildAuth(0x8C, "", nil)) // 0x8C = Protocol error
-		writer.Flush()
+		_ = writer.Flush()
 		return
 	}
 
@@ -432,5 +432,5 @@ func (s *Server) handleAuth(writer *bufio.Writer, session *Session, pkt *Packet)
 		// Unknown reason code
 		_, _ = writer.Write(BuildAuth(0x80, "", nil))
 	}
-	writer.Flush()
+	_ = writer.Flush()
 }
