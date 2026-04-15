@@ -247,7 +247,7 @@ func (p *OAuthProvider) refreshKeys() error {
 	if err != nil {
 		return fmt.Errorf("discovery: %w", err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	if resp.StatusCode != http.StatusOK {
 		return fmt.Errorf("discovery returned %d", resp.StatusCode)
@@ -267,7 +267,7 @@ func (p *OAuthProvider) refreshKeys() error {
 	if err != nil {
 		return fmt.Errorf("jwks fetch: %w", err)
 	}
-	defer jwksResp.Body.Close()
+	defer func() { _ = jwksResp.Body.Close() }()
 
 	var jwks jwksResponse
 	if err := json.NewDecoder(jwksResp.Body).Decode(&jwks); err != nil {

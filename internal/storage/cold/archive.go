@@ -213,7 +213,7 @@ func CreateColdArchive(path string, sstables []*warm.SSTable, opts ...ColdArchiv
 		_ = file.Close()
 		return nil, fmt.Errorf("write footer: %w", err)
 	}
-	file.Close()
+	_ = file.Close()
 
 	return OpenColdArchive(path)
 }

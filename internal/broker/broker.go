@@ -656,7 +656,7 @@ func (b *Broker) Stop() error {
 
 	// Close schema registry
 	if b.schemaReg != nil {
-		b.schemaReg.Close()
+		_ = b.schemaReg.Close()
 		b.logger.Info("schema registry closed")
 	}
 
@@ -668,7 +668,7 @@ func (b *Broker) Stop() error {
 
 	// Close warm engine
 	if b.warmEngine != nil {
-		b.warmEngine.Close()
+		_ = b.warmEngine.Close()
 		b.logger.Info("warm tier closed")
 	}
 
@@ -690,11 +690,11 @@ func (b *Broker) Stop() error {
 
 	// Checkpoint WAL
 	_ = b.wal.Checkpoint(b.wal.Offset())
-	b.wal.Close()
+	_ = b.wal.Close()
 	b.logger.Info("WAL closed")
 
 	// Close storage
-	b.storage.Close()
+	_ = b.storage.Close()
 	b.logger.Info("storage closed")
 
 	// Shutdown tracer
@@ -706,8 +706,8 @@ func (b *Broker) Stop() error {
 	// Release lock
 	if b.lockFile != nil {
 		lockPath := b.lockFile.Name()
-		b.lockFile.Close()
-		os.Remove(lockPath)
+		_ = b.lockFile.Close()
+		_ = os.Remove(lockPath)
 	}
 
 	b.logger.Info("shutdown complete")

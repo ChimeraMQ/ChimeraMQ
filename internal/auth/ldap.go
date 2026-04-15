@@ -45,7 +45,7 @@ func (p *LDAPProvider) Authenticate(ctx context.Context, creds Credentials) (*Id
 	if err != nil {
 		return nil, fmt.Errorf("ldap dial: %w", err)
 	}
-	defer conn.Close()
+	defer func() { _ = conn.Close() }()
 
 	// Bind as service account to search
 	if err := conn.Bind(p.bindDN, p.bindPass); err != nil {
