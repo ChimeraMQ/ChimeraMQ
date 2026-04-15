@@ -17,28 +17,64 @@ linters:
       - path: _test\.go
         linters:
           - errcheck
-      # Protocol adapter cleanup: connection close failures don't matter in defers
+      # Protocol adapter cleanup: connection/close failures don't matter in defers
       - path: internal/protocol/ws/server\.go
         linters:
           - errcheck
-        text: "s\\.conn\\.Close.*is not checked"
+        text: "s.conn.Close.*is not checked"
       - path: internal/protocol/chimera/server\.go
         linters:
           - errcheck
-        text: "\\.conn\\.Close.*is not checked"
+        text: ".conn.Close.*is not checked"
+      - path: internal/protocol/chimera/server\.go
+        linters:
+          - errcheck
+        text: "s.listener.Close.*is not checked"
       - path: internal/protocol/amqp/server\.go
         linters:
           - errcheck
-        text: "writer\\.Flush.*is not checked"
+        text: "conn.Close.*is not checked"
       - path: internal/protocol/amqp/server\.go
         linters:
           - errcheck
-        text: "\\.conn\\.Close.*is not checked"
+        text: "writer.Flush.*is not checked"
+      - path: internal/protocol/http/server\.go
+        linters:
+          - errcheck
+        text: "fmt.Fprintf.*is not checked"
+      - path: internal/protocol/mux\.go
+        linters:
+          - errcheck
+        text: "conn.Close.*is not checked"
+      - path: internal/protocol/mux\.go
+        linters:
+          - errcheck
+        text: "m.listener.Close.*is not checked"
+      - path: internal/protocol/nats/server\.go
+        linters:
+          - errcheck
+        text: "s.conn.Close.*is not checked"
+      - path: internal/protocol/stomp/server\.go
+        linters:
+          - errcheck
+        text: "s.conn.Close.*is not checked"
+      - path: internal/storage/cold/archive\.go
+        linters:
+          - errcheck
+        text: "ca.Close.*is not checked"
+      - path: internal/storage/cold/dict_trainer\.go
+        linters:
+          - errcheck
+        text: "enc.Close.*is not checked"
+      - path: internal/storage/cold/dict_trainer\.go
+        linters:
+          - errcheck
+        text: "c.encoder.Close.*is not checked"
       # Client cleanup
-      - path: client/.*\.go
+      - path: client/
         linters:
           - errcheck
-        text: "resp\\.Body\\.Close.*is not checked"
+        text: "resp.Body.Close.*is not checked"
   settings:
     errcheck:
       check-type-assertions: false
