@@ -93,11 +93,11 @@ func (c *Client) do(method, path string, body interface{}) (map[string]interface
 	if err != nil {
 		return nil, err
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	data, _ := io.ReadAll(resp.Body)
 	var result map[string]interface{}
-	json.Unmarshal(data, &result)
+	_ = json.Unmarshal(data, &result)
 	return result, nil
 }
 
@@ -126,11 +126,11 @@ func (c *Client) Publish(topic string, payload []byte) (uint64, uint32, error) {
 	if err != nil {
 		return 0, 0, err
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	data, _ := io.ReadAll(resp.Body)
 	var result map[string]interface{}
-	json.Unmarshal(data, &result)
+	_ = json.Unmarshal(data, &result)
 
 	offset, _ := result["offset"].(float64)
 	partition, _ := result["partition"].(float64)
