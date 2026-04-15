@@ -10,6 +10,13 @@ import (
 	"testing"
 )
 
+func TestMain(m *testing.M) {
+	// Set temp data dir for all tests to avoid /var/lib/chimera permission issues
+	tmpDir, _ := os.MkdirTemp("", "chimera-cli-test-*")
+	os.Setenv("CHIMERA_DATA_DIR", tmpDir)
+	os.Exit(m.Run())
+}
+
 func TestGetAdminAddr(t *testing.T) {
 	// Default
 	os.Unsetenv("CHIMERA_ADMIN_ADDR")
