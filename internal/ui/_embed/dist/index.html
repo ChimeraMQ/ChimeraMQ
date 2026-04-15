@@ -1,0 +1,28 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>ChimeraMQ</title>
+    <script>
+      // Flash prevention: apply theme before first paint
+      (function() {
+        try {
+          var theme = localStorage.getItem('chimera-theme');
+          if (!theme || theme === 'system') {
+            var prefersDark = window.matchMedia('(prefers-color-scheme: dark)').matches;
+            document.documentElement.classList.add(prefersDark ? 'dark' : 'light');
+          } else {
+            document.documentElement.classList.add(theme);
+          }
+        } catch(e) {}
+      })();
+    </script>
+    <script type="module" crossorigin src="/assets/index-eiHOlci0.js"></script>
+    <link rel="modulepreload" crossorigin href="/assets/ui-DW76Y0j3.js">
+    <link rel="stylesheet" crossorigin href="/assets/index-XYuwz8zO.css">
+  </head>
+  <body>
+    <div id="root"></div>
+  </body>
+</html>
