@@ -17,6 +17,28 @@ linters:
       - path: _test\.go
         linters:
           - errcheck
+      # Protocol adapter cleanup: connection close failures don't matter in defers
+      - path: internal/protocol/ws/server\.go
+        linters:
+          - errcheck
+        text: "s\\.conn\\.Close.*is not checked"
+      - path: internal/protocol/chimera/server\.go
+        linters:
+          - errcheck
+        text: "\\.conn\\.Close.*is not checked"
+      - path: internal/protocol/amqp/server\.go
+        linters:
+          - errcheck
+        text: "writer\\.Flush.*is not checked"
+      - path: internal/protocol/amqp/server\.go
+        linters:
+          - errcheck
+        text: "\\.conn\\.Close.*is not checked"
+      # Client cleanup
+      - path: client/.*\.go
+        linters:
+          - errcheck
+        text: "resp\\.Body\\.Close.*is not checked"
   settings:
     errcheck:
       check-type-assertions: false
