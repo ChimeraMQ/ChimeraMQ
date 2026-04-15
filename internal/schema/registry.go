@@ -93,7 +93,7 @@ func validateSubjectName(subject string) error {
 	}
 	// Only allow alphanumeric, hyphens, underscores, and dots (but not at start)
 	for _, c := range subject {
-		if c < 'a' || (c > 'z' && c < 'A') || (c > 'Z' && c < '0') || c > '9' && c != '.' && c != '-' && c != '_' {
+		if (c < 'a' || c > 'z') && (c < 'A' || c > 'Z') && (c < '0' || c > '9') && c != '.' && c != '-' && c != '_' {
 			return fmt.Errorf("subject name contains invalid character: %c", c)
 		}
 	}

@@ -127,6 +127,10 @@ linters:
         linters:
           - staticcheck
         text: "QF1012"
+      - path: internal/protocol/nats/protocol\.go
+        linters:
+          - staticcheck
+        text: "QF1012"
       # Test file suggestions
       - path: _test\.go
         linters:

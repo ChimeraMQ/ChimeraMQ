@@ -218,7 +218,7 @@ func validateTopicName(name string) error {
 		return fmt.Errorf("topic name must be 1-255 characters")
 	}
 	for _, c := range name {
-		if c < 'a' || (c > 'z' && c < 'A') || (c > 'Z' && c < '0') || c > '9' && c != '.' && c != '-' && c != '_' {
+		if (c < 'a' || c > 'z') && (c < 'A' || c > 'Z') && (c < '0' || c > '9') && c != '.' && c != '-' && c != '_' {
 			return fmt.Errorf("topic name contains invalid character: %c", c)
 		}
 	}
