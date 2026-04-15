@@ -398,6 +398,7 @@ func TestBrokerStartWithManyFeatures(t *testing.T) {
 	cfg.Node.DataDir = dir
 	cfg.Listener.Port = 0
 	cfg.Listener.AdminPort = 0
+	cfg.Listener.GeoPort = 0 // let OS pick a port to avoid parallel test conflicts
 	cfg.Storage.Encryption.Enabled = true
 	cfg.Storage.Encryption.KeyPath = keyPath
 	cfg.Storage.Warm.Enabled = true
