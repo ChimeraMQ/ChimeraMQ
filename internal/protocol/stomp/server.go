@@ -3,6 +3,7 @@ package stomp
 import (
 	"bufio"
 	"context"
+	"crypto/rand"
 	"fmt"
 	"net"
 	"strconv"
@@ -466,11 +467,15 @@ func (s *Session) authenticate(username, password string) (*auth.Identity, bool)
 }
 
 func generateSessionID() string {
-	return fmt.Sprintf("stomp-%d", time.Now().UnixNano())
+	b := make([]byte, 16)
+	_, _ = rand.Read(b)
+	return fmt.Sprintf("stomp-%x", b)
 }
 
 func generateSubscriptionID() string {
-	return fmt.Sprintf("sub-%d", time.Now().UnixNano())
+	b := make([]byte, 8)
+	_, _ = rand.Read(b)
+	return fmt.Sprintf("sub-%x", b)
 }
 
 // Detector detects STOMP protocol by its CONNECT/STOMP frame.

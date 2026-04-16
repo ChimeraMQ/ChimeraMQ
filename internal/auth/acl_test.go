@@ -89,11 +89,10 @@ func TestACLDenyOverrides(t *testing.T) {
 		t.Error("gooduser should read other topics")
 	}
 
-	// baduser reads "secret": first rule matches (allow on wildcard)
-	// because the wildcard allow comes before the specific deny.
-	// This demonstrates that ACL entry order matters.
-	if !acl.Check(badUser, ResourceTopic, "secret", OpRead) {
-		t.Error("baduser matches wildcard allow first (order matters)")
+	// baduser reads "secret": with deny-wins semantics, the specific deny
+	// entry matches even though the wildcard allow comes first.
+	if acl.Check(badUser, ResourceTopic, "secret", OpRead) {
+		t.Error("baduser should be denied for secret topic (deny-wins)")
 	}
 }
 

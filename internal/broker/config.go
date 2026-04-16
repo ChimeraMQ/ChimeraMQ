@@ -169,25 +169,33 @@ type AuthConfig struct {
 	Tokens   map[string]string `yaml:"tokens"`
 	OAuth    OAuthConfig       `yaml:"oauth,omitempty"`
 	LDAP     LDAPConfig        `yaml:"ldap,omitempty"`
+	MTLS     MTLSConfig        `yaml:"mtls,omitempty"`
 }
 
 // OAuthConfig controls OAuth 2.0 / OIDC authentication.
 type OAuthConfig struct {
-	Issuer       string   `yaml:"issuer"`
-	ClientID     string   `yaml:"client_id"`
-	ClientSecret string   `yaml:"client_secret"`
-	Scopes       []string `yaml:"scopes"`
-	Audience     string   `yaml:"audience"`
+	Issuer        string   `yaml:"issuer"`
+	ClientID      string   `yaml:"client_id"`
+	ClientSecret  string   `yaml:"client_secret"`
+	Scopes        []string `yaml:"scopes"`
+	Audience      string   `yaml:"audience"`
+	RoleAllowlist []string `yaml:"role_allowlist"` // Optional allowlist of roles to grant from JWT claims
 }
 
 // LDAPConfig controls LDAP authentication.
 type LDAPConfig struct {
-	URL          string `yaml:"url"`
-	BindDN       string `yaml:"bind_dn"`
-	BindPassword string `yaml:"bind_password"`
-	BaseDN       string `yaml:"base_dn"`
-	Filter       string `yaml:"filter"`
-	UseTLS       bool   `yaml:"tls"`
+	URL          string   `yaml:"url"`
+	BindDN       string   `yaml:"bind_dn"`
+	BindPassword string   `yaml:"bind_password"`
+	BaseDN       string   `yaml:"base_dn"`
+	Filter       string   `yaml:"filter"`
+	UseTLS       bool     `yaml:"tls"`
+	RoleAllowlist []string `yaml:"role_allowlist"` // Optional allowlist for LDAP role filtering
+}
+
+// MTLSConfig controls mTLS authentication settings.
+type MTLSConfig struct {
+	RoleAllowlist []string `yaml:"role_allowlist"` // Optional allowlist for OU-derived roles
 }
 
 // ACLConfig controls access control lists.

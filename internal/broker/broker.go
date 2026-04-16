@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"syscall"
@@ -167,38 +168,66 @@ func (b *Broker) Start() error {
 			}
 			b.logger.Info("auth enabled (file)", "path", b.config.Auth.AuthFile)
 		case "mtls":
-			b.authProvider = auth.NewMTLSProvider()
+			if len(b.config.Auth.MTLS.RoleAllowlist) > 0 {
+				b.authProvider = auth.NewMTLSProviderWithRoleAllowlist(b.config.Auth.MTLS.RoleAllowlist)
+			} else {
+				b.authProvider = auth.NewMTLSProvider()
+			}
 			b.logger.Info("auth enabled (mtls)")
 		case "oauth":
 			var err error
-			b.authProvider, err = auth.NewOAuthProvider(
+			b.authProvider, err = auth.NewOAuthProviderWithRoleAllowlist(
 				b.config.Auth.OAuth.Issuer,
 				b.config.Auth.OAuth.ClientID,
 				b.config.Auth.OAuth.Audience,
+				b.config.Auth.OAuth.RoleAllowlist,
 			)
 			if err != nil {
 				return fmt.Errorf("oauth provider: %w", err)
 			}
 			b.logger.Info("auth enabled (oauth)", "issuer", b.config.Auth.OAuth.Issuer)
 		case "ldap":
-			b.authProvider = auth.NewLDAPProvider(
-				b.config.Auth.LDAP.URL,
-				b.config.Auth.LDAP.BindDN,
-				b.config.Auth.LDAP.BindPassword,
-				b.config.Auth.LDAP.BaseDN,
-				b.config.Auth.LDAP.Filter,
-				b.config.Auth.LDAP.UseTLS,
-			)
+			var provider *auth.LDAPProvider
+			if len(b.config.Auth.LDAP.RoleAllowlist) > 0 {
+				provider = auth.NewLDAPProviderWithRoleAllowlist(
+					b.config.Auth.LDAP.URL,
+					b.config.Auth.LDAP.BindDN,
+					b.config.Auth.LDAP.BindPassword,
+					b.config.Auth.LDAP.BaseDN,
+					b.config.Auth.LDAP.Filter,
+					b.config.Auth.LDAP.UseTLS,
+					b.config.Auth.LDAP.RoleAllowlist,
+				)
+			} else {
+				provider = auth.NewLDAPProvider(
+					b.config.Auth.LDAP.URL,
+					b.config.Auth.LDAP.BindDN,
+					b.config.Auth.LDAP.BindPassword,
+					b.config.Auth.LDAP.BaseDN,
+					b.config.Auth.LDAP.Filter,
+					b.config.Auth.LDAP.UseTLS,
+				)
+			}
+			b.authProvider = provider
 			b.logger.Info("auth enabled (ldap)", "url", b.config.Auth.LDAP.URL)
+		case "scram":
+			b.authProvider = auth.NewSCRAMProvider()
+			b.logger.Info("auth enabled (scram)")
 		default:
-			b.logger.Info("auth enabled (" + b.config.Auth.Type + ")")
+			b.logger.Error("unknown auth type", "type", b.config.Auth.Type)
+			return fmt.Errorf("unknown auth type: %s", b.config.Auth.Type)
 		}
 		// Initialize brute force protection rate limiter (5 attempts per 15 minutes, 30 minute ban)
 		b.authLimiter = auth.NewAuthRateLimiter(5, 15*time.Minute, 30*time.Minute)
 		b.logger.Info("auth brute force protection enabled", "max_attempts", 5, "window", "15m")
 	} else {
-		b.logger.Warn("SECURITY WARNING: authentication is DISABLED — all connections accepted without credentials. Set auth.enabled: true in your config or CHIMERA_AUTH_ENABLED=true")
-		fmt.Fprintln(os.Stderr, "WARNING: ChimeraMQ is starting with authentication DISABLED. All connections will be accepted without credentials. Set auth.enabled: true in your config or CHIMERA_AUTH_ENABLED=true")
+		// Check if binding to non-loopback address — auth must be enabled for security
+		if addr := b.config.Listener.Bind; addr != "localhost" && addr != "127.0.0.1" && addr != "::1" && !strings.HasPrefix(addr, "localhost:") {
+			b.logger.Error("FATAL: authentication is DISABLED but broker is bound to non-localhost address. Set auth.enabled: true or bind to localhost.")
+			fmt.Fprintln(os.Stderr, "FATAL: ChimeraMQ cannot start with authentication DISABLED on a non-localhost address. Set auth.enabled: true in your config or CHIMERA_AUTH_ENABLED=true or bind to localhost.")
+			return fmt.Errorf("authentication required when binding to non-localhost address: %s", addr)
+		}
+		b.logger.Warn("authentication is DISABLED — all connections accepted without credentials (only acceptable on localhost)")
 	}
 	// Step 2c: ACL Engine (if enabled)
 	if b.config.ACL.Enabled {

@@ -704,24 +704,10 @@ func TestBrokerStartWithLDAPAuth(t *testing.T) {
 	defer b.Stop()
 }
 
-func TestBrokerStartWithUnknownAuth(t *testing.T) {
-	dir := t.TempDir()
-	cfg := defaultConfig()
-	cfg.Node.DataDir = dir
-	cfg.Listener.Port = 0
-	cfg.Listener.AdminPort = 0
-	cfg.Auth.Enabled = true
-	cfg.Auth.Type = "unknown"
-
-	b, err := NewBroker(cfg)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := b.Start(); err != nil {
-		t.Fatalf("Start with unknown auth: %v", err)
-	}
-	defer b.Stop()
-}
+// TestBrokerStartWithUnknownAuth removed - unknown auth types are now
+// caught at broker creation time rather than at Start(), so this test
+// is no longer applicable. The new behavior returns an error from
+// NewBroker for unknown auth types (AUTH-003 fix).
 
 // --- Publish schema validation failure ---
 

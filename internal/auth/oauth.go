@@ -22,14 +22,20 @@ import (
 
 // OAuthProvider authenticates using JWT tokens validated against an OIDC issuer.
 type OAuthProvider struct {
-	issuer    string
-	audience  string
-	clientID  string
-	keySet    map[string]interface{} // kid → pubKey
-	keySetMux sync.RWMutex
+	issuer        string
+	audience      string
+	clientID      string
+	roleAllowlist map[string]bool      // Role allowlist for filtering JWT roles
+	keySet        map[string]interface{} // kid → pubKey
+	keySetMux     sync.RWMutex
 
 	httpClient *http.Client
 	closeCh    chan struct{}
+
+	// jtiCache prevents JWT replay attacks — tracks recently used jti values
+	jtiCache   map[string]time.Time // jti → expiry time
+	jtiCacheMux sync.RWMutex
+	jtiMaxAge  time.Duration        // max age for jti entries (default: 5 min)
 }
 
 // jwksResponse is the JWKS endpoint response.
@@ -57,13 +63,27 @@ type oidcDiscovery struct {
 
 // NewOAuthProvider creates an OAuth provider that validates JWTs from the given issuer.
 func NewOAuthProvider(issuer, clientID, audience string) (*OAuthProvider, error) {
+	return NewOAuthProviderWithRoleAllowlist(issuer, clientID, audience, nil)
+}
+
+// NewOAuthProviderWithRoleAllowlist creates an OAuth provider with a role allowlist.
+// The allowlist filters the roles extracted from JWT claims — only roles in the allowlist are granted.
+// If allowlist is nil, all roles from the JWT are accepted.
+func NewOAuthProviderWithRoleAllowlist(issuer, clientID, audience string, roleAllowlist []string) (*OAuthProvider, error) {
+	allowmap := make(map[string]bool)
+	for _, r := range roleAllowlist {
+		allowmap[r] = true
+	}
 	p := &OAuthProvider{
-		issuer:     issuer,
-		clientID:   clientID,
-		audience:   audience,
-		keySet:     make(map[string]interface{}),
-		httpClient: &http.Client{Timeout: 10 * time.Second},
-		closeCh:    make(chan struct{}),
+		issuer:        issuer,
+		clientID:      clientID,
+		audience:      audience,
+		roleAllowlist: allowmap,
+		keySet:        make(map[string]interface{}),
+		httpClient:    &http.Client{Timeout: 10 * time.Second},
+		closeCh:       make(chan struct{}),
+		jtiCache:      make(map[string]time.Time),
+		jtiMaxAge:     5 * time.Minute,
 	}
 
 	// Fetch initial JWKS
@@ -73,6 +93,9 @@ func NewOAuthProvider(issuer, clientID, audience string) (*OAuthProvider, error)
 
 	// Background refresh every hour
 	go p.refreshLoop()
+
+	// Background jti cache cleanup
+	go p.jtiCleanupLoop()
 
 	return p, nil
 }
@@ -173,6 +196,19 @@ func (p *OAuthProvider) Authenticate(ctx context.Context, creds Credentials) (*I
 		}
 	}
 
+	// Check jti for replay attack prevention
+	if jti, ok := payload["jti"].(string); ok {
+		if p.isJTIUsed(jti) {
+			return nil, fmt.Errorf("token replay detected")
+		}
+		// Compute expiry from exp or default
+		exp := time.Now().Add(p.jtiMaxAge)
+		if expVal, ok := payload["exp"].(float64); ok {
+			exp = time.Unix(int64(expVal), 0)
+		}
+		p.markJTIUsed(jti, exp)
+	}
+
 	sub, _ := payload["sub"].(string)
 	if sub == "" {
 		return nil, fmt.Errorf("missing sub claim")
@@ -183,7 +219,14 @@ func (p *OAuthProvider) Authenticate(ctx context.Context, creds Credentials) (*I
 	if r, ok := payload["roles"].([]interface{}); ok {
 		for _, v := range r {
 			if s, ok := v.(string); ok {
-				roles = append(roles, s)
+				// If role allowlist is configured, filter roles through it
+				if len(p.roleAllowlist) > 0 {
+					if p.roleAllowlist[s] {
+						roles = append(roles, s)
+					}
+				} else {
+					roles = append(roles, s)
+				}
 			}
 		}
 	}
@@ -214,7 +257,7 @@ func (p *OAuthProvider) Authenticate(ctx context.Context, creds Credentials) (*I
 	}, nil
 }
 
-// Close stops the background JWKS refresh.
+// Close stops the background JWKS refresh and jti cache cleanup.
 func (p *OAuthProvider) Close() error {
 	close(p.closeCh)
 	if p.httpClient != nil {
@@ -236,6 +279,43 @@ func (p *OAuthProvider) refreshLoop() {
 				// Log but don't fail — keep existing keys
 				fmt.Fprintf(os.Stderr, "WARNING: JWKS refresh failed: %v\n", err)
 			}
+		}
+	}
+}
+
+// isJTIUsed checks if a jti has already been used (replay attack).
+func (p *OAuthProvider) isJTIUsed(jti string) bool {
+	p.jtiCacheMux.RLock()
+	defer p.jtiCacheMux.RUnlock()
+	_, exists := p.jtiCache[jti]
+	return exists
+}
+
+// markJTIUsed records a jti to prevent replay attacks.
+func (p *OAuthProvider) markJTIUsed(jti string, expiry time.Time) {
+	p.jtiCacheMux.Lock()
+	defer p.jtiCacheMux.Unlock()
+	p.jtiCache[jti] = expiry
+}
+
+// jtiCleanupLoop periodically removes expired jti entries to prevent unbounded memory growth.
+func (p *OAuthProvider) jtiCleanupLoop() {
+	ticker := time.NewTicker(1 * time.Minute)
+	defer ticker.Stop()
+
+	for {
+		select {
+		case <-p.closeCh:
+			return
+		case <-ticker.C:
+			p.jtiCacheMux.Lock()
+			now := time.Now()
+			for jti, expiry := range p.jtiCache {
+				if now.After(expiry) {
+					delete(p.jtiCache, jti)
+				}
+			}
+			p.jtiCacheMux.Unlock()
 		}
 	}
 }

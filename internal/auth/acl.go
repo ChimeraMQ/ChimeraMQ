@@ -16,6 +16,7 @@ const (
 	ResourceSchema
 	ResourceWASM
 	ResourceTenant
+	ResourceGeo
 )
 
 // Operation identifies the action being performed.
@@ -78,6 +79,8 @@ func (e *ACLEngine) SetEntries(entries []ACLEntry) {
 }
 
 // Check determines whether an identity is allowed to perform an operation.
+// Uses deny-wins semantics: if any matching entry denies, access is denied
+// regardless of any earlier allow rules that would otherwise shadow the deny.
 func (e *ACLEngine) Check(identity *Identity, rt ResourceType, name string, op Operation) bool {
 	if identity == nil {
 		return e.defaultPolicy == PermissionAllow
@@ -86,13 +89,24 @@ func (e *ACLEngine) Check(identity *Identity, rt ResourceType, name string, op O
 	e.mu.RLock()
 	defer e.mu.RUnlock()
 
+	var hasExplicitMatch bool
 	for _, entry := range e.entries {
 		if e.matchEntry(entry, identity, rt, name, op) {
-			return entry.Permission == PermissionAllow
+			hasExplicitMatch = true
+			// Deny-wins: if any matching entry denies, always deny
+			if entry.Permission == PermissionDeny {
+				return false
+			}
 		}
 	}
 
-	return e.defaultPolicy == PermissionAllow
+	// No explicit match — fall back to default policy
+	if !hasExplicitMatch {
+		return e.defaultPolicy == PermissionAllow
+	}
+
+	// Explicit match exists but no deny found — allow
+	return true
 }
 
 func (e *ACLEngine) matchEntry(entry ACLEntry, identity *Identity, rt ResourceType, name string, op Operation) bool {

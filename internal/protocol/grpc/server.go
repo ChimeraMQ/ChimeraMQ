@@ -13,13 +13,78 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/chimeramq/chimera/internal/auth"
 	"github.com/chimeramq/chimera/internal/broker"
 	"github.com/chimeramq/chimera/internal/message"
 	proto "github.com/chimeramq/chimera/internal/protocol/grpc/proto"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/metadata"
 	"google.golang.org/grpc/status"
 )
+
+// authInterceptor middleware checks auth before allowing RPCs.
+// Health RPC is always allowed.
+func authInterceptor(b *broker.Broker) grpc.UnaryServerInterceptor {
+	return func(ctx context.Context, req interface{}, info *grpc.UnaryServerInfo, handler grpc.UnaryHandler) (interface{}, error) {
+		// Skip auth for Health RPC
+		if info.FullMethod == "/chimera.ChimeraService/Health" {
+			return handler(ctx, req)
+		}
+
+		// Extract credentials from metadata
+		md, ok := metadata.FromIncomingContext(ctx)
+		if !ok {
+			return nil, status.Errorf(codes.Unauthenticated, "missing metadata")
+		}
+
+		// If auth is disabled (nil provider), allow all traffic
+		authProvider := b.AuthProvider()
+		if authProvider == nil {
+			return handler(ctx, req)
+		}
+
+		var token string
+		if vals := md.Get("authorization"); len(vals) > 0 {
+			token = vals[0]
+			if len(token) > 7 && token[:7] == "Bearer " {
+				token = token[7:]
+			}
+		}
+
+		creds := auth.Credentials{Token: token}
+		id, err := authProvider.Authenticate(ctx, creds)
+		if err != nil {
+			return nil, status.Errorf(codes.Unauthenticated, "auth failed: %v", err)
+		}
+
+		// ACL check for topic operations
+		aclEngine := b.ACLEngine()
+		if aclEngine != nil {
+			switch info.FullMethod {
+			case "/chimera.ChimeraService/Publish":
+				allowed := aclEngine.Check(id, auth.ResourceTopic, "*", auth.OpWrite)
+				if !allowed {
+					return nil, status.Errorf(codes.PermissionDenied, "publish denied")
+				}
+			case "/chimera.ChimeraService/Consume":
+				// Consume is streaming; we allow it but check per-subscription in handler
+			case "/chimera.ChimeraService/CreateTopic":
+				allowed := aclEngine.Check(id, auth.ResourceTopic, "*", auth.OpCreate)
+				if !allowed {
+					return nil, status.Errorf(codes.PermissionDenied, "create topic denied")
+				}
+			case "/chimera.ChimeraService/DeleteTopic":
+				allowed := aclEngine.Check(id, auth.ResourceTopic, "*", auth.OpDelete)
+				if !allowed {
+					return nil, status.Errorf(codes.PermissionDenied, "delete topic denied")
+				}
+			}
+		}
+
+		return handler(ctx, req)
+	}
+}
 
 // topicModeFromProto converts a proto mode string to broker.TopicMode.
 func topicModeFromProto(mode string) broker.TopicMode {
@@ -81,6 +146,7 @@ func NewServer(b *broker.Broker) (*Server, error) {
 
 	s.grpcSrv = grpc.NewServer(
 		grpc.MaxRecvMsgSize(10 * 1024 * 1024), // 10MB max message size
+		grpc.UnaryInterceptor(authInterceptor(b)),
 	)
 	proto.RegisterChimeraServiceServer(s.grpcSrv, s)
 

@@ -3,6 +3,7 @@ package mqtt
 import (
 	"bufio"
 	"context"
+	"crypto/rand"
 	"fmt"
 	"net"
 	"sync"
@@ -31,6 +32,13 @@ func (d *Detector) Detect(peek []byte) bool {
 
 // BytesNeeded returns 1 (first byte identifies MQTT CONNECT).
 func (d *Detector) BytesNeeded() int { return 1 }
+
+// generateClientID generates a cryptographically random MQTT client ID for auto-assigned IDs.
+func generateClientID() string {
+	b := make([]byte, 8)
+	_, _ = rand.Read(b)
+	return fmt.Sprintf("mqtt-auto-%x", b)
+}
 
 // NewServer creates a new MQTT protocol server.
 func NewServer(b *broker.Broker) *Server {
@@ -113,7 +121,7 @@ func (s *Server) handleConnection(conn net.Conn) {
 	if clientID == "" {
 		if connect.ProtocolLevel >= ProtocolLevel50 {
 			// MQTT 5.0 allows empty client ID (server assigns)
-			clientID = fmt.Sprintf("mqtt-auto-%d", time.Now().UnixNano())
+			clientID = generateClientID()
 		} else {
 			s.writePacket(writer, PacketConnAck, 0, BuildConnAck(false, ConnAckBadClientID))
 			_ = writer.Flush()

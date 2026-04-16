@@ -112,11 +112,7 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 
 	opts := &websocket.AcceptOptions{
 		Subprotocols: []string{"chimera-json-v1", "chimera-binary-v1"},
-		OriginPatterns: []string{
-			"localhost:*",
-			"127.0.0.1:*",
-			"[::1]:*",
-		},
+		OriginPatterns: []string{"localhost", "127.0.0.1", "[::1]"},
 	}
 
 	conn, err := websocket.Accept(w, r, opts)

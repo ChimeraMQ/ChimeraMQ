@@ -2,6 +2,7 @@ package geo
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
@@ -9,6 +10,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/chimeramq/chimera/internal/auth"
 	"github.com/chimeramq/chimera/internal/message"
 )
 
@@ -18,6 +20,8 @@ type testBroker struct {
 	published atomic.Int64
 	failNext  atomic.Bool
 	logger    *testLogger
+	authProv  auth.AuthProvider
+	aclEngine *auth.ACLEngine
 }
 
 func (b *testBroker) Publish(env *message.Envelope) (uint64, error) {
@@ -28,9 +32,9 @@ func (b *testBroker) Publish(env *message.Envelope) (uint64, error) {
 	return uint64(b.published.Load()), nil
 }
 
-func (b *testBroker) Logger() LoggerLike {
-	return b.logger
-}
+func (b *testBroker) AuthProvider() auth.AuthProvider { return b.authProv }
+func (b *testBroker) ACLEngine() *auth.ACLEngine     { return b.aclEngine }
+func (b *testBroker) Logger() LoggerLike            { return b.logger }
 
 type publishError struct{ msg string }
 
@@ -44,8 +48,26 @@ func (l *testLogger) Debug(msg string, args ...any) {}
 func (l *testLogger) Warn(msg string, args ...any)  {}
 
 func newTestBroker() *testBroker {
-	return &testBroker{logger: &testLogger{}}
+	return &testBroker{logger: &testLogger{}, authProv: &testAuthProvider{}, aclEngine: nil}
 }
+
+// testAuthProvider is a mock auth provider for testing that accepts any credentials.
+type testAuthProvider struct{}
+
+func (p *testAuthProvider) Authenticate(ctx context.Context, creds auth.Credentials) (*auth.Identity, error) {
+	// Accept any credentials for testing - tests use token "test-token"
+	if creds.Token == "test-token" || creds.Username == "test" {
+		return &auth.Identity{
+			UserID:   "test-user",
+			TenantID: "test-tenant",
+			Roles:    []string{"admin"},
+			Source:   "test",
+		}, nil
+	}
+	return nil, auth.ErrInvalidCredentials
+}
+
+func (p *testAuthProvider) Close() error { return nil }
 
 // --- Config Tests ---
 
@@ -833,6 +855,7 @@ func TestReceiverReplicateBatch(t *testing.T) {
 	req.Body = ioReader(frame)
 	req.ContentLength = int64(len(frame))
 	req.Header.Set("Content-Type", "application/octet-stream")
+	req.Header.Set("Authorization", "Bearer test-token")
 
 	rec := httptest.NewRecorder()
 	receiver.handleReplicate(rec, req)
@@ -879,6 +902,7 @@ func TestReceiverReplicatePartialFailure(t *testing.T) {
 	req.Body = ioReader(frame)
 	req.ContentLength = int64(len(frame))
 	req.Header.Set("Content-Type", "application/octet-stream")
+	req.Header.Set("Authorization", "Bearer test-token")
 
 	rec := httptest.NewRecorder()
 	receiver.handleReplicate(rec, req)
@@ -908,6 +932,7 @@ func TestReceiverReplicateBadRequest(t *testing.T) {
 	req := httptest.NewRequest(http.MethodPost, "/v1/geo-replicate", nil)
 	req.Body = ioReader([]byte{1, 2, 3})
 	req.ContentLength = 3
+	req.Header.Set("Authorization", "Bearer test-token")
 
 	rec := httptest.NewRecorder()
 	receiver.handleReplicate(rec, req)
@@ -922,6 +947,7 @@ func TestReceiverReplicateBadRequest(t *testing.T) {
 	bigLen[3] = 100 // claims 100 bytes payload
 	req2.Body = ioReader(append(bigLen, []byte("only10bytes")...))
 	req2.ContentLength = 14
+	req2.Header.Set("Authorization", "Bearer test-token")
 
 	rec2 := httptest.NewRecorder()
 	receiver.handleReplicate(rec2, req2)
@@ -937,6 +963,7 @@ func TestReceiverReplicateBadRequest(t *testing.T) {
 	copy(validFrame[4:], []byte("notjson"))
 	req3.Body = ioReader(validFrame)
 	req3.ContentLength = int64(len(validFrame))
+	req3.Header.Set("Authorization", "Bearer test-token")
 
 	rec3 := httptest.NewRecorder()
 	receiver.handleReplicate(rec3, req3)

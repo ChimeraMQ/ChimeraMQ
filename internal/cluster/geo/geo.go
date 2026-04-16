@@ -10,6 +10,7 @@ import (
 	"context"
 	"crypto/tls"
 	"crypto/x509"
+	"encoding/base64"
 	"encoding/binary"
 	"encoding/json"
 	"fmt"
@@ -22,6 +23,7 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/chimeramq/chimera/internal/auth"
 	"github.com/chimeramq/chimera/internal/message"
 )
 
@@ -207,6 +209,8 @@ type Receiver struct {
 // BrokerLike is the interface the Receiver needs from the broker.
 type BrokerLike interface {
 	Publish(env *message.Envelope) (uint64, error)
+	AuthProvider() auth.AuthProvider
+	ACLEngine() *auth.ACLEngine
 }
 
 // LoggerLike is a minimal logger interface.
@@ -720,8 +724,68 @@ func (r *Receiver) handleHealth(w http.ResponseWriter, req *http.Request) {
 	_, _ = w.Write([]byte(`{"status":"ok","dc":"` + r.localDC + `"}`))
 }
 
+// authenticateRequest validates the incoming geo-replication request using Bearer token auth.
+func (r *Receiver) authenticateRequest(w http.ResponseWriter, req *http.Request) bool {
+	provider := r.broker.AuthProvider()
+
+	// If no auth provider, reject (geo-replication should have auth configured)
+	if provider == nil {
+		http.Error(w, "geo-replication auth not configured", http.StatusUnauthorized)
+		return false
+	}
+
+	// Extract Bearer token
+	authHeader := req.Header.Get("Authorization")
+	if authHeader == "" {
+		http.Error(w, "missing Authorization header", http.StatusUnauthorized)
+		return false
+	}
+
+	var creds auth.Credentials
+	if strings.HasPrefix(authHeader, "Bearer ") {
+		creds.Token = strings.TrimPrefix(authHeader, "Bearer ")
+	} else if strings.HasPrefix(authHeader, "Basic ") {
+		// Support basic auth for replication
+		encoded := strings.TrimPrefix(authHeader, "Basic ")
+		decoded, err := base64.StdEncoding.DecodeString(encoded)
+		if err == nil {
+			pair := strings.SplitN(string(decoded), ":", 2)
+			if len(pair) == 2 {
+				creds.Username = pair[0]
+				creds.Password = pair[1]
+			}
+		}
+	} else {
+		http.Error(w, "unsupported auth scheme", http.StatusUnauthorized)
+		return false
+	}
+
+	// Validate credentials
+	identity, err := provider.Authenticate(req.Context(), creds)
+	if err != nil || identity == nil {
+		http.Error(w, "invalid credentials", http.StatusUnauthorized)
+		return false
+	}
+
+	// Check if caller has geo-replication permission via ACL
+	acl := r.broker.ACLEngine()
+	if acl != nil {
+		if !acl.Check(identity, auth.ResourceGeo, "replicate", auth.OpWrite) {
+			http.Error(w, "permission denied", http.StatusForbidden)
+			return false
+		}
+	}
+
+	return true
+}
+
 // handleReplicate handles incoming replication batches.
 func (r *Receiver) handleReplicate(w http.ResponseWriter, req *http.Request) {
+	// Authenticate the incoming request
+	if !r.authenticateRequest(w, req) {
+		return
+	}
+
 	// Read entire body
 	body, err := io.ReadAll(io.LimitReader(req.Body, 64*1024*1024)) // 64MB max
 	if err != nil {

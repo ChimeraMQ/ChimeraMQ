@@ -18,6 +18,7 @@ type StaticProvider struct {
 	users  map[string]string // username -> bcrypt hash or plaintext
 	tokens map[string]string // token -> label
 	roles  map[string][]string
+	tenants map[string]string // label -> tenant ID
 }
 
 // NewStaticProvider creates a static auth provider.
@@ -26,6 +27,7 @@ func NewStaticProvider(users, tokens map[string]string) *StaticProvider {
 		users:  users,
 		tokens: tokens,
 		roles:  make(map[string][]string),
+		tenants: make(map[string]string),
 	}
 }
 
@@ -51,9 +53,10 @@ func (p *StaticProvider) authenticateToken(token string) (*Identity, error) {
 	for storedToken, label := range p.tokens {
 		if subtle.ConstantTimeCompare([]byte(token), []byte(storedToken)) == 1 {
 			return &Identity{
-				UserID: label,
-				Source: "static",
-				Roles:  p.roles[label],
+				UserID:   label,
+				TenantID: p.tenants[label],
+				Source:   "static",
+				Roles:    p.roles[label],
 			}, nil
 		}
 	}
@@ -81,9 +84,10 @@ func (p *StaticProvider) authenticateUser(username, password string) (*Identity,
 	}
 
 	return &Identity{
-		UserID: username,
-		Source: "static",
-		Roles:  p.roles[username],
+		UserID:   username,
+		TenantID: p.tenants[username],
+		Source:   "static",
+		Roles:    p.roles[username],
 	}, nil
 }
 
@@ -92,6 +96,13 @@ func (p *StaticProvider) SetRoles(user string, roles []string) {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 	p.roles[user] = roles
+}
+
+// SetTenant assigns a tenant ID to a user.
+func (p *StaticProvider) SetTenant(user string, tenant string) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	p.tenants[user] = tenant
 }
 
 // Close is a no-op for the static provider.
@@ -108,6 +119,7 @@ type FileProvider struct {
 type userInfo struct {
 	Password string   `json:"password"` // bcrypt hash or plaintext
 	Roles    []string `json:"roles,omitempty"`
+	Tenant   string   `json:"tenant,omitempty"`
 }
 
 // NewFileProvider creates a file-based auth provider.
@@ -166,8 +178,9 @@ func (fp *FileProvider) Authenticate(ctx context.Context, creds Credentials) (*I
 		for storedToken, label := range fp.tokens {
 			if subtle.ConstantTimeCompare([]byte(creds.Token), []byte(storedToken)) == 1 {
 				return &Identity{
-					UserID: label,
-					Source: "file",
+					UserID:   label,
+					TenantID: fp.users[label].Tenant,
+					Source:   "file",
 				}, nil
 			}
 		}
@@ -191,9 +204,10 @@ func (fp *FileProvider) Authenticate(ctx context.Context, creds Credentials) (*I
 		}
 
 		return &Identity{
-			UserID: creds.Username,
-			Source: "file",
-			Roles:  info.Roles,
+			UserID:   creds.Username,
+			TenantID: info.Tenant,
+			Source:   "file",
+			Roles:    info.Roles,
 		}, nil
 	}
 

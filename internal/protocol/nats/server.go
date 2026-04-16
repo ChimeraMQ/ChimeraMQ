@@ -3,6 +3,7 @@ package nats
 import (
 	"bufio"
 	"context"
+	"crypto/rand"
 	"encoding/json"
 	"fmt"
 	"net"
@@ -416,7 +417,9 @@ func (s *Session) close() {
 }
 
 func generateSessionID() string {
-	return fmt.Sprintf("nats-%d", time.Now().UnixNano())
+	b := make([]byte, 16)
+	_, _ = rand.Read(b)
+	return fmt.Sprintf("nats-%x", b)
 }
 
 // Detector detects NATS protocol by its INFO/CONNECT messages.

@@ -19,6 +19,7 @@ type LDAPProvider struct {
 	useTLS    bool
 	roleAttr  string // attribute for roles (default: "memberOf")
 	groupAttr string // attribute for groups
+	roleAllowlist map[string]bool // optional allowlist for role filtering
 }
 
 // NewLDAPProvider creates an LDAP auth provider.
@@ -31,6 +32,25 @@ func NewLDAPProvider(url, bindDN, bindPass, baseDN, filter string, useTLS bool) 
 		filter:   filter,
 		useTLS:   useTLS,
 		roleAttr: "memberOf",
+	}
+}
+
+// NewLDAPProviderWithRoleAllowlist creates an LDAP provider with a role allowlist.
+// Only roles in the allowlist are granted; if allowlist is nil, all roles are accepted.
+func NewLDAPProviderWithRoleAllowlist(url, bindDN, bindPass, baseDN, filter string, useTLS bool, roleAllowlist []string) *LDAPProvider {
+	allowmap := make(map[string]bool)
+	for _, r := range roleAllowlist {
+		allowmap[r] = true
+	}
+	return &LDAPProvider{
+		url:           url,
+		bindDN:        bindDN,
+		bindPass:      bindPass,
+		baseDN:        baseDN,
+		filter:        filter,
+		useTLS:        useTLS,
+		roleAttr:      "memberOf",
+		roleAllowlist: allowmap,
 	}
 }
 
@@ -92,14 +112,21 @@ func (p *LDAPProvider) Authenticate(ctx context.Context, creds Credentials) (*Id
 		return nil, ErrInvalidCredentials
 	}
 
-	// Extract roles from memberOf
+	// Extract roles from memberOf (with optional allowlist filtering)
 	var roles []string
 	if p.roleAttr != "" {
-		roles = entry.GetAttributeValues(p.roleAttr)
-		// Extract CN from DN values
-		for i, dn := range roles {
-			if cn := extractCN(dn); cn != "" {
-				roles[i] = cn
+		rawRoles := entry.GetAttributeValues(p.roleAttr)
+		for _, dn := range rawRoles {
+			cn := extractCN(dn)
+			if cn == "" {
+				continue
+			}
+			if p.roleAllowlist != nil {
+				if p.roleAllowlist[cn] {
+					roles = append(roles, cn)
+				}
+			} else {
+				roles = append(roles, cn)
 			}
 		}
 	}
