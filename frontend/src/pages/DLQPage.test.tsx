@@ -1001,6 +1001,25 @@ describe('DLQPage', () => {
     });
   });
 
+  it('shows initial loading skeletons while topics are loading', async () => {
+    let resolveTopics: (v: any) => void;
+    const topicsPromise = new Promise((resolve) => {
+      resolveTopics = resolve;
+    });
+    vi.mocked(api.listDLQTopics).mockReturnValue(topicsPromise as any);
+
+    render(<DLQPage />, { wrapper: createWrapper() });
+
+    // Skeletons should be visible while waiting for topics
+    await waitFor(() => {
+      const skeletons = document.querySelectorAll('.animate-pulse');
+      expect(skeletons.length).toBeGreaterThan(0);
+    });
+
+    // Resolve to clean up
+    resolveTopics!({ topics: ['resolved-topic'] });
+  });
+
   it('handles API failure when clear DLQ fails', async () => {
     vi.mocked(api.listDLQTopics).mockResolvedValue({ topics: ['clear-err'] });
     vi.mocked(api.clearDLQ).mockRejectedValue(new Error('Clear failed'));
