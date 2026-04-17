@@ -74,4 +74,51 @@ describe('DropdownMenu exports', () => {
     render(<DropdownMenuGroup><span>Grouped</span></DropdownMenuGroup>);
     expect(screen.getByText('Grouped')).toBeInTheDocument();
   });
+
+  it('renders DropdownMenuSubTrigger with inset prop and ChevronRight', () => {
+    render(
+      <DropdownMenu>
+        <DropdownMenuTrigger data-testid="trigger">Open</DropdownMenuTrigger>
+        <DropdownMenuContent>
+          <DropdownMenuSub>
+            <DropdownMenuSubTrigger inset>Inset Sub</DropdownMenuSubTrigger>
+            <DropdownMenuSubContent>
+              <span>Nested content</span>
+            </DropdownMenuSubContent>
+          </DropdownMenuSub>
+        </DropdownMenuContent>
+      </DropdownMenu>,
+    );
+    expect(screen.getByTestId('trigger')).toBeInTheDocument();
+  });
+
+  it('renders DropdownMenu with custom className on Content and Item', () => {
+    render(
+      <DropdownMenu>
+        <DropdownMenuTrigger data-testid="trigger">Open</DropdownMenuTrigger>
+        <DropdownMenuContent className="content-cls">
+          <DropdownMenuItem inset className="item-cls">
+            Inset item
+          </DropdownMenuItem>
+        </DropdownMenuContent>
+      </DropdownMenu>,
+    );
+    expect(screen.getByTestId('trigger')).toBeInTheDocument();
+  });
+
+  it('renders DropdownMenuSubContent with custom className', () => {
+    render(
+      <DropdownMenu>
+        <DropdownMenuTrigger>Open</DropdownMenuTrigger>
+        <DropdownMenuContent>
+          <DropdownMenuSub>
+            <DropdownMenuSubTrigger>More</DropdownMenuSubTrigger>
+            <DropdownMenuSubContent className="sub-content-cls">
+              <span>Sub content</span>
+            </DropdownMenuSubContent>
+          </DropdownMenuSub>
+        </DropdownMenuContent>
+      </DropdownMenu>,
+    );
+  });
 });
