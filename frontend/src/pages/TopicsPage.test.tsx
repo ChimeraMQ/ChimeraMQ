@@ -493,4 +493,36 @@ describe('TopicsPage', () => {
       expect(api.deleteTopic).toHaveBeenCalled();
     });
   });
+
+  it('shows error toast when create mutation fails', async () => {
+    vi.mocked(api.getTopics).mockResolvedValue([]);
+    vi.mocked(api.createTopic).mockRejectedValue(new Error('Create failed'));
+
+    render(<TopicsPage />, { wrapper: createWrapper() });
+
+    await waitFor(() => {
+      expect(screen.getByText('0 Topics')).toBeInTheDocument();
+    });
+
+    const createBtns = screen.getAllByRole('button', { name: /Create/ });
+    await userEvent.click(createBtns[0]);
+
+    await waitFor(() => {
+      expect(screen.getByText('Create a new ChimeraMQ topic')).toBeInTheDocument();
+    });
+
+    const nameInput = screen.getByPlaceholderText('my-topic');
+    await userEvent.type(nameInput, 'fail-topic');
+
+    const partitionsInput = screen.getByLabelText('Partitions');
+    await userEvent.clear(partitionsInput);
+    await userEvent.type(partitionsInput, '1');
+
+    const submitBtn = screen.getByRole('button', { name: 'Create' });
+    await userEvent.click(submitBtn);
+
+    await waitFor(() => {
+      expect(api.createTopic).toHaveBeenCalled();
+    });
+  });
 });

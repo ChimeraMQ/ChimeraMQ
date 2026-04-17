@@ -234,6 +234,18 @@ describe('SchemasPage', () => {
     expect(submitBtn).toBeDisabled();
   });
 
+  it('handles API failure when loading schema subjects', async () => {
+    vi.mocked(api.listSchemaSubjects).mockRejectedValue(new Error('Network error'));
+
+    render(<SchemasPage />, { wrapper: createWrapper() });
+
+    await waitFor(() => {
+      expect(screen.getByText('Schemas')).toBeInTheDocument();
+    });
+    // Should gracefully show 0 subjects when API fails
+    expect(screen.getAllByText('0 Subjects').length).toBeGreaterThan(0);
+  });
+
   it('closes register dialog when Cancel is clicked', async () => {
     vi.mocked(api.listSchemaSubjects).mockResolvedValue([]);
 
