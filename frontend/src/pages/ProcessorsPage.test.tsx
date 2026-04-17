@@ -344,6 +344,26 @@ describe('ProcessorsPage', () => {
     });
   });
 
+  it('triggers delete from desktop table view button', async () => {
+    vi.mocked(api.listProcessors).mockResolvedValue({ topologies: ['desktop-delete'], count: 1 });
+
+    render(<ProcessorsPage />, { wrapper: createWrapper() });
+
+    await waitFor(() => {
+      expect(screen.getAllByText('desktop-delete').length).toBeGreaterThan(0);
+    });
+
+    // Desktop delete button is the last one in the array (mobile renders first)
+    const deleteBtns = screen.getAllByRole('button', { name: /Delete processor desktop-delete/ });
+    const desktopDeleteBtn = deleteBtns[deleteBtns.length - 1];
+    await userEvent.click(desktopDeleteBtn);
+
+    await waitFor(() => {
+      expect(screen.getByText('Delete Processor')).toBeInTheDocument();
+    });
+    expect(screen.getByText(/Are you sure you want to delete "desktop-delete"/)).toBeInTheDocument();
+  });
+
   it('stops processor from mobile card view', async () => {
     vi.mocked(api.listProcessors).mockResolvedValue({ topologies: ['mobile-stop'], count: 1 });
     vi.mocked(api.stopProcessor).mockResolvedValue({ status: 'stopped' });
