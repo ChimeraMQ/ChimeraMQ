@@ -389,4 +389,21 @@ describe('SchemasPage', () => {
     const registerBtn = screen.getAllByRole('button', { name: /Register Schema/ })[0];
     expect(registerBtn).toBeInTheDocument();
   });
+
+  it('opens register dialog from empty state button', async () => {
+    vi.mocked(api.listSchemaSubjects).mockResolvedValue([]);
+
+    render(<SchemasPage />, { wrapper: createWrapper() });
+
+    await waitFor(() => {
+      expect(screen.getByText('No schemas registered')).toBeInTheDocument();
+    });
+
+    const registerBtn = screen.getAllByRole('button', { name: /Register Schema/ })[0];
+    await userEvent.click(registerBtn);
+
+    await waitFor(() => {
+      expect(screen.getByText('Register a new schema for a subject')).toBeInTheDocument();
+    });
+  });
 });

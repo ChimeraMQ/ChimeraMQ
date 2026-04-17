@@ -603,4 +603,77 @@ describe('TopicsPage', () => {
     const submitBtn = screen.getByRole('button', { name: 'Create' });
     expect(submitBtn).not.toBeDisabled();
   });
+
+  it('opens create dialog from empty state Create Topic button', async () => {
+    vi.mocked(api.getTopics).mockResolvedValue([]);
+
+    render(<TopicsPage />, { wrapper: createWrapper() });
+
+    await waitFor(() => {
+      expect(screen.getByText('0 Topics')).toBeInTheDocument();
+    });
+
+    // Click Create Topic button from empty state
+    const createTopicBtns = screen.getAllByRole('button', { name: /Create Topic/ });
+    await userEvent.click(createTopicBtns[0]);
+
+    await waitFor(() => {
+      expect(screen.getByText('Create a new ChimeraMQ topic')).toBeInTheDocument();
+    });
+  });
+
+  it('closes topic detail dialog via onOpenChange false', async () => {
+    vi.mocked(api.getTopics).mockResolvedValue([
+      { name: 'toggle-topic', mode: 'unified', partitions: 1, created_at: '2026-04-16T10:00:00Z' },
+    ]);
+    vi.mocked(api.getTopicDetail).mockResolvedValue({
+      name: 'toggle-topic',
+      mode: 'unified',
+      partitions: 1,
+      created_at: '2026-04-16T10:00:00Z',
+      partitions_detail: [{ id: 0, high_watermark: 50, log_start_offset: 0 }],
+    });
+
+    render(<TopicsPage />, { wrapper: createWrapper() });
+
+    await waitFor(() => {
+      expect(screen.getAllByText('toggle-topic').length).toBeGreaterThan(0);
+    });
+
+    // Open detail
+    const viewBtns = screen.getAllByRole('button', { name: /View topic toggle-topic/ });
+    await userEvent.click(viewBtns[0]);
+
+    await waitFor(() => {
+      expect(screen.getByText('Partition 0')).toBeInTheDocument();
+    });
+
+    // Close via the Close button (dialog has a footer Close button)
+    const closeBtns = screen.getAllByRole('button', { name: /Close/i });
+    expect(closeBtns.length).toBeGreaterThan(0);
+    await userEvent.click(closeBtns[0]);
+
+    await waitFor(() => {
+      expect(screen.queryByText('Partition 0')).not.toBeInTheDocument();
+    });
+  });
+
+  it('shows no matching results when filter returns empty', async () => {
+    vi.mocked(api.getTopics).mockResolvedValue([
+      { name: 'orders', mode: 'unified', partitions: 4, created_at: '2026-04-16T10:00:00Z' },
+    ]);
+
+    render(<TopicsPage />, { wrapper: createWrapper() });
+
+    await waitFor(() => {
+      expect(screen.getAllByText('orders').length).toBeGreaterThan(0);
+    });
+
+    const searchInput = screen.getByPlaceholderText('Search topics...');
+    await userEvent.type(searchInput, 'nonexistent');
+
+    await waitFor(() => {
+      expect(screen.getAllByText('No topics matching filters').length).toBeGreaterThan(0);
+    });
+  });
 });

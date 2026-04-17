@@ -1003,4 +1003,67 @@ describe('DLQPage', () => {
       expect(api.clearDLQ).toHaveBeenCalled();
     });
   });
+
+  it('shows loading skeletons when entries are loading', async () => {
+    vi.mocked(api.listDLQTopics).mockResolvedValue({ topics: ['loading-topic'] });
+    // Create a deferred promise so we can capture loading state
+    let resolveDLQ: (v: any) => void;
+    const dlqPromise = new Promise((resolve) => {
+      resolveDLQ = resolve;
+    });
+    vi.mocked(api.getDLQ).mockReturnValue(dlqPromise as any);
+
+    render(<DLQPage />, { wrapper: createWrapper() });
+
+    await waitFor(() => {
+      expect(screen.getAllByText('loading-topic').length).toBeGreaterThan(0);
+    });
+
+    // Click Inspect to trigger loading
+    const inspectBtns = screen.getAllByRole('button', { name: /Inspect DLQ topic loading-topic/ });
+    await userEvent.click(inspectBtns[0]);
+
+    // Skeletons should be visible (loading state)
+    await waitFor(() => {
+      const skeletons = document.querySelectorAll('.animate-pulse');
+      expect(skeletons.length).toBeGreaterThan(0);
+    });
+
+    // Resolve the promise to clean up
+    resolveDLQ!({
+      topic: 'loading-topic',
+      count: 1,
+      entries: [{ id: 'msg-001', topic: 'test', reason: 'err', retries: 1, failed_at: '2026-04-16T10:00:00Z', original_msg: { body: '{}' } }],
+    });
+  });
+
+  it('toggles topic selection when clicking Inspect button twice', async () => {
+    vi.mocked(api.listDLQTopics).mockResolvedValue({ topics: ['toggle-topic'] });
+    vi.mocked(api.getDLQ).mockResolvedValue({
+      topic: 'toggle-topic',
+      count: 1,
+      entries: [{ id: 'msg-001', topic: 'test', reason: 'err', retries: 1, failed_at: '2026-04-16T10:00:00Z', original_msg: { body: '{}' } }],
+    });
+
+    render(<DLQPage />, { wrapper: createWrapper() });
+
+    await waitFor(() => {
+      expect(screen.getAllByText('toggle-topic').length).toBeGreaterThan(0);
+    });
+
+    // First click selects
+    const inspectBtns = screen.getAllByRole('button', { name: /Inspect DLQ topic toggle-topic/ });
+    await userEvent.click(inspectBtns[0]);
+
+    await waitFor(() => {
+      expect(screen.getByText('1 entries')).toBeInTheDocument();
+    });
+
+    // Second click deselects
+    await userEvent.click(inspectBtns[0]);
+
+    await waitFor(() => {
+      expect(screen.queryByText('1 entries')).not.toBeInTheDocument();
+    });
+  });
 });
