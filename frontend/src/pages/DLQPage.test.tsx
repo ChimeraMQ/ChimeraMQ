@@ -604,4 +604,36 @@ describe('DLQPage', () => {
       expect(screen.getByText('2 entries')).toBeInTheDocument();
     });
   });
+
+  it('shows entry count for large DLQ topics', async () => {
+    const manyEntries = Array.from({ length: 10 }, (_, i) => ({
+      id: `bulk-${i}`,
+      topic: 'bulk-entries',
+      partition: i % 8,
+      reason: 'Bulk error',
+      retries: 3,
+      failed_at: '2026-04-16T10:00:00Z',
+      original_msg: { id: `msg-${i}`, body: `data` },
+    }));
+    vi.mocked(api.listDLQTopics).mockResolvedValue({ topics: ['many-dlq'] });
+    vi.mocked(api.getDLQ).mockResolvedValue({ topic: 'many-dlq', count: 10, entries: manyEntries });
+
+    render(<DLQPage />, { wrapper: createWrapper() });
+
+    await waitFor(() => {
+      expect(screen.getAllByText('many-dlq').length).toBeGreaterThan(0);
+    });
+
+    const inspectBtns = screen.getAllByRole('button', { name: /Inspect DLQ topic/ });
+    await userEvent.click(inspectBtns[0]);
+
+    await waitFor(() => {
+      expect(screen.getByText('10 entries')).toBeInTheDocument();
+    });
+
+    // Entry cards render with IDs like bulk-0
+    await waitFor(() => {
+      expect(screen.getByText(/bulk-0/)).toBeInTheDocument();
+    });
+  });
 });

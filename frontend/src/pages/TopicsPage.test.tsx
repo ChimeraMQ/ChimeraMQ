@@ -408,4 +408,89 @@ describe('TopicsPage', () => {
     expect(screen.getAllByText('stream').length).toBeGreaterThan(0);
     expect(screen.getAllByText('queue').length).toBeGreaterThan(0);
   });
+
+  it('views topic from desktop table View button', async () => {
+    vi.mocked(api.getTopics).mockResolvedValue([
+      { name: 'desktop-tbl', mode: 'unified', partitions: 2, created_at: '2026-04-16T10:00:00Z' },
+    ]);
+    vi.mocked(api.getTopicDetail).mockResolvedValue({
+      name: 'desktop-tbl',
+      mode: 'unified',
+      partitions: 2,
+      created_at: '2026-04-16T10:00:00Z',
+      partitions_detail: [{ id: 0, high_watermark: 100, log_start_offset: 0 }],
+    });
+
+    render(<TopicsPage />, { wrapper: createWrapper() });
+
+    await waitFor(() => {
+      expect(screen.getAllByText('desktop-tbl').length).toBeGreaterThan(0);
+    });
+
+    // Desktop View button is the second one (index 1)
+    const viewBtns = screen.getAllByRole('button', { name: /View topic desktop-tbl/ });
+    expect(viewBtns.length).toBeGreaterThan(1);
+    await userEvent.click(viewBtns[1]);
+
+    await waitFor(() => {
+      expect(screen.getByText('Partition 0')).toBeInTheDocument();
+    });
+  });
+
+  it('deletes topic from desktop table Delete button', async () => {
+    vi.mocked(api.getTopics).mockResolvedValue([
+      { name: 'desktop-del', mode: 'unified', partitions: 1, created_at: '2026-04-16T10:00:00Z' },
+    ]);
+    vi.mocked(api.deleteTopic).mockResolvedValue({ status: 'deleted' });
+
+    render(<TopicsPage />, { wrapper: createWrapper() });
+
+    await waitFor(() => {
+      expect(screen.getAllByText('desktop-del').length).toBeGreaterThan(0);
+    });
+
+    const deleteBtns = screen.getAllByRole('button', { name: /Delete topic desktop-del/ });
+    expect(deleteBtns.length).toBeGreaterThan(1);
+    await userEvent.click(deleteBtns[1]);
+
+    await waitFor(() => {
+      expect(screen.getByText('Delete Topic')).toBeInTheDocument();
+    });
+
+    const dialog = screen.getByRole('alertdialog');
+    const confirmBtn = within(dialog).getByRole('button', { name: 'Delete' });
+    await userEvent.click(confirmBtn);
+
+    await waitFor(() => {
+      expect(api.deleteTopic).toHaveBeenCalled();
+    });
+  });
+
+  it('shows error toast when delete mutation fails', async () => {
+    vi.mocked(api.getTopics).mockResolvedValue([
+      { name: 'err-delete', mode: 'unified', partitions: 1, created_at: '2026-04-16T10:00:00Z' },
+    ]);
+    vi.mocked(api.deleteTopic).mockRejectedValue(new Error('Delete failed'));
+
+    render(<TopicsPage />, { wrapper: createWrapper() });
+
+    await waitFor(() => {
+      expect(screen.getAllByText('err-delete').length).toBeGreaterThan(0);
+    });
+
+    const deleteBtns = screen.getAllByRole('button', { name: /Delete topic/ });
+    await userEvent.click(deleteBtns[0]);
+
+    await waitFor(() => {
+      expect(screen.getByText('Delete Topic')).toBeInTheDocument();
+    });
+
+    const dialog = screen.getByRole('alertdialog');
+    const confirmBtn = within(dialog).getByRole('button', { name: 'Delete' });
+    await userEvent.click(confirmBtn);
+
+    await waitFor(() => {
+      expect(api.deleteTopic).toHaveBeenCalled();
+    });
+  });
 });

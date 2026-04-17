@@ -314,4 +314,53 @@ describe('SchemasPage', () => {
       expect(api.registerSchema).toHaveBeenCalled();
     });
   });
+
+  it('views schema from desktop table View button', async () => {
+    vi.mocked(api.listSchemaSubjects).mockResolvedValue(['desktop-schema']);
+    vi.mocked(api.getSchemas).mockResolvedValue([
+      { version: 1, type: 'JSON', id: 'json-1', schema: '{"key": "value"}' },
+    ]);
+
+    render(<SchemasPage />, { wrapper: createWrapper() });
+
+    await waitFor(() => {
+      expect(screen.getAllByText('desktop-schema').length).toBeGreaterThan(0);
+    });
+
+    // Desktop View button is the second one (index 1)
+    const viewBtns = screen.getAllByRole('button', { name: /View schema desktop-schema/ });
+    expect(viewBtns.length).toBeGreaterThan(1);
+    await userEvent.click(viewBtns[1]);
+
+    await waitFor(() => {
+      expect(screen.getByText('1 version(s)')).toBeInTheDocument();
+    });
+  });
+
+  it('deletes schema from desktop table Delete button', async () => {
+    vi.mocked(api.listSchemaSubjects).mockResolvedValue(['desktop-del']);
+    vi.mocked(api.deleteSchema).mockResolvedValue(undefined);
+
+    render(<SchemasPage />, { wrapper: createWrapper() });
+
+    await waitFor(() => {
+      expect(screen.getAllByText('desktop-del').length).toBeGreaterThan(0);
+    });
+
+    const deleteBtns = screen.getAllByRole('button', { name: /Delete schema desktop-del/ });
+    expect(deleteBtns.length).toBeGreaterThan(1);
+    await userEvent.click(deleteBtns[1]);
+
+    await waitFor(() => {
+      expect(screen.getByText('Delete Schema')).toBeInTheDocument();
+    });
+
+    const dialog = screen.getByRole('alertdialog');
+    const confirmBtn = within(dialog).getByRole('button', { name: 'Delete' });
+    await userEvent.click(confirmBtn);
+
+    await waitFor(() => {
+      expect(api.deleteSchema).toHaveBeenCalled();
+    });
+  });
 });
