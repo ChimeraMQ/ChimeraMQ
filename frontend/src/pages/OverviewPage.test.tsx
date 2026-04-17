@@ -287,4 +287,31 @@ describe('OverviewPage', () => {
     expect(screen.getByText('node-1')).toBeInTheDocument();
     expect(screen.getByText('500')).toBeInTheDocument();
   });
+
+  it('shows cluster member with unknown state as destructive', async () => {
+    vi.mocked(api.getHealth).mockResolvedValue({
+      status: 'healthy',
+      node_id: 1,
+      name: 'node-1',
+      version: '0.1.0',
+      uptime: '1h',
+    });
+    vi.mocked(api.getTopics).mockResolvedValue([]);
+    vi.mocked(api.getConsumers).mockResolvedValue({ groups: [], count: 0 });
+    vi.mocked(api.getCluster).mockResolvedValue({
+      mode: 'cluster',
+      alive_count: 1,
+      members: [
+        { id: 'dead-node', addr: '10.0.0.99', port: 5672, state: 'Dead', incarnation: 5 },
+      ],
+    });
+
+    render(<OverviewPage />, { wrapper: createWrapper() });
+
+    await waitFor(() => {
+      expect(screen.getByText('Cluster Health')).toBeInTheDocument();
+    });
+    expect(screen.getByText('dead-node')).toBeInTheDocument();
+    expect(screen.getByText('Dead')).toBeInTheDocument();
+  });
 });

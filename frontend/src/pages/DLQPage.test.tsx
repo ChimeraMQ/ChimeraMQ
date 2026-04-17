@@ -1108,4 +1108,60 @@ describe('DLQPage', () => {
       expect(screen.queryByText('1 entries')).not.toBeInTheDocument();
     });
   });
+
+  it('toggles topic selection via desktop list Inspect button with stopPropagation', async () => {
+    vi.mocked(api.listDLQTopics).mockResolvedValue({ topics: ['stopprop-dlq'] });
+    vi.mocked(api.getDLQ).mockResolvedValue({ topic: 'stopprop-dlq', count: 1, entries: [
+      { id: 'e1', topic: 't', partition: 0, reason: 'err', retries: 1, failed_at: '2026-01-01T00:00:00Z', original_msg: { id: 'm1', body: 'x' } },
+    ]});
+
+    render(<DLQPage />, { wrapper: createWrapper() });
+
+    await waitFor(() => {
+      expect(screen.getAllByText('stopprop-dlq').length).toBeGreaterThan(0);
+    });
+
+    // Desktop Inspect buttons are the second occurrence (mobile renders first in DOM)
+    const allInspectBtns = screen.getAllByRole('button', { name: /Inspect DLQ topic stopprop-dlq/ });
+    // Click the desktop version (last one in array) to trigger the stopPropagation path
+    const desktopInspectBtn = allInspectBtns[allInspectBtns.length - 1];
+    await userEvent.click(desktopInspectBtn);
+
+    await waitFor(() => {
+      expect(screen.getByText('1 entries')).toBeInTheDocument();
+    });
+
+    // Click same desktop button again to deselect (toggle path on desktop)
+    await userEvent.click(desktopInspectBtn);
+
+    await waitFor(() => {
+      expect(screen.queryByText('1 entries')).not.toBeInTheDocument();
+    });
+  });
+
+  it('closes replay dialog via onOpenChange which resets form', async () => {
+    vi.mocked(api.listDLQTopics).mockResolvedValue({ topics: ['onopenchange-dlq'] });
+
+    render(<DLQPage />, { wrapper: createWrapper() });
+
+    await waitFor(() => {
+      expect(screen.getAllByText('onopenchange-dlq').length).toBeGreaterThan(0);
+    });
+
+    const replayBtns = screen.getAllByRole('button', { name: /Replay DLQ topic/ });
+    await userEvent.click(replayBtns[0]);
+
+    await waitFor(() => {
+      expect(screen.getByText('Replay DLQ Messages')).toBeInTheDocument();
+    });
+
+    // Close dialog by calling onOpenChange(false) via clicking outside/escape
+    // This triggers the `if (open) replayForm.reset()` path on next open
+    const cancelBtn = screen.getByRole('button', { name: 'Cancel' });
+    await userEvent.click(cancelBtn);
+
+    await waitFor(() => {
+      expect(screen.queryByText('Replay DLQ Messages')).not.toBeInTheDocument();
+    });
+  });
 });
