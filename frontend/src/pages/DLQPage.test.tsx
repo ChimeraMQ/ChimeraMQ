@@ -636,4 +636,109 @@ describe('DLQPage', () => {
       expect(screen.getByText(/bulk-0/)).toBeInTheDocument();
     });
   });
+
+  it('handles API failure when loading topics list', async () => {
+    vi.mocked(api.listDLQTopics).mockRejectedValue(new Error('Network error'));
+
+    render(<DLQPage />, { wrapper: createWrapper() });
+
+    await waitFor(() => {
+      expect(screen.getByText('Dead Letter Queue')).toBeInTheDocument();
+    });
+    // Should gracefully show 0 topics when API fails
+    expect(screen.getAllByText('0 DLQ Topics').length).toBeGreaterThan(0);
+  });
+
+  it('handles API failure when loading DLQ entries', async () => {
+    vi.mocked(api.listDLQTopics).mockResolvedValue({ topics: ['fail-dlq'] });
+    vi.mocked(api.getDLQ).mockRejectedValue(new Error('Entry load failed'));
+
+    render(<DLQPage />, { wrapper: createWrapper() });
+
+    await waitFor(() => {
+      expect(screen.getAllByText('fail-dlq').length).toBeGreaterThan(0);
+    });
+
+    const inspectBtns = screen.getAllByRole('button', { name: /Inspect DLQ topic/ });
+    await userEvent.click(inspectBtns[0]);
+
+    // Should gracefully show 0 entries when API fails
+    await waitFor(() => {
+      expect(screen.getByText('0 entries')).toBeInTheDocument();
+    });
+  });
+
+  it('deselects topic when clicking desktop Inspect button again', async () => {
+    vi.mocked(api.listDLQTopics).mockResolvedValue({ topics: ['toggle2-dlq'] });
+    vi.mocked(api.getDLQ).mockResolvedValue({ topic: 'toggle2-dlq', count: 1, entries: [
+      { id: 'e1', topic: 't', partition: 0, reason: 'err', retries: 1, failed_at: '2026-01-01T00:00:00Z', original_msg: { id: 'm1', body: 'x' } },
+    ]});
+
+    render(<DLQPage />, { wrapper: createWrapper() });
+
+    await waitFor(() => {
+      expect(screen.getAllByText('toggle2-dlq').length).toBeGreaterThan(0);
+    });
+
+    // Click Inspect to select
+    const inspectBtns = screen.getAllByRole('button', { name: /Inspect DLQ topic/ });
+    await userEvent.click(inspectBtns[0]);
+
+    await waitFor(() => {
+      expect(screen.getByText('1 entries')).toBeInTheDocument();
+    });
+
+    // Click same Inspect button again to deselect
+    await userEvent.click(inspectBtns[0]);
+
+    // Entries section should disappear
+    await waitFor(() => {
+      expect(screen.queryByText('1 entries')).not.toBeInTheDocument();
+    });
+  });
+
+  it('resets replay form when dialog re-opens', async () => {
+    vi.mocked(api.listDLQTopics).mockResolvedValue({ topics: ['reset-dlq'] });
+    vi.mocked(api.replayDLQ).mockResolvedValue({ replayed: 0, dry_run: false });
+
+    render(<DLQPage />, { wrapper: createWrapper() });
+
+    await waitFor(() => {
+      expect(screen.getAllByText('reset-dlq').length).toBeGreaterThan(0);
+    });
+
+    // Open replay dialog
+    const replayBtns = screen.getAllByRole('button', { name: /Replay DLQ topic/ });
+    await userEvent.click(replayBtns[0]);
+
+    await waitFor(() => {
+      expect(screen.getByText('Replay DLQ Messages')).toBeInTheDocument();
+    });
+
+    // Toggle dry run on
+    const dryRunSwitch = screen.getByRole('switch', { name: /Dry run/ });
+    await userEvent.click(dryRunSwitch);
+
+    // Verify button changed to "Preview"
+    await waitFor(() => {
+      expect(screen.getByText('Preview')).toBeInTheDocument();
+    });
+
+    // Close dialog
+    const cancelBtn = screen.getByRole('button', { name: 'Cancel' });
+    await userEvent.click(cancelBtn);
+
+    await waitFor(() => {
+      expect(screen.queryByText('Replay DLQ Messages')).not.toBeInTheDocument();
+    });
+
+    // Re-open — form should be reset, dry run should be off, button back to "Replay"
+    const replayBtns2 = screen.getAllByRole('button', { name: /Replay DLQ topic/ });
+    await userEvent.click(replayBtns2[0]);
+
+    await waitFor(() => {
+      expect(screen.getByText('Replay DLQ Messages')).toBeInTheDocument();
+      expect(screen.getAllByText('Replay').length).toBeGreaterThan(0);
+    });
+  });
 });
