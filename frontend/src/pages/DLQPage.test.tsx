@@ -395,4 +395,189 @@ describe('DLQPage', () => {
       expect(screen.queryByText('Replay DLQ Messages')).not.toBeInTheDocument();
     });
   });
+
+  it('shows error toast when clear mutation fails', async () => {
+    vi.mocked(api.listDLQTopics).mockResolvedValue({ topics: ['orders-dlq'] });
+    vi.mocked(api.clearDLQ).mockRejectedValue(new Error('Clear failed'));
+
+    render(<DLQPage />, { wrapper: createWrapper() });
+
+    await waitFor(() => {
+      expect(screen.getAllByText('orders-dlq').length).toBeGreaterThan(0);
+    });
+
+    const clearBtns = screen.getAllByRole('button', { name: /Clear DLQ topic/ });
+    await userEvent.click(clearBtns[0]);
+
+    await waitFor(() => {
+      expect(screen.getByText('Clear DLQ Topic')).toBeInTheDocument();
+    });
+
+    const dialog = screen.getByRole('alertdialog');
+    const confirmBtn = within(dialog).getByRole('button', { name: 'Clear' });
+    await userEvent.click(confirmBtn);
+
+    await waitFor(() => {
+      expect(api.clearDLQ).toHaveBeenCalled();
+    });
+  });
+
+  it('shows error toast when replay mutation fails', async () => {
+    vi.mocked(api.listDLQTopics).mockResolvedValue({ topics: ['orders-dlq'] });
+    vi.mocked(api.replayDLQ).mockRejectedValue(new Error('Replay failed'));
+
+    render(<DLQPage />, { wrapper: createWrapper() });
+
+    await waitFor(() => {
+      expect(screen.getAllByText('orders-dlq').length).toBeGreaterThan(0);
+    });
+
+    const replayBtns = screen.getAllByRole('button', { name: /Replay DLQ topic/ });
+    await userEvent.click(replayBtns[0]);
+
+    await waitFor(() => {
+      expect(screen.getByText('Replay DLQ Messages')).toBeInTheDocument();
+    });
+
+    const replayBtn = screen.getByRole('button', { name: 'Replay' });
+    await userEvent.click(replayBtn);
+
+    await waitFor(() => {
+      expect(api.replayDLQ).toHaveBeenCalled();
+    });
+  });
+
+  it('shows entry card with topic fallback and date', async () => {
+    vi.mocked(api.listDLQTopics).mockResolvedValue({ topics: ['orders-dlq'] });
+    vi.mocked(api.getDLQ).mockResolvedValue({
+      topic: 'orders-dlq',
+      count: 1,
+      entries: [{
+        id: 'err-date-001',
+        topic: 'orders',
+        partition: 3,
+        reason: 'Connection refused',
+        retries: 5,
+        failed_at: '2026-04-16T15:30:00Z',
+        original_msg: { id: 'msg-999', body: '{"key":"val"}' },
+      }],
+    });
+
+    render(<DLQPage />, { wrapper: createWrapper() });
+
+    await waitFor(() => {
+      expect(screen.getAllByText('orders-dlq').length).toBeGreaterThan(0);
+    });
+
+    const inspectBtns = screen.getAllByRole('button', { name: /Inspect DLQ topic/ });
+    await userEvent.click(inspectBtns[0]);
+
+    await waitFor(() => {
+      expect(screen.getByText('1 entries')).toBeInTheDocument();
+    });
+
+    // Entry card should render with the View button
+    const viewBtns = screen.getAllByRole('button', { name: /View DLQ entry err-date-001/ });
+    expect(viewBtns.length).toBeGreaterThan(0);
+  });
+
+  it('opens replay dialog from desktop list Replay button', async () => {
+    vi.mocked(api.listDLQTopics).mockResolvedValue({ topics: ['desktop-dlq'] });
+
+    render(<DLQPage />, { wrapper: createWrapper() });
+
+    await waitFor(() => {
+      expect(screen.getAllByText('desktop-dlq').length).toBeGreaterThan(0);
+    });
+
+    // Desktop Replay button (no text label, just icon + "Replay")
+    const replayBtns = screen.getAllByRole('button', { name: /Replay DLQ topic/ });
+    await userEvent.click(replayBtns[0]);
+
+    await waitFor(() => {
+      expect(screen.getByText('Replay DLQ Messages')).toBeInTheDocument();
+    });
+  });
+
+  it('opens clear dialog from desktop list Clear button', async () => {
+    vi.mocked(api.listDLQTopics).mockResolvedValue({ topics: ['desktop-clear-dlq'] });
+
+    render(<DLQPage />, { wrapper: createWrapper() });
+
+    await waitFor(() => {
+      expect(screen.getAllByText('desktop-clear-dlq').length).toBeGreaterThan(0);
+    });
+
+    // Desktop Clear button (no text label, just icon)
+    const clearBtns = screen.getAllByRole('button', { name: /Clear DLQ topic/ });
+    await userEvent.click(clearBtns[0]);
+
+    await waitFor(() => {
+      expect(screen.getByText('Clear DLQ Topic')).toBeInTheDocument();
+    });
+  });
+
+  it('toggles selected topic on desktop Inspect button click', async () => {
+    vi.mocked(api.listDLQTopics).mockResolvedValue({ topics: ['toggle-dlq'] });
+    vi.mocked(api.getDLQ).mockResolvedValue({ topic: 'toggle-dlq', count: 0, entries: [] });
+
+    render(<DLQPage />, { wrapper: createWrapper() });
+
+    await waitFor(() => {
+      expect(screen.getAllByText('toggle-dlq').length).toBeGreaterThan(0);
+    });
+
+    // Click Inspect to select
+    const inspectBtns = screen.getAllByRole('button', { name: /Inspect DLQ topic/ });
+    await userEvent.click(inspectBtns[0]);
+
+    await waitFor(() => {
+      expect(screen.getByText('0 entries')).toBeInTheDocument();
+    });
+
+    // Click Inspect again to deselect
+    await userEvent.click(inspectBtns[0]);
+
+    // Entries section should disappear
+    await waitFor(() => {
+      expect(screen.queryByText('0 entries')).not.toBeInTheDocument();
+    });
+  });
+
+  it('opens replay dialog from mobile card Replay button', async () => {
+    vi.mocked(api.listDLQTopics).mockResolvedValue({ topics: ['mobile-replay-dlq'] });
+
+    render(<DLQPage />, { wrapper: createWrapper() });
+
+    await waitFor(() => {
+      expect(screen.getAllByText('mobile-replay-dlq').length).toBeGreaterThan(0);
+    });
+
+    // Mobile Replay button has text "Replay" alongside icon
+    const replayBtns = screen.getAllByRole('button', { name: /Replay DLQ topic/ });
+    // There are multiple (mobile + desktop), pick the mobile one
+    await userEvent.click(replayBtns[replayBtns.length - 1]);
+
+    await waitFor(() => {
+      expect(screen.getByText('Replay DLQ Messages')).toBeInTheDocument();
+    });
+  });
+
+  it('opens clear dialog from mobile card Clear button', async () => {
+    vi.mocked(api.listDLQTopics).mockResolvedValue({ topics: ['mobile-clear-dlq'] });
+
+    render(<DLQPage />, { wrapper: createWrapper() });
+
+    await waitFor(() => {
+      expect(screen.getAllByText('mobile-clear-dlq').length).toBeGreaterThan(0);
+    });
+
+    // Mobile Clear button has text "Clear" alongside icon
+    const clearBtns = screen.getAllByRole('button', { name: /Clear DLQ topic/ });
+    await userEvent.click(clearBtns[clearBtns.length - 1]);
+
+    await waitFor(() => {
+      expect(screen.getByText('Clear DLQ Topic')).toBeInTheDocument();
+    });
+  });
 });

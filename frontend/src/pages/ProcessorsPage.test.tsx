@@ -215,4 +215,151 @@ describe('ProcessorsPage', () => {
       expect(api.startProcessor).toHaveBeenCalled();
     });
   });
+
+  it('shows error toast when start mutation fails', async () => {
+    vi.mocked(api.listProcessors).mockResolvedValue({ topologies: ['broken-processor'], count: 1 });
+    vi.mocked(api.startProcessor).mockRejectedValue(new Error('Start failed'));
+
+    render(<ProcessorsPage />, { wrapper: createWrapper() });
+
+    await waitFor(() => {
+      expect(screen.getAllByText('broken-processor').length).toBeGreaterThan(0);
+    });
+
+    const startBtns = screen.getAllByRole('button', { name: /Start processor/ });
+    await userEvent.click(startBtns[0]);
+
+    await waitFor(() => {
+      expect(api.startProcessor).toHaveBeenCalled();
+    });
+  });
+
+  it('shows error toast when stop mutation fails', async () => {
+    vi.mocked(api.listProcessors).mockResolvedValue({ topologies: ['stuck-processor'], count: 1 });
+    vi.mocked(api.stopProcessor).mockRejectedValue(new Error('Stop failed'));
+
+    render(<ProcessorsPage />, { wrapper: createWrapper() });
+
+    await waitFor(() => {
+      expect(screen.getAllByText('stuck-processor').length).toBeGreaterThan(0);
+    });
+
+    const stopBtns = screen.getAllByRole('button', { name: /Stop processor/ });
+    await userEvent.click(stopBtns[0]);
+
+    await waitFor(() => {
+      expect(api.stopProcessor).toHaveBeenCalled();
+    });
+  });
+
+  it('shows error toast when delete mutation fails', async () => {
+    vi.mocked(api.listProcessors).mockResolvedValue({ topologies: ['err-delete'], count: 1 });
+    vi.mocked(api.deleteProcessor).mockRejectedValue(new Error('Delete failed'));
+
+    render(<ProcessorsPage />, { wrapper: createWrapper() });
+
+    await waitFor(() => {
+      expect(screen.getAllByText('err-delete').length).toBeGreaterThan(0);
+    });
+
+    const deleteBtns = screen.getAllByRole('button', { name: /Delete processor/ });
+    await userEvent.click(deleteBtns[0]);
+
+    await waitFor(() => {
+      expect(screen.getByText('Delete Processor')).toBeInTheDocument();
+    });
+
+    const dialog = screen.getByRole('alertdialog');
+    const confirmBtn = within(dialog).getByRole('button', { name: 'Delete' });
+    await userEvent.click(confirmBtn);
+
+    await waitFor(() => {
+      expect(api.deleteProcessor).toHaveBeenCalled();
+    });
+  });
+
+  it('shows View processor detail from mobile card view', async () => {
+    vi.mocked(api.listProcessors).mockResolvedValue({ topologies: ['mobile-view'], count: 1 });
+    vi.mocked(api.getProcessor).mockResolvedValue({
+      state: 'running',
+      source_topic: 'raw',
+      sink_topic: 'cooked',
+      parallelism: 2,
+      operators: 3,
+    });
+
+    render(<ProcessorsPage />, { wrapper: createWrapper() });
+
+    await waitFor(() => {
+      expect(screen.getAllByText('mobile-view').length).toBeGreaterThan(0);
+    });
+
+    const viewBtns = screen.getAllByRole('button', { name: /View processor mobile-view/ });
+    expect(viewBtns.length).toBeGreaterThan(0);
+    await userEvent.click(viewBtns[0]);
+
+    await waitFor(() => {
+      expect(screen.getByText('raw')).toBeInTheDocument();
+    });
+    expect(screen.getByText('cooked')).toBeInTheDocument();
+  });
+
+  it('shows delete confirmation dialog from mobile card view', async () => {
+    vi.mocked(api.listProcessors).mockResolvedValue({ topologies: ['mobile-proc'], count: 1 });
+    vi.mocked(api.deleteProcessor).mockResolvedValue(undefined);
+
+    render(<ProcessorsPage />, { wrapper: createWrapper() });
+
+    await waitFor(() => {
+      expect(screen.getAllByText('mobile-proc').length).toBeGreaterThan(0);
+    });
+
+    // Mobile Delete button has "Delete" text alongside icon — pick from all matching buttons
+    const deleteBtns = screen.getAllByRole('button', { name: /Delete processor mobile-proc/ });
+    expect(deleteBtns.length).toBeGreaterThan(0);
+    await userEvent.click(deleteBtns[0]);
+
+    await waitFor(() => {
+      expect(screen.getByText('Delete Processor')).toBeInTheDocument();
+    });
+    expect(screen.getByText(/Are you sure you want to delete "mobile-proc"/)).toBeInTheDocument();
+  });
+
+  it('starts processor from mobile card view', async () => {
+    vi.mocked(api.listProcessors).mockResolvedValue({ topologies: ['mobile-start'], count: 1 });
+    vi.mocked(api.startProcessor).mockResolvedValue({ status: 'started' });
+
+    render(<ProcessorsPage />, { wrapper: createWrapper() });
+
+    await waitFor(() => {
+      expect(screen.getAllByText('mobile-start').length).toBeGreaterThan(0);
+    });
+
+    const startBtns = screen.getAllByRole('button', { name: /Start processor mobile-start/ });
+    expect(startBtns.length).toBeGreaterThan(0);
+    await userEvent.click(startBtns[0]);
+
+    await waitFor(() => {
+      expect(api.startProcessor).toHaveBeenCalledWith('mobile-start');
+    });
+  });
+
+  it('stops processor from mobile card view', async () => {
+    vi.mocked(api.listProcessors).mockResolvedValue({ topologies: ['mobile-stop'], count: 1 });
+    vi.mocked(api.stopProcessor).mockResolvedValue({ status: 'stopped' });
+
+    render(<ProcessorsPage />, { wrapper: createWrapper() });
+
+    await waitFor(() => {
+      expect(screen.getAllByText('mobile-stop').length).toBeGreaterThan(0);
+    });
+
+    const stopBtns = screen.getAllByRole('button', { name: /Stop processor mobile-stop/ });
+    expect(stopBtns.length).toBeGreaterThan(0);
+    await userEvent.click(stopBtns[0]);
+
+    await waitFor(() => {
+      expect(api.stopProcessor).toHaveBeenCalledWith('mobile-stop');
+    });
+  });
 });
