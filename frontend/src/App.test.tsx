@@ -1,6 +1,6 @@
 import { describe, it, expect, vi } from 'vitest';
 import { render, screen } from '@testing-library/react';
-import { App } from '@/App';
+import { App, PageFallback } from '@/App';
 
 vi.mock('react-router', () => ({
   Routes: ({ children }: { children: React.ReactNode }) => <div data-testid="routes">{children}</div>,
@@ -37,5 +37,19 @@ describe('App', () => {
     render(<App />);
 
     expect(screen.getByRole('link', { name: /skip/i })).toBeInTheDocument();
+  });
+});
+
+describe('PageFallback', () => {
+  it('renders loading skeleton with title and grid', () => {
+    render(<PageFallback />);
+
+    // Should render container with space-y-6 class
+    const container = document.querySelector('.space-y-6');
+    expect(container).toBeInTheDocument();
+
+    // Should have animate-pulse skeleton elements
+    const skeletons = document.querySelectorAll('.animate-pulse');
+    expect(skeletons.length).toBe(5); // 1 title + 4 grid cards
   });
 });

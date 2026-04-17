@@ -16,7 +16,7 @@ const DLQPage = lazy(() => import('@/pages/DLQPage').then(m => ({ default: m.DLQ
 const WASMPage = lazy(() => import('@/pages/WASMPage').then(m => ({ default: m.WASMPage })));
 const ProcessorsPage = lazy(() => import('@/pages/ProcessorsPage').then(m => ({ default: m.ProcessorsPage })));
 
-function PageFallback() {
+export function PageFallback() {
   return (
     <div className="space-y-6">
       <Skeleton className="h-8 w-48" />
