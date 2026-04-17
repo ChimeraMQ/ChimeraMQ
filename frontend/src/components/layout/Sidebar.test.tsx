@@ -3,10 +3,23 @@ import { render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { Sidebar, Header } from '@/components/layout/Sidebar';
 
+// NavLink mock that supports className function
+const NavLinkMock = ({ className, children, to, ...props }: any) => {
+  const cls = typeof className === 'function'
+    ? className({ isActive: false, isPending: false, isTransitioning: false })
+    : className;
+  return (
+    <a href={to} className={cls} data-testid={`nav-link-${to}`} {...props}>{children}</a>
+  );
+};
+
 vi.mock('react-router', () => ({
-  NavLink: ({ children, to, ...props }: { children: React.ReactNode; to: string; [key: string]: any }) => (
-    <a href={to} {...props}>{children}</a>
-  ),
+  NavLink: ({ className, children, to, ...props }: any) => {
+    const cls = typeof className === 'function'
+      ? className({ isActive: false, isPending: false, isTransitioning: false })
+      : className;
+    return <a href={to} className={cls} data-testid={`nav-link-${to}`} {...props}>{children}</a>;
+  },
   useNavigate: () => vi.fn(),
   Link: ({ children, to, ...props }: { children: React.ReactNode; to: string }) => (
     <a href={to} {...props}>{children}</a>
@@ -129,6 +142,22 @@ describe('Sidebar', () => {
     render(<Sidebar open={false} onClose={vi.fn()} />);
 
     expect(screen.getAllByText('v1.0.0-draft').length).toBeGreaterThan(0);
+  });
+
+  it('renders nav links with active and inactive class variants', () => {
+    render(<Sidebar open={false} onClose={vi.fn()} />);
+
+    // NavLink mock renders with isActive: false, so all links should have the inactive classes
+    const navLinks = screen.getAllByTestId(/^nav-link-/);
+    expect(navLinks.length).toBeGreaterThan(0);
+
+    // Each link should have the base classes from the className function
+    const firstLink = navLinks[0];
+    expect(firstLink).toHaveAttribute('class');
+    const cls = firstLink.getAttribute('class');
+    expect(cls).toContain('flex items-center gap-3');
+    expect(cls).toContain('text-text-secondary');
+    expect(cls).toContain('hover:bg-background-muted');
   });
 });
 
