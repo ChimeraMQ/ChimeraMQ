@@ -375,4 +375,18 @@ describe('SchemasPage', () => {
       expect(api.deleteSchema).toHaveBeenCalled();
     });
   });
+
+  it('shows empty state Register Schema button', async () => {
+    vi.mocked(api.listSchemaSubjects).mockResolvedValue([]);
+
+    render(<SchemasPage />, { wrapper: createWrapper() });
+
+    await waitFor(() => {
+      expect(screen.getByText('No schemas registered')).toBeInTheDocument();
+    });
+
+    // Register Schema button in empty state
+    const registerBtn = screen.getAllByRole('button', { name: /Register Schema/ })[0];
+    expect(registerBtn).toBeInTheDocument();
+  });
 });

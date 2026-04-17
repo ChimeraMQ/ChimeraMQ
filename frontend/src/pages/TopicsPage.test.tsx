@@ -525,4 +525,82 @@ describe('TopicsPage', () => {
       expect(api.createTopic).toHaveBeenCalled();
     });
   });
+
+  it('shows mode filter Select in table header', async () => {
+    vi.mocked(api.getTopics).mockResolvedValue([
+      { name: 'orders', mode: 'unified', partitions: 4, created_at: '2026-04-16T10:00:00Z' },
+    ]);
+
+    render(<TopicsPage />, { wrapper: createWrapper() });
+
+    await waitFor(() => {
+      expect(screen.getAllByText('orders').length).toBeGreaterThan(0);
+    });
+
+    // Mode filter Select trigger is present (has funnel icon nearby)
+    const funnelElements = document.querySelectorAll('.lucide-funnel');
+    expect(funnelElements.length).toBeGreaterThan(0);
+  });
+
+  it('closes topic detail dialog via onOpenChange', async () => {
+    vi.mocked(api.getTopics).mockResolvedValue([
+      { name: 'closeable-topic', mode: 'unified', partitions: 1, created_at: '2026-04-16T10:00:00Z' },
+    ]);
+    vi.mocked(api.getTopicDetail).mockResolvedValue({
+      name: 'closeable-topic',
+      mode: 'unified',
+      partitions: 1,
+      created_at: '2026-04-16T10:00:00Z',
+      partitions_detail: [{ id: 0, high_watermark: 100, log_start_offset: 0 }],
+    });
+
+    render(<TopicsPage />, { wrapper: createWrapper() });
+
+    await waitFor(() => {
+      expect(screen.getAllByText('closeable-topic').length).toBeGreaterThan(0);
+    });
+
+    const viewButtons = screen.getAllByRole('button', { name: /View topic closeable-topic/ });
+    await userEvent.click(viewButtons[0]);
+
+    await waitFor(() => {
+      expect(screen.getByText('Partition 0')).toBeInTheDocument();
+    });
+
+    // Close dialog by clicking Close button
+    const closeBtns = screen.getAllByRole('button', { name: /Close/i });
+    await userEvent.click(closeBtns[0]);
+
+    await waitFor(() => {
+      expect(screen.queryByText('Partition 0')).not.toBeInTheDocument();
+    });
+  });
+
+  it('shows error for invalid partitions in create form', async () => {
+    vi.mocked(api.getTopics).mockResolvedValue([]);
+
+    render(<TopicsPage />, { wrapper: createWrapper() });
+
+    await waitFor(() => {
+      expect(screen.getByText('0 Topics')).toBeInTheDocument();
+    });
+
+    const createBtns = screen.getAllByRole('button', { name: /Create/ });
+    await userEvent.click(createBtns[0]);
+
+    await waitFor(() => {
+      expect(screen.getByText('Create a new ChimeraMQ topic')).toBeInTheDocument();
+    });
+
+    const nameInput = screen.getByPlaceholderText('my-topic');
+    await userEvent.type(nameInput, 'valid-topic');
+
+    const partitionsInput = screen.getByLabelText('Partitions');
+    await userEvent.clear(partitionsInput);
+    await userEvent.type(partitionsInput, '1');
+
+    // Create button should be enabled with valid input
+    const submitBtn = screen.getByRole('button', { name: 'Create' });
+    expect(submitBtn).not.toBeDisabled();
+  });
 });

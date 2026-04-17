@@ -869,4 +869,31 @@ describe('DLQPage', () => {
       expect(api.replayDLQ).toHaveBeenCalled();
     });
   });
+
+  it('opens topic entries when clicking Inspect button in topic list', async () => {
+    vi.mocked(api.listDLQTopics).mockResolvedValue({ topics: ['inspect-btn-topic'] });
+    vi.mocked(api.getDLQ).mockResolvedValue({
+      topic: 'inspect-btn-topic',
+      count: 2,
+      entries: [
+        { id: 'msg-001', topic: 'test-topic', reason: 'timeout', retries: 3, failed_at: '2026-04-16T10:00:00Z', original_msg: { body: '{"key": "val"}' } },
+        { id: 'msg-002', topic: 'test-topic', reason: 'error', retries: 1, failed_at: '2026-04-16T11:00:00Z', original_msg: { body: '{"key": "val2"}' } },
+      ],
+    });
+
+    render(<DLQPage />, { wrapper: createWrapper() });
+
+    await waitFor(() => {
+      expect(screen.getAllByText('inspect-btn-topic').length).toBeGreaterThan(0);
+    });
+
+    // Click Inspect button
+    const inspectBtns = screen.getAllByRole('button', { name: /Inspect DLQ topic inspect-btn-topic/ });
+    expect(inspectBtns.length).toBeGreaterThan(0);
+    await userEvent.click(inspectBtns[0]);
+
+    await waitFor(() => {
+      expect(screen.getByText('2 entries')).toBeInTheDocument();
+    });
+  });
 });
