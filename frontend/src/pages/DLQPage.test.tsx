@@ -896,4 +896,111 @@ describe('DLQPage', () => {
       expect(screen.getByText('2 entries')).toBeInTheDocument();
     });
   });
+
+  it('renders virtualized list for 100+ entries', async () => {
+    const bigEntries = Array.from({ length: 150 }, (_, i) => ({
+      id: `msg-${String(i).padStart(3, '0')}`,
+      topic: 'big-dlq-topic',
+      partition: i % 8,
+      reason: 'timeout',
+      retries: 1,
+      failed_at: '2026-04-16T10:00:00Z',
+      original_msg: { body: `{"i": ${i}}` },
+    }));
+
+    vi.mocked(api.listDLQTopics).mockResolvedValue({ topics: ['big-dlq-topic'] });
+    vi.mocked(api.getDLQ).mockResolvedValue({
+      topic: 'big-dlq-topic',
+      count: 150,
+      entries: bigEntries,
+    });
+
+    render(<DLQPage />, { wrapper: createWrapper() });
+
+    await waitFor(() => {
+      expect(screen.getAllByText('big-dlq-topic').length).toBeGreaterThan(0);
+    });
+
+    // Click Inspect to load entries
+    const inspectBtns = screen.getAllByRole('button', { name: /Inspect DLQ topic big-dlq-topic/ });
+    expect(inspectBtns.length).toBeGreaterThan(0);
+    await userEvent.click(inspectBtns[0]);
+
+    await waitFor(() => {
+      expect(screen.getByText('150 entries')).toBeInTheDocument();
+    });
+  });
+
+  it('shows Clear DLQ button and confirmation dialog', async () => {
+    vi.mocked(api.listDLQTopics).mockResolvedValue({ topics: ['clear-topic'] });
+    vi.mocked(api.clearDLQ).mockResolvedValue(undefined);
+
+    render(<DLQPage />, { wrapper: createWrapper() });
+
+    await waitFor(() => {
+      expect(screen.getAllByText('clear-topic').length).toBeGreaterThan(0);
+    });
+
+    // Click Clear button
+    const clearBtns = screen.getAllByRole('button', { name: /Clear DLQ topic/ });
+    expect(clearBtns.length).toBeGreaterThan(0);
+    await userEvent.click(clearBtns[0]);
+
+    await waitFor(() => {
+      expect(screen.getByText('Clear DLQ Topic')).toBeInTheDocument();
+    });
+    expect(screen.getByText(/clear all entries from/)).toBeInTheDocument();
+  });
+
+  it('executes clear DLQ when confirmed', async () => {
+    vi.mocked(api.listDLQTopics).mockResolvedValue({ topics: ['clear-confirm'] });
+    vi.mocked(api.clearDLQ).mockResolvedValue(undefined);
+
+    render(<DLQPage />, { wrapper: createWrapper() });
+
+    await waitFor(() => {
+      expect(screen.getAllByText('clear-confirm').length).toBeGreaterThan(0);
+    });
+
+    const clearBtns = screen.getAllByRole('button', { name: /Clear DLQ topic/ });
+    await userEvent.click(clearBtns[0]);
+
+    await waitFor(() => {
+      expect(screen.getByText('Clear DLQ Topic')).toBeInTheDocument();
+    });
+
+    const dialog = screen.getByRole('alertdialog');
+    const confirmBtn = within(dialog).getByRole('button', { name: 'Clear' });
+    await userEvent.click(confirmBtn);
+
+    await waitFor(() => {
+      expect(api.clearDLQ).toHaveBeenCalledWith('clear-confirm');
+    });
+  });
+
+  it('handles API failure when clear DLQ fails', async () => {
+    vi.mocked(api.listDLQTopics).mockResolvedValue({ topics: ['clear-err'] });
+    vi.mocked(api.clearDLQ).mockRejectedValue(new Error('Clear failed'));
+
+    render(<DLQPage />, { wrapper: createWrapper() });
+
+    await waitFor(() => {
+      expect(screen.getAllByText('clear-err').length).toBeGreaterThan(0);
+    });
+
+    const clearBtns = screen.getAllByRole('button', { name: /Clear DLQ topic/ });
+    await userEvent.click(clearBtns[0]);
+
+    await waitFor(() => {
+      expect(screen.getByText('Clear DLQ Topic')).toBeInTheDocument();
+    });
+
+    const dialog = screen.getByRole('alertdialog');
+    const confirmBtn = within(dialog).getByRole('button', { name: 'Clear' });
+    await userEvent.click(confirmBtn);
+
+    await waitFor(() => {
+      expect(api.clearDLQ).toHaveBeenCalled();
+    });
+  });
 });

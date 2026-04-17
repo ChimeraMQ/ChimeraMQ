@@ -132,4 +132,45 @@ describe('WASMPage', () => {
       expect(api.deleteWASMModule).toHaveBeenCalled();
     });
   });
+
+  it('handles API failure when loading modules', async () => {
+    vi.mocked(api.listWASMModules).mockRejectedValue(new Error('Network error'));
+
+    render(<WASMPage />, { wrapper: createWrapper() });
+
+    await waitFor(() => {
+      expect(screen.getByText('WASM Modules')).toBeInTheDocument();
+    });
+    // Page renders gracefully with 0 count
+    expect(screen.getByText('0 Modules')).toBeInTheDocument();
+  });
+
+  it('shows module count with single module', async () => {
+    vi.mocked(api.listWASMModules).mockResolvedValue({ modules: ['solo'], count: 1 });
+
+    render(<WASMPage />, { wrapper: createWrapper() });
+
+    await waitFor(() => {
+      expect(screen.getByText('1 Modules')).toBeInTheDocument();
+    });
+  });
+
+  it('shows delete confirmation from desktop table Delete button', async () => {
+    vi.mocked(api.listWASMModules).mockResolvedValue({ modules: ['desktop-mod'], count: 1 });
+
+    render(<WASMPage />, { wrapper: createWrapper() });
+
+    await waitFor(() => {
+      expect(screen.getAllByText('desktop-mod').length).toBeGreaterThan(0);
+    });
+
+    const deleteBtns = screen.getAllByRole('button', { name: /Delete WASM module desktop-mod/ });
+    expect(deleteBtns.length).toBeGreaterThan(1);
+    await userEvent.click(deleteBtns[1]); // desktop button
+
+    await waitFor(() => {
+      expect(screen.getByText('Delete WASM Module')).toBeInTheDocument();
+    });
+    expect(screen.getByText(/Are you sure you want to delete "desktop-mod"/)).toBeInTheDocument();
+  });
 });

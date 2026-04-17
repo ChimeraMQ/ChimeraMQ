@@ -425,4 +425,40 @@ describe('ProcessorsPage', () => {
       expect(screen.getByText('src')).toBeInTheDocument();
     });
   });
+
+  it('handles API failure when loading processors', async () => {
+    vi.mocked(api.listProcessors).mockRejectedValue(new Error('Network error'));
+
+    render(<ProcessorsPage />, { wrapper: createWrapper() });
+
+    await waitFor(() => {
+      expect(screen.getByText('Stream Processors')).toBeInTheDocument();
+    });
+    // Page renders gracefully - count shows 0
+    expect(screen.getByText('0 Processors')).toBeInTheDocument();
+  });
+
+  it('shows processor state badge with stopped state', async () => {
+    vi.mocked(api.listProcessors).mockResolvedValue({ topologies: ['stopped-proc'], count: 1 });
+    vi.mocked(api.getProcessor).mockResolvedValue({
+      state: 'stopped',
+      source_topic: 'raw',
+      sink_topic: 'cooked',
+      parallelism: 1,
+      operators: 1,
+    });
+
+    render(<ProcessorsPage />, { wrapper: createWrapper() });
+
+    await waitFor(() => {
+      expect(screen.getAllByText('stopped-proc').length).toBeGreaterThan(0);
+    });
+
+    const viewBtns = screen.getAllByRole('button', { name: /View processor stopped-proc/ });
+    await userEvent.click(viewBtns[0]);
+
+    await waitFor(() => {
+      expect(screen.getByText('stopped')).toBeInTheDocument();
+    });
+  });
 });

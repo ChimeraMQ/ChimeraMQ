@@ -180,4 +180,48 @@ describe('ConsumersPage', () => {
       expect(screen.getByText(/No groups matching/)).toBeInTheDocument();
     });
   });
+
+  it('handles API failure when loading consumer groups', async () => {
+    vi.mocked(api.getConsumers).mockRejectedValue(new Error('Network error'));
+
+    render(<ConsumersPage />, { wrapper: createWrapper() });
+
+    await waitFor(() => {
+      expect(screen.getByText('Consumers')).toBeInTheDocument();
+    });
+    // Page renders gracefully - counts are visible
+    expect(document.body).toHaveTextContent('0');
+  });
+
+  it('shows group detail with member assignments in dialog', async () => {
+    vi.mocked(api.getConsumers).mockResolvedValue({ groups: ['assign-group'], count: 1 });
+    vi.mocked(api.getConsumerGroupDetail).mockResolvedValue({
+      group: 'assign-group',
+      state: 'Stable',
+      members: [
+        { id: 'member-1', partitions: [0, 2] },
+        { id: 'member-2', partitions: [1, 3] },
+      ],
+      assignments: {
+        'member-1': [0, 2],
+        'member-2': [1, 3],
+      },
+    });
+
+    render(<ConsumersPage />, { wrapper: createWrapper() });
+
+    await waitFor(() => {
+      expect(screen.getAllByText('assign-group').length).toBeGreaterThan(0);
+    });
+
+    const viewBtns = screen.getAllByRole('button', { name: /View consumer group assign-group/ });
+    expect(viewBtns.length).toBeGreaterThan(0);
+    await userEvent.click(viewBtns[1]); // desktop button
+
+    await waitFor(() => {
+      expect(screen.getByText('2 member(s), 2 assignment(s)')).toBeInTheDocument();
+    });
+    expect(screen.getAllByText('member-1').length).toBeGreaterThan(0);
+    expect(screen.getAllByText('member-2').length).toBeGreaterThan(0);
+  });
 });
