@@ -163,4 +163,21 @@ describe('ConsumersPage', () => {
       expect(screen.getByText('No active members')).toBeInTheDocument();
     });
   });
+
+  it('shows no groups matching filters when search returns no results', async () => {
+    vi.mocked(api.getConsumers).mockResolvedValue({ groups: ['my-group'], count: 1 });
+
+    render(<ConsumersPage />, { wrapper: createWrapper() });
+
+    await waitFor(() => {
+      expect(screen.getAllByText('my-group').length).toBeGreaterThan(0);
+    });
+
+    const searchInput = screen.getByPlaceholderText('Filter groups...');
+    await userEvent.type(searchInput, 'zzzznotexist');
+
+    await waitFor(() => {
+      expect(screen.getByText(/No groups matching/)).toBeInTheDocument();
+    });
+  });
 });

@@ -257,4 +257,61 @@ describe('SchemasPage', () => {
       expect(screen.queryByText('Register a new schema for a subject')).not.toBeInTheDocument();
     });
   });
+
+  it('shows error toast when delete fails', async () => {
+    vi.mocked(api.listSchemaSubjects).mockResolvedValue(['err-subject']);
+    vi.mocked(api.deleteSchema).mockRejectedValue(new Error('Delete failed'));
+
+    render(<SchemasPage />, { wrapper: createWrapper() });
+
+    await waitFor(() => {
+      expect(screen.getAllByText('err-subject').length).toBeGreaterThan(0);
+    });
+
+    const deleteBtns = screen.getAllByRole('button', { name: /Delete schema/ });
+    await userEvent.click(deleteBtns[0]);
+
+    await waitFor(() => {
+      expect(screen.getByText('Delete Schema')).toBeInTheDocument();
+    });
+
+    const dialog = screen.getByRole('alertdialog');
+    const confirmBtn = within(dialog).getByRole('button', { name: 'Delete' });
+    await userEvent.click(confirmBtn);
+
+    await waitFor(() => {
+      expect(api.deleteSchema).toHaveBeenCalled();
+    });
+  });
+
+  it('shows error toast when register fails', async () => {
+    vi.mocked(api.listSchemaSubjects).mockResolvedValue([]);
+    vi.mocked(api.registerSchema).mockRejectedValue(new Error('Register failed'));
+
+    render(<SchemasPage />, { wrapper: createWrapper() });
+
+    await waitFor(() => {
+      expect(screen.getByText('0 Subjects')).toBeInTheDocument();
+    });
+
+    const registerBtns = screen.getAllByRole('button', { name: /Register/ });
+    await userEvent.click(registerBtns[0]);
+
+    await waitFor(() => {
+      expect(screen.getByText('Register a new schema for a subject')).toBeInTheDocument();
+    });
+
+    const subjectInput = screen.getByPlaceholderText('my-topic-value');
+    await userEvent.type(subjectInput, 'fail-subject');
+
+    const defInput = screen.getByPlaceholderText('{"type": "object", "properties": {...}}');
+    await userEvent.type(defInput, 'schema definition here');
+
+    const submitBtn = screen.getByRole('button', { name: 'Register' });
+    await userEvent.click(submitBtn);
+
+    await waitFor(() => {
+      expect(api.registerSchema).toHaveBeenCalled();
+    });
+  });
 });

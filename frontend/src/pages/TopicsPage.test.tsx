@@ -356,4 +356,56 @@ describe('TopicsPage', () => {
       expect(screen.queryByText('Partition 0')).not.toBeInTheDocument();
     });
   });
+
+  it('creates topic from empty state Create button', async () => {
+    vi.mocked(api.getTopics).mockResolvedValue([]);
+    vi.mocked(api.createTopic).mockResolvedValue({ status: 'created' });
+
+    render(<TopicsPage />, { wrapper: createWrapper() });
+
+    await waitFor(() => {
+      expect(screen.getByText('0 Topics')).toBeInTheDocument();
+    });
+
+    // Click the Create Topic button from the empty state
+    const emptyStateBtn = screen.getAllByRole('button', { name: /Create Topic/ })[0];
+    await userEvent.click(emptyStateBtn);
+
+    await waitFor(() => {
+      expect(screen.getByText('Create a new ChimeraMQ topic')).toBeInTheDocument();
+    });
+
+    const nameInput = screen.getByPlaceholderText('my-topic');
+    await userEvent.type(nameInput, 'empty-state-topic');
+
+    const partitionsInput = screen.getByLabelText('Partitions');
+    await userEvent.clear(partitionsInput);
+    await userEvent.type(partitionsInput, '2');
+
+    const submitBtn = screen.getByRole('button', { name: 'Create' });
+    await userEvent.click(submitBtn);
+
+    await waitFor(() => {
+      expect(api.createTopic).toHaveBeenCalledWith('empty-state-topic', 'unified', 2);
+    });
+  });
+
+  it('shows topic mode badges correctly', async () => {
+    vi.mocked(api.getTopics).mockResolvedValue([
+      { name: 'orders', mode: 'unified', partitions: 4, created_at: '2026-04-16T10:00:00Z' },
+      { name: 'events', mode: 'stream', partitions: 8, created_at: '2026-04-16T11:00:00Z' },
+      { name: 'notifications', mode: 'queue', partitions: 2, created_at: '2026-04-16T12:00:00Z' },
+    ]);
+
+    render(<TopicsPage />, { wrapper: createWrapper() });
+
+    await waitFor(() => {
+      expect(screen.getAllByText('orders').length).toBeGreaterThan(0);
+    });
+
+    // Mode badges should be visible
+    expect(screen.getAllByText('unified').length).toBeGreaterThan(0);
+    expect(screen.getAllByText('stream').length).toBeGreaterThan(0);
+    expect(screen.getAllByText('queue').length).toBeGreaterThan(0);
+  });
 });
