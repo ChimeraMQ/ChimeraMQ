@@ -362,4 +362,67 @@ describe('ProcessorsPage', () => {
       expect(api.stopProcessor).toHaveBeenCalledWith('mobile-stop');
     });
   });
+
+  it('starts processor from desktop Start button', async () => {
+    vi.mocked(api.listProcessors).mockResolvedValue({ topologies: ['desktop-start'], count: 1 });
+    vi.mocked(api.startProcessor).mockResolvedValue({ status: 'started' });
+
+    render(<ProcessorsPage />, { wrapper: createWrapper() });
+
+    await waitFor(() => {
+      expect(screen.getAllByText('desktop-start').length).toBeGreaterThan(0);
+    });
+
+    const startBtns = screen.getAllByRole('button', { name: /Start processor desktop-start/ });
+    expect(startBtns.length).toBeGreaterThan(0);
+    await userEvent.click(startBtns[1]); // desktop button
+
+    await waitFor(() => {
+      expect(api.startProcessor).toHaveBeenCalledWith('desktop-start');
+    });
+  });
+
+  it('stops processor from desktop Stop button', async () => {
+    vi.mocked(api.listProcessors).mockResolvedValue({ topologies: ['desktop-stop'], count: 1 });
+    vi.mocked(api.stopProcessor).mockResolvedValue({ status: 'stopped' });
+
+    render(<ProcessorsPage />, { wrapper: createWrapper() });
+
+    await waitFor(() => {
+      expect(screen.getAllByText('desktop-stop').length).toBeGreaterThan(0);
+    });
+
+    const stopBtns = screen.getAllByRole('button', { name: /Stop processor desktop-stop/ });
+    expect(stopBtns.length).toBeGreaterThan(0);
+    await userEvent.click(stopBtns[1]); // desktop button
+
+    await waitFor(() => {
+      expect(api.stopProcessor).toHaveBeenCalledWith('desktop-stop');
+    });
+  });
+
+  it('views processor from desktop View button', async () => {
+    vi.mocked(api.listProcessors).mockResolvedValue({ topologies: ['desktop-view'], count: 1 });
+    vi.mocked(api.getProcessor).mockResolvedValue({
+      state: 'running',
+      source_topic: 'src',
+      sink_topic: 'dst',
+      parallelism: 1,
+      operators: 2,
+    });
+
+    render(<ProcessorsPage />, { wrapper: createWrapper() });
+
+    await waitFor(() => {
+      expect(screen.getAllByText('desktop-view').length).toBeGreaterThan(0);
+    });
+
+    const viewBtns = screen.getAllByRole('button', { name: /View processor desktop-view/ });
+    expect(viewBtns.length).toBeGreaterThan(0);
+    await userEvent.click(viewBtns[1]); // desktop button
+
+    await waitFor(() => {
+      expect(screen.getByText('src')).toBeInTheDocument();
+    });
+  });
 });

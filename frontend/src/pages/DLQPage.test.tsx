@@ -580,4 +580,28 @@ describe('DLQPage', () => {
       expect(screen.getByText('Clear DLQ Topic')).toBeInTheDocument();
     });
   });
+
+  it('selects topic by clicking desktop row', async () => {
+    vi.mocked(api.listDLQTopics).mockResolvedValue({ topics: ['row-dlq'] });
+    vi.mocked(api.getDLQ).mockResolvedValue({ topic: 'row-dlq', count: 2, entries: [
+      { id: 'e1', topic: 't', partition: 0, reason: 'err', retries: 1, failed_at: '2026-01-01T00:00:00Z', original_msg: { id: 'm1', body: 'x' } },
+      { id: 'e2', topic: 't', partition: 1, reason: 'err', retries: 2, failed_at: '2026-01-01T00:00:00Z', original_msg: { id: 'm2', body: 'y' } },
+    ]});
+
+    render(<DLQPage />, { wrapper: createWrapper() });
+
+    await waitFor(() => {
+      expect(screen.getAllByText('row-dlq').length).toBeGreaterThan(0);
+    });
+
+    // Click the "Click to inspect" text — it's in the desktop row div which has the onClick handler
+    const clickHint = screen.getAllByText('Click to inspect');
+    expect(clickHint.length).toBeGreaterThan(0);
+    // The span's parent is the div with onClick
+    await userEvent.click(clickHint[0].parentElement!);
+
+    await waitFor(() => {
+      expect(screen.getByText('2 entries')).toBeInTheDocument();
+    });
+  });
 });

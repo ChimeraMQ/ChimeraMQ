@@ -296,6 +296,7 @@ export function DLQPage() {
                           e.stopPropagation();
                           setSelectedTopic(selectedTopic === t ? null : t);
                         }}
+                        aria-label={`Inspect DLQ topic ${t}`}
                       >
                         <Eye className="h-4 w-4 mr-1" />
                         Inspect
@@ -308,6 +309,7 @@ export function DLQPage() {
                           setSelectedTopic(t);
                           setReplayOpen(true);
                         }}
+                        aria-label={`Replay DLQ topic ${t}`}
                       >
                         <RefreshCw className="h-4 w-4 mr-1" />
                         Replay
@@ -321,6 +323,7 @@ export function DLQPage() {
                           setSelectedTopic(t);
                           setClearOpen(true);
                         }}
+                        aria-label={`Clear DLQ topic ${t}`}
                       >
                         <Trash2 className="h-4 w-4" />
                       </Button>
