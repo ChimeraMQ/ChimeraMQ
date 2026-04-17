@@ -1,5 +1,5 @@
 import { describe, it, expect, vi } from 'vitest';
-import { render, screen, waitFor, within } from '@testing-library/react';
+import { render, screen, waitFor, within, fireEvent } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { ConsumersPage } from '@/pages/ConsumersPage';
@@ -223,5 +223,35 @@ describe('ConsumersPage', () => {
     });
     expect(screen.getAllByText('member-1').length).toBeGreaterThan(0);
     expect(screen.getAllByText('member-2').length).toBeGreaterThan(0);
+  });
+
+  it('closes group detail dialog via Escape key (onOpenChange path)', async () => {
+    vi.mocked(api.getConsumers).mockResolvedValue({ groups: ['escape-group'], count: 1 });
+    vi.mocked(api.getConsumerGroupDetail).mockResolvedValue({
+      group: 'escape-group',
+      state: 'Empty',
+      members: [{ id: 'member-1', partitions: [0, 1] }],
+      assignments: { 'member-1': [0, 1] },
+    });
+
+    render(<ConsumersPage />, { wrapper: createWrapper() });
+
+    await waitFor(() => {
+      expect(screen.getAllByText('escape-group').length).toBeGreaterThan(0);
+    });
+
+    const viewBtns = screen.getAllByRole('button', { name: /View consumer group escape-group/ });
+    await userEvent.click(viewBtns[0]);
+
+    await waitFor(() => {
+      expect(screen.getByText('1 member(s), 1 assignment(s)')).toBeInTheDocument();
+    });
+
+    // Press Escape to trigger onOpenChange(false)
+    fireEvent.keyDown(document, { key: 'Escape' });
+
+    await waitFor(() => {
+      expect(screen.queryByText('1 member(s), 1 assignment(s)')).not.toBeInTheDocument();
+    });
   });
 });

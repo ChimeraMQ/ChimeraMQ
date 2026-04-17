@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeAll } from 'vitest';
-import { render, screen, waitFor, within } from '@testing-library/react';
+import { render, screen, waitFor, within, fireEvent } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { DLQPage } from '@/pages/DLQPage';
@@ -1202,6 +1202,30 @@ describe('DLQPage', () => {
     // This triggers the `if (open) replayForm.reset()` path on next open
     const cancelBtn = screen.getByRole('button', { name: 'Cancel' });
     await userEvent.click(cancelBtn);
+
+    await waitFor(() => {
+      expect(screen.queryByText('Replay DLQ Messages')).not.toBeInTheDocument();
+    });
+  });
+
+  it('closes replay dialog via Escape key (onOpenChange path)', async () => {
+    vi.mocked(api.listDLQTopics).mockResolvedValue({ topics: ['escape-replay-dlq'] });
+
+    render(<DLQPage />, { wrapper: createWrapper() });
+
+    await waitFor(() => {
+      expect(screen.getAllByText('escape-replay-dlq').length).toBeGreaterThan(0);
+    });
+
+    const replayBtns = screen.getAllByRole('button', { name: /Replay DLQ topic/ });
+    await userEvent.click(replayBtns[0]);
+
+    await waitFor(() => {
+      expect(screen.getByText('Replay DLQ Messages')).toBeInTheDocument();
+    });
+
+    // Press Escape to trigger onOpenChange(false)
+    fireEvent.keyDown(document, { key: 'Escape' });
 
     await waitFor(() => {
       expect(screen.queryByText('Replay DLQ Messages')).not.toBeInTheDocument();

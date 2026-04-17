@@ -676,4 +676,37 @@ describe('TopicsPage', () => {
       expect(screen.getAllByText('No topics matching filters').length).toBeGreaterThan(0);
     });
   });
+
+  it('closes topic detail dialog via Escape key (onOpenChange path)', async () => {
+    vi.mocked(api.getTopics).mockResolvedValue([
+      { name: 'escape-topic', mode: 'unified', partitions: 1, created_at: '2026-04-16T10:00:00Z' },
+    ]);
+    vi.mocked(api.getTopicDetail).mockResolvedValue({
+      name: 'escape-topic',
+      mode: 'unified',
+      partitions: 1,
+      created_at: '2026-04-16T10:00:00Z',
+      partitions_detail: [{ id: 0, high_watermark: 50, log_start_offset: 0 }],
+    });
+
+    render(<TopicsPage />, { wrapper: createWrapper() });
+
+    await waitFor(() => {
+      expect(screen.getAllByText('escape-topic').length).toBeGreaterThan(0);
+    });
+
+    const viewBtns = screen.getAllByRole('button', { name: /View topic escape-topic/ });
+    await userEvent.click(viewBtns[0]);
+
+    await waitFor(() => {
+      expect(screen.getByText('Partition 0')).toBeInTheDocument();
+    });
+
+    // Press Escape to trigger onOpenChange(false)
+    fireEvent.keyDown(document, { key: 'Escape' });
+
+    await waitFor(() => {
+      expect(screen.queryByText('Partition 0')).not.toBeInTheDocument();
+    });
+  });
 });
