@@ -741,4 +741,132 @@ describe('DLQPage', () => {
       expect(screen.getAllByText('Replay').length).toBeGreaterThan(0);
     });
   });
+
+  it('shows details tab with headers in entry view dialog', async () => {
+    vi.mocked(api.listDLQTopics).mockResolvedValue({ topics: ['details-dlq'] });
+    vi.mocked(api.getDLQ).mockResolvedValue({
+      topic: 'details-dlq',
+      count: 1,
+      entries: [{
+        id: 'err-details',
+        topic: 'orders',
+        partition: 0,
+        reason: 'Parse error',
+        retries: 2,
+        failed_at: '2026-04-16T10:00:00Z',
+        original_msg: {
+          id: 'msg-d1',
+          topic: 'orders',
+          headers: { correlation: 'abc-123', source: 'api' },
+          body: '{"order": 1}',
+        },
+      }],
+    });
+
+    render(<DLQPage />, { wrapper: createWrapper() });
+
+    await waitFor(() => {
+      expect(screen.getAllByText('details-dlq').length).toBeGreaterThan(0);
+    });
+
+    const inspectBtns = screen.getAllByRole('button', { name: /Inspect DLQ topic/ });
+    await userEvent.click(inspectBtns[0]);
+
+    await waitFor(() => {
+      expect(screen.getByText('1 entries')).toBeInTheDocument();
+    });
+
+    const viewBtns = screen.getAllByRole('button', { name: /View DLQ entry/ });
+    await userEvent.click(viewBtns[0]);
+
+    await waitFor(() => {
+      expect(screen.getByText(/DLQ Entry #err-details/)).toBeInTheDocument();
+    });
+
+    // Switch to Details tab
+    const detailsTab = screen.getByText('Details');
+    await userEvent.click(detailsTab);
+
+    await waitFor(() => {
+      expect(screen.getByText('Headers')).toBeInTheDocument();
+    });
+    expect(screen.getByText('DLQ Entry ID')).toBeInTheDocument();
+    expect(screen.getByText('Partition')).toBeInTheDocument();
+  });
+
+  it('shows raw JSON tab in entry view dialog', async () => {
+    vi.mocked(api.listDLQTopics).mockResolvedValue({ topics: ['raw-dlq'] });
+    vi.mocked(api.getDLQ).mockResolvedValue({
+      topic: 'raw-dlq',
+      count: 1,
+      entries: [{
+        id: 'err-raw',
+        topic: 'events',
+        partition: 1,
+        reason: 'Timeout',
+        retries: 3,
+        failed_at: '2026-04-16T10:00:00Z',
+        original_msg: { id: 'msg-r1', body: '{"raw": true}' },
+      }],
+    });
+
+    render(<DLQPage />, { wrapper: createWrapper() });
+
+    await waitFor(() => {
+      expect(screen.getAllByText('raw-dlq').length).toBeGreaterThan(0);
+    });
+
+    const inspectBtns = screen.getAllByRole('button', { name: /Inspect DLQ topic/ });
+    await userEvent.click(inspectBtns[0]);
+
+    await waitFor(() => {
+      expect(screen.getByText('1 entries')).toBeInTheDocument();
+    });
+
+    const viewBtns = screen.getAllByRole('button', { name: /View DLQ entry/ });
+    await userEvent.click(viewBtns[0]);
+
+    await waitFor(() => {
+      expect(screen.getByText(/DLQ Entry #err-raw/)).toBeInTheDocument();
+    });
+
+    // Switch to Raw JSON tab
+    const rawTab = screen.getByText('Raw JSON');
+    await userEvent.click(rawTab);
+
+    // Raw JSON tab should show the full entry as JSON
+    await waitFor(() => {
+      expect(screen.getByText(/"id": "err-raw"/)).toBeInTheDocument();
+    });
+  });
+
+  it('shows dry run info message after replay', async () => {
+    vi.mocked(api.listDLQTopics).mockResolvedValue({ topics: ['dryrun-dlq'] });
+    vi.mocked(api.replayDLQ).mockResolvedValue({ replayed: 5, dry_run: true });
+
+    render(<DLQPage />, { wrapper: createWrapper() });
+
+    await waitFor(() => {
+      expect(screen.getAllByText('dryrun-dlq').length).toBeGreaterThan(0);
+    });
+
+    const replayBtns = screen.getAllByRole('button', { name: /Replay DLQ topic/ });
+    await userEvent.click(replayBtns[0]);
+
+    await waitFor(() => {
+      expect(screen.getByText('Replay DLQ Messages')).toBeInTheDocument();
+    });
+
+    // Toggle dry run
+    const dryRunSwitch = screen.getByRole('switch', { name: /Dry run/ });
+    await userEvent.click(dryRunSwitch);
+
+    // Submit
+    const previewBtn = screen.getByRole('button', { name: 'Preview' });
+    await userEvent.click(previewBtn);
+
+    await waitFor(() => {
+      expect(api.replayDLQ).toHaveBeenCalled();
+    });
+  });
 });
