@@ -20,6 +20,31 @@ vi.mock('sonner', () => ({
   toast: { success: vi.fn(), error: vi.fn() },
 }));
 
+// Mock Select to fire onValueChange when an item is clicked
+vi.mock('@/components/ui/select', () => ({
+  Select: ({ children, onValueChange, ...props }: any) => (
+    <div data-testid="select-root" {...props} data-onchange={onValueChange ? 'yes' : 'no'}>
+      {onValueChange && (
+        <div data-testid="select-onValueChange" onClick={() => onValueChange('JSON')} data-select-trigger>
+          Select Trigger
+        </div>
+      )}
+      {children}
+    </div>
+  ),
+  SelectTrigger: ({ children, ...props }: any) => <div {...props}>{children}</div>,
+  SelectValue: ({ ...props }: any) => <span {...props}>Value</span>,
+  SelectContent: ({ children, ...props }: any) => <div data-testid="select-content" {...props}>{children}</div>,
+  SelectItem: ({ children, value, ...props }: any) => (
+    <div data-testid={`select-item-${value}`} data-value={value} {...props}>{children}</div>
+  ),
+  SelectLabel: ({ children, ...props }: any) => <div {...props}>{children}</div>,
+  SelectGroup: ({ children, ...props }: any) => <div {...props}>{children}</div>,
+  SelectSeparator: ({ ...props }: any) => <div {...props} />,
+  SelectScrollUpButton: ({ ...props }: any) => <div {...props} />,
+  SelectScrollDownButton: ({ ...props }: any) => <div {...props} />,
+}));
+
 const createWrapper = () => {
   const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   return ({ children }: { children: React.ReactNode }) => (
@@ -404,6 +429,48 @@ describe('SchemasPage', () => {
 
     await waitFor(() => {
       expect(screen.getByText('Register a new schema for a subject')).toBeInTheDocument();
+    });
+  });
+
+  it('selects type via Select onValueChange in register dialog', async () => {
+    vi.mocked(api.listSchemaSubjects).mockResolvedValue([]);
+    vi.mocked(api.registerSchema).mockResolvedValue(undefined);
+
+    render(<SchemasPage />, { wrapper: createWrapper() });
+
+    await waitFor(() => {
+      expect(screen.getByText('No schemas registered')).toBeInTheDocument();
+    });
+
+    // Open register dialog
+    const registerBtn = screen.getAllByRole('button', { name: /Register Schema/ })[0];
+    await userEvent.click(registerBtn);
+
+    await waitFor(() => {
+      expect(screen.getByTestId('select-onValueChange')).toBeInTheDocument();
+    });
+
+    // Fill in subject
+    const subjectInput = screen.getByLabelText(/Subject/);
+    await userEvent.clear(subjectInput);
+    await userEvent.type(subjectInput, 'test-subject');
+
+    // Fill in definition
+    const defInput = screen.getByLabelText(/Schema Definition/) as HTMLTextAreaElement;
+    await userEvent.clear(defInput);
+    defInput.focus();
+    defInput.value = '{"type":"object"}';
+
+    // Click the select trigger to fire onValueChange
+    const selectTrigger = screen.getByTestId('select-onValueChange');
+    await userEvent.click(selectTrigger);
+
+    // Submit
+    const submitBtn = screen.getByRole('button', { name: /Register/ });
+    await userEvent.click(submitBtn);
+
+    await waitFor(() => {
+      expect(api.registerSchema).toHaveBeenCalled();
     });
   });
 });
