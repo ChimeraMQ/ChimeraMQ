@@ -20,6 +20,31 @@ vi.mock('sonner', () => ({
   toast: { success: vi.fn(), error: vi.fn() },
 }));
 
+// Mock Select to fire onValueChange when an item is clicked
+vi.mock('@/components/ui/select', () => ({
+  Select: ({ children, onValueChange, ...props }: any) => (
+    <div {...props} data-onchange={onValueChange ? 'yes' : 'no'}>
+      {onValueChange && (
+        <div data-testid="select-onValueChange" onClick={() => onValueChange('unified')} data-select-trigger>
+          Select Trigger
+        </div>
+      )}
+      {children}
+    </div>
+  ),
+  SelectTrigger: ({ children, ...props }: any) => <div {...props}>{children}</div>,
+  SelectValue: ({ ...props }: any) => <span {...props}>Value</span>,
+  SelectContent: ({ children, ...props }: any) => <div data-testid="select-content" {...props}>{children}</div>,
+  SelectItem: ({ children, value, ...props }: any) => (
+    <div data-testid={`select-item-${value}`} data-value={value} {...props}>{children}</div>
+  ),
+  SelectLabel: ({ children, ...props }: any) => <div {...props}>{children}</div>,
+  SelectGroup: ({ children, ...props }: any) => <div {...props}>{children}</div>,
+  SelectSeparator: ({ ...props }: any) => <div {...props} />,
+  SelectScrollUpButton: ({ ...props }: any) => <div {...props} />,
+  SelectScrollDownButton: ({ ...props }: any) => <div {...props} />,
+}));
+
 const createWrapper = () => {
   const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   return ({ children }: { children: React.ReactNode }) => (
@@ -707,6 +732,46 @@ describe('TopicsPage', () => {
 
     await waitFor(() => {
       expect(screen.queryByText('Partition 0')).not.toBeInTheDocument();
+    });
+  });
+
+  it('selects mode via Select onValueChange in create dialog', async () => {
+    vi.mocked(api.getTopics).mockResolvedValue([]);
+    vi.mocked(api.createTopic).mockResolvedValue(undefined);
+
+    render(<TopicsPage />, { wrapper: createWrapper() });
+
+    await waitFor(() => {
+      expect(screen.getAllByText('0 Topics').length).toBeGreaterThan(0);
+    });
+
+    const createBtns = screen.getAllByRole('button', { name: /Create/ });
+    await userEvent.click(createBtns[0]);
+
+    await waitFor(() => {
+      expect(screen.getByText('Create a new ChimeraMQ topic')).toBeInTheDocument();
+    });
+
+    // Fill in name
+    const nameInput = screen.getByPlaceholderText('my-topic');
+    await userEvent.type(nameInput, 'test-topic');
+
+    // Fill in partitions
+    const partitionsInput = screen.getByLabelText('Partitions');
+    await userEvent.clear(partitionsInput);
+    await userEvent.type(partitionsInput, '1');
+
+    // Click the select trigger inside the create dialog to fire onValueChange
+    const dialog = screen.getByRole('dialog');
+    const selectTrigger = within(dialog).getAllByTestId('select-onValueChange')[0];
+    fireEvent.click(selectTrigger);
+
+    // Submit
+    const submitBtn = screen.getByRole('button', { name: 'Create' });
+    await userEvent.click(submitBtn);
+
+    await waitFor(() => {
+      expect(api.createTopic).toHaveBeenCalled();
     });
   });
 });
