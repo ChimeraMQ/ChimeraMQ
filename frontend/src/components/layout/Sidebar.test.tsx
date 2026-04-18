@@ -159,6 +159,16 @@ describe('Sidebar', () => {
     expect(cls).toContain('text-text-secondary');
     expect(cls).toContain('hover:bg-background-muted');
   });
+
+  it('calls onClose when a nav link is clicked', async () => {
+    const onClose = vi.fn();
+    render(<Sidebar open={false} onClose={onClose} />);
+
+    const navLinks = screen.getAllByTestId(/^nav-link-/);
+    await userEvent.click(navLinks[0]);
+
+    expect(onClose).toHaveBeenCalled();
+  });
 });
 
 describe('Header', () => {
