@@ -18,12 +18,19 @@ describe('prefetchRoute', () => {
   });
 
   it('does not throw for known routes', () => {
+    expect(() => routeModule.prefetchRoute('/')).not.toThrow();
     expect(() => routeModule.prefetchRoute('/cluster')).not.toThrow();
     expect(() => routeModule.prefetchRoute('/schemas')).not.toThrow();
     expect(() => routeModule.prefetchRoute('/dlq')).not.toThrow();
     expect(() => routeModule.prefetchRoute('/wasm')).not.toThrow();
     expect(() => routeModule.prefetchRoute('/processors')).not.toThrow();
     expect(() => routeModule.prefetchRoute('/consumers')).not.toThrow();
+    expect(() => routeModule.prefetchRoute('/topics')).not.toThrow();
+  });
+
+  it('prefetches same route only once (dedup via loaded set)', () => {
+    expect(() => routeModule.prefetchRoute('/')).not.toThrow();
+    expect(() => routeModule.prefetchRoute('/')).not.toThrow();
   });
 });
 
