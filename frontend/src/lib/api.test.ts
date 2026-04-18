@@ -47,6 +47,18 @@ describe('api', () => {
     });
   });
 
+  it('makes a POST request without body', async () => {
+    vi.mocked(fetch).mockResolvedValueOnce({
+      ok: true,
+      json: async () => ({ status: 'ok' }),
+    } as Response);
+
+    const result = await api.post('/trigger');
+    expect(result).toEqual({ status: 'ok' });
+    const callArgs = vi.mocked(fetch).mock.calls[0][1];
+    expect(callArgs?.body).toBeUndefined();
+  });
+
   it('makes a DELETE request', async () => {
     vi.mocked(fetch).mockResolvedValueOnce({
       ok: true,
@@ -319,6 +331,14 @@ describe('api.put', () => {
     const result = await api.put('/config', { key: 'val' });
     expect(result).toEqual({ status: 'updated' });
     expect(fetch).toHaveBeenCalledWith('/v1/config', expect.objectContaining({ method: 'PUT' }));
+  });
+
+  it('makes a PUT request without body', async () => {
+    vi.mocked(fetch).mockResolvedValueOnce({ ok: true, json: async () => ({ status: 'reset' }) } as Response);
+    const result = await api.put('/reset');
+    expect(result).toEqual({ status: 'reset' });
+    const callArgs = vi.mocked(fetch).mock.calls[0][1];
+    expect(callArgs?.body).toBeUndefined();
   });
 });
 
