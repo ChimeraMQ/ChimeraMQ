@@ -61,4 +61,53 @@ describe('ClusterPage', () => {
     expect(screen.getAllByText('leader-1').length).toBeGreaterThan(0);
     expect(screen.getAllByText('Alive').length).toBeGreaterThan(0);
   });
+
+  it('shows N/A for leader when leader_id is null', async () => {
+    vi.mocked(api.getCluster).mockResolvedValue({
+      mode: 'cluster',
+      leader_id: null,
+      alive_count: 0,
+      members: [],
+    });
+    vi.mocked(api.getHealth).mockResolvedValue({ status: 'healthy', node_id: 1, name: 'node-1', version: '0.1.0', uptime: '2h' });
+
+    render(<ClusterPage />, { wrapper: createWrapper() });
+
+    await waitFor(() => {
+      expect(screen.getByText('N/A')).toBeInTheDocument();
+    });
+  });
+
+  it('shows N/A for this node when health name is missing', async () => {
+    vi.mocked(api.getCluster).mockResolvedValue({
+      mode: 'cluster',
+      leader_id: 'node-1',
+      alive_count: 1,
+      members: [{ id: 'node-1', addr: '10.0.0.1', port: 5672, state: 'Alive', incarnation: 1 }],
+    });
+    vi.mocked(api.getHealth).mockResolvedValue({ status: 'healthy', node_id: 1, version: '0.1.0', uptime: '2h' });
+
+    render(<ClusterPage />, { wrapper: createWrapper() });
+
+    await waitFor(() => {
+      expect(screen.getByText('N/A')).toBeInTheDocument();
+    });
+  });
+
+  it('shows member address in mobile card view', async () => {
+    vi.mocked(api.getCluster).mockResolvedValue({
+      mode: 'cluster',
+      leader_id: 'n1',
+      alive_count: 1,
+      members: [{ id: 'n1', addr: '192.168.1.10', port: 5672, state: 'Alive', incarnation: 1 }],
+    });
+    vi.mocked(api.getHealth).mockResolvedValue({ status: 'healthy', node_id: 1, name: 'n1', version: '0.1.0', uptime: '2h' });
+
+    render(<ClusterPage />, { wrapper: createWrapper() });
+
+    await waitFor(() => {
+      expect(screen.getAllByText('n1').length).toBeGreaterThan(0);
+    });
+    expect(screen.getAllByText('192.168.1.10:5672').length).toBeGreaterThan(0);
+  });
 });

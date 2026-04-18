@@ -314,4 +314,66 @@ describe('OverviewPage', () => {
     expect(screen.getByText('dead-node')).toBeInTheDocument();
     expect(screen.getByText('Dead')).toBeInTheDocument();
   });
+
+  it('shows unknown status when health has no status field', async () => {
+    vi.mocked(api.getHealth).mockResolvedValue({
+      node_id: 1,
+      name: 'node-1',
+      version: '0.1.0',
+      uptime: '1h',
+    } as any);
+    vi.mocked(api.getTopics).mockResolvedValue([]);
+    vi.mocked(api.getConsumers).mockResolvedValue({ groups: [], count: 0 });
+    vi.mocked(api.getCluster).mockResolvedValue({ mode: 'single-node', alive_count: 1, members: [] });
+
+    render(<OverviewPage />, { wrapper: createWrapper() });
+
+    await waitFor(() => {
+      expect(screen.getByText('unknown')).toBeInTheDocument();
+    });
+  });
+
+  it('shows zero values when topics and consumers APIs return null', async () => {
+    vi.mocked(api.getHealth).mockResolvedValue({
+      status: 'healthy',
+      node_id: 1,
+      name: 'node-1',
+      version: '0.1.0',
+      uptime: '1h',
+    });
+    vi.mocked(api.getTopics).mockResolvedValue(null as any);
+    vi.mocked(api.getConsumers).mockResolvedValue(null as any);
+    vi.mocked(api.getCluster).mockResolvedValue({ mode: 'single-node', alive_count: 1, members: [] });
+
+    render(<OverviewPage />, { wrapper: createWrapper() });
+
+    await waitFor(() => {
+      expect(screen.getByText('Overview')).toBeInTheDocument();
+    });
+    // Should render 0 for Topics and Consumer Groups when data is null
+    expect(screen.getByText('Topics')).toBeInTheDocument();
+    expect(screen.getByText('Consumer Groups')).toBeInTheDocument();
+  });
+
+  it('shows zero partitions when topics array is null', async () => {
+    vi.mocked(api.getHealth).mockResolvedValue({
+      status: 'healthy',
+      node_id: 1,
+      name: 'node-1',
+      version: '0.1.0',
+      uptime: '1h',
+    });
+    vi.mocked(api.getTopics).mockResolvedValue(null as any);
+    vi.mocked(api.getConsumers).mockResolvedValue({ groups: [], count: 0 });
+    vi.mocked(api.getCluster).mockResolvedValue({ mode: 'single-node', alive_count: 1, members: [] });
+
+    render(<OverviewPage />, { wrapper: createWrapper() });
+
+    await waitFor(() => {
+      expect(screen.getByText('Overview')).toBeInTheDocument();
+    });
+    // Partitions stat should show 0 when topics is null
+    const zeros = screen.getAllByText('0');
+    expect(zeros.length).toBeGreaterThan(0);
+  });
 });

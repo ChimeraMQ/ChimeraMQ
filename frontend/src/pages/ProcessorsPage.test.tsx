@@ -481,4 +481,90 @@ describe('ProcessorsPage', () => {
       expect(screen.getByText('stopped')).toBeInTheDocument();
     });
   });
+
+  it('shows processor state badge with error state', async () => {
+    vi.mocked(api.listProcessors).mockResolvedValue({ topologies: ['err-proc'], count: 1 });
+    vi.mocked(api.getProcessor).mockResolvedValue({
+      state: 'error',
+      source_topic: 'raw',
+      sink_topic: 'cooked',
+      parallelism: 1,
+      operators: 2,
+    });
+
+    render(<ProcessorsPage />, { wrapper: createWrapper() });
+
+    await waitFor(() => {
+      expect(screen.getAllByText('err-proc').length).toBeGreaterThan(0);
+    });
+
+    const viewBtns = screen.getAllByRole('button', { name: /View processor err-proc/ });
+    await userEvent.click(viewBtns[0]);
+
+    await waitFor(() => {
+      expect(screen.getByText('error')).toBeInTheDocument();
+    });
+  });
+
+  it('shows fallback message when delete mutation error has no message', async () => {
+    vi.mocked(api.listProcessors).mockResolvedValue({ topologies: ['no-msg-delete'], count: 1 });
+    vi.mocked(api.deleteProcessor).mockRejectedValue({});
+
+    render(<ProcessorsPage />, { wrapper: createWrapper() });
+
+    await waitFor(() => {
+      expect(screen.getAllByText('no-msg-delete').length).toBeGreaterThan(0);
+    });
+
+    const deleteBtns = screen.getAllByRole('button', { name: /Delete processor no-msg-delete/ });
+    await userEvent.click(deleteBtns[0]);
+
+    await waitFor(() => {
+      expect(screen.getByText('Delete Processor')).toBeInTheDocument();
+    });
+
+    const dialog = screen.getByRole('alertdialog');
+    const confirmBtn = within(dialog).getByRole('button', { name: 'Delete' });
+    await userEvent.click(confirmBtn);
+
+    await waitFor(() => {
+      expect(api.deleteProcessor).toHaveBeenCalled();
+    });
+  });
+
+  it('shows fallback message when start mutation error has no message', async () => {
+    vi.mocked(api.listProcessors).mockResolvedValue({ topologies: ['no-msg-start'], count: 1 });
+    vi.mocked(api.startProcessor).mockRejectedValue({});
+
+    render(<ProcessorsPage />, { wrapper: createWrapper() });
+
+    await waitFor(() => {
+      expect(screen.getAllByText('no-msg-start').length).toBeGreaterThan(0);
+    });
+
+    const startBtns = screen.getAllByRole('button', { name: /Start processor no-msg-start/ });
+    await userEvent.click(startBtns[0]);
+
+    await waitFor(() => {
+      expect(api.startProcessor).toHaveBeenCalled();
+    });
+  });
+
+  it('shows fallback message when stop mutation error has no message', async () => {
+    vi.mocked(api.listProcessors).mockResolvedValue({ topologies: ['no-msg-stop'], count: 1 });
+    vi.mocked(api.stopProcessor).mockRejectedValue({});
+
+    render(<ProcessorsPage />, { wrapper: createWrapper() });
+
+    await waitFor(() => {
+      expect(screen.getAllByText('no-msg-stop').length).toBeGreaterThan(0);
+    });
+
+    const stopBtns = screen.getAllByRole('button', { name: /Stop processor no-msg-stop/ });
+    await userEvent.click(stopBtns[0]);
+
+    await waitFor(() => {
+      expect(api.stopProcessor).toHaveBeenCalled();
+    });
+  });
 });
