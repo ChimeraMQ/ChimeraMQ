@@ -145,6 +145,32 @@ describe('WASMPage', () => {
     expect(screen.getByText('0 Modules')).toBeInTheDocument();
   });
 
+  it('shows fallback error when delete mutation error has no message', async () => {
+    vi.mocked(api.listWASMModules).mockResolvedValue({ modules: ['no-msg-module'], count: 1 });
+    vi.mocked(api.deleteWASMModule).mockRejectedValue({});
+
+    render(<WASMPage />, { wrapper: createWrapper() });
+
+    await waitFor(() => {
+      expect(screen.getAllByText('no-msg-module').length).toBeGreaterThan(0);
+    });
+
+    const deleteBtns = screen.getAllByRole('button', { name: /Delete WASM module/ });
+    await userEvent.click(deleteBtns[0]);
+
+    await waitFor(() => {
+      expect(screen.getByText('Delete WASM Module')).toBeInTheDocument();
+    });
+
+    const dialog = screen.getByRole('alertdialog');
+    const confirmBtn = within(dialog).getByRole('button', { name: 'Delete' });
+    await userEvent.click(confirmBtn);
+
+    await waitFor(() => {
+      expect(api.deleteWASMModule).toHaveBeenCalled();
+    });
+  });
+
   it('shows module count with single module', async () => {
     vi.mocked(api.listWASMModules).mockResolvedValue({ modules: ['solo'], count: 1 });
 
