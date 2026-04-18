@@ -1,4 +1,4 @@
-import { describe, it, expect, vi } from 'vitest';
+import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { AppLayout } from '@/components/layout/AppLayout';
@@ -7,8 +7,10 @@ vi.mock('react-router', () => ({
   Outlet: () => <div data-testid="outlet">Page Content</div>,
 }));
 
+const mockState = { sidebarCollapsed: false, isDark: false };
+
 vi.mock('@/stores/app-store', () => ({
-  useAppState: () => ({ sidebarCollapsed: false, isDark: false }),
+  useAppState: () => mockState,
 }));
 
 vi.mock('@/components/layout/Sidebar', () => ({
@@ -23,6 +25,10 @@ vi.mock('@/components/layout/Sidebar', () => ({
     </div>
   ),
 }));
+
+beforeEach(() => {
+  mockState.sidebarCollapsed = false;
+});
 
 describe('AppLayout', () => {
   it('renders sidebar, header, and outlet', () => {
@@ -53,5 +59,13 @@ describe('AppLayout', () => {
     // Close
     await userEvent.click(screen.getByText('Close Sidebar'));
     expect(screen.getByTestId('sidebar')).toHaveAttribute('data-open', 'false');
+  });
+
+  it('applies collapsed layout class when sidebar is collapsed', () => {
+    mockState.sidebarCollapsed = true;
+    render(<AppLayout />);
+
+    const container = screen.getByTestId('header').parentElement;
+    expect(container).toHaveClass('md:pl-16');
   });
 });
