@@ -4,10 +4,13 @@ export interface ApiError {
   details?: string;
 }
 
+import { useAuthStore } from '@/stores/auth-store';
+
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
+  const authInit = useAuthStore.getState().setAuthHeader(init);
   const res = await fetch(`/v1${path}`, {
-    headers: { 'Content-Type': 'application/json', ...init?.headers },
-    ...init,
+    headers: { 'Content-Type': 'application/json', ...authInit?.headers },
+    ...authInit,
   });
 
   if (!res.ok) {

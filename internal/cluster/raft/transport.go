@@ -1,8 +1,12 @@
 package raft
 
 import (
+	"crypto/hmac"
+	"crypto/rand"
+	"crypto/sha256"
 	"crypto/tls"
 	"crypto/x509"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"net"
@@ -39,6 +43,7 @@ type TCPTransport struct {
 	timeout     time.Duration
 	idleTimeout time.Duration
 	tlsConfig   *tls.Config
+	hmacKey     []byte
 }
 
 // NewTCPTransport creates a new TCP transport.
@@ -56,6 +61,33 @@ func NewTCPTransportWithTLS(tlsConfig *tls.Config) *TCPTransport {
 	t := NewTCPTransport()
 	t.tlsConfig = tlsConfig
 	return t
+}
+
+// NewTCPTransportWithHMAC creates a new TCP transport with HMAC authentication.
+// All messages are signed with the provided key and verified on receive.
+func NewTCPTransportWithHMAC(hmacKey []byte) *TCPTransport {
+	t := NewTCPTransport()
+	t.hmacKey = make([]byte, len(hmacKey))
+	copy(t.hmacKey, hmacKey)
+	return t
+}
+
+// NewTCPTransportWithTLSAndHMAC creates a transport with both TLS and HMAC.
+func NewTCPTransportWithTLSAndHMAC(tlsConfig *tls.Config, hmacKey []byte) *TCPTransport {
+	t := NewTCPTransport()
+	t.tlsConfig = tlsConfig
+	t.hmacKey = make([]byte, len(hmacKey))
+	copy(t.hmacKey, hmacKey)
+	return t
+}
+
+// GenerateHMACKey generates a random 32-byte key for Raft RPC authentication.
+func GenerateHMACKey() ([]byte, error) {
+	key := make([]byte, 32)
+	if _, err := rand.Read(key); err != nil {
+		return nil, fmt.Errorf("generate raft HMAC key: %w", err)
+	}
+	return key, nil
 }
 
 // LoadTLSConfig loads a TLS config from cert, key, and optional CA file.
@@ -143,8 +175,23 @@ func (t *TCPTransport) dialAndStore(nodeID NodeID) (net.Conn, error) {
 
 // rpcMessage wraps an RPC call over JSON.
 type rpcMessage struct {
-	Type string          `json:"type"`
-	Data json.RawMessage `json:"data"`
+	Type      string          `json:"type"`
+	Signature string          `json:"signature,omitempty"`
+	Data      json.RawMessage `json:"data"`
+}
+
+// computeRaftHMAC computes an HMAC-SHA256 signature for a Raft RPC message.
+func computeRaftHMAC(key []byte, msg *rpcMessage) string {
+	h := hmac.New(sha256.New, key)
+	h.Write([]byte(msg.Type))
+	h.Write(msg.Data)
+	return hex.EncodeToString(h.Sum(nil))
+}
+
+// verifyRaftHMAC verifies the HMAC signature of a Raft RPC message.
+func verifyRaftHMAC(key []byte, msg *rpcMessage) bool {
+	expected := computeRaftHMAC(key, msg)
+	return hmac.Equal([]byte(expected), []byte(msg.Signature))
 }
 
 func (t *TCPTransport) sendRPC(nodeID NodeID, rpcType string, req, resp interface{}) error {
@@ -153,6 +200,12 @@ func (t *TCPTransport) sendRPC(nodeID NodeID, rpcType string, req, resp interfac
 		return err
 	}
 	msg := rpcMessage{Type: rpcType, Data: data}
+
+	// Sign the message if HMAC key is configured
+	if len(t.hmacKey) > 0 {
+		msg.Signature = computeRaftHMAC(t.hmacKey, &msg)
+	}
+
 	encoded, err := json.Marshal(msg)
 	if err != nil {
 		return err
@@ -231,7 +284,12 @@ func (t *TCPTransport) SendInstallSnapshot(nodeID NodeID, req *InstallSnapshotRe
 
 // ServeRPC serves incoming Raft RPCs on a listener.
 func ServeRPC(ln net.Listener, handler RPCHandler) error {
-	return serveRPC(ln, handler)
+	return serveRPC(ln, handler, nil)
+}
+
+// ServeRPCHMAC serves incoming Raft RPCs with HMAC authentication.
+func ServeRPCHMAC(ln net.Listener, handler RPCHandler, hmacKey []byte) error {
+	return serveRPC(ln, handler, hmacKey)
 }
 
 // ServeRPCWithTLS serves incoming Raft RPCs on a listener with TLS.
@@ -239,26 +297,42 @@ func ServeRPCWithTLS(ln net.Listener, handler RPCHandler, tlsConfig *tls.Config)
 	if tlsConfig != nil {
 		ln = tls.NewListener(ln, tlsConfig)
 	}
-	return serveRPC(ln, handler)
+	return serveRPC(ln, handler, nil)
 }
 
-func serveRPC(ln net.Listener, handler RPCHandler) error {
+// ServeRPCWithTLSAndHMAC serves Raft RPCs with both TLS and HMAC authentication.
+func ServeRPCWithTLSAndHMAC(ln net.Listener, handler RPCHandler, tlsConfig *tls.Config, hmacKey []byte) error {
+	if tlsConfig != nil {
+		ln = tls.NewListener(ln, tlsConfig)
+	}
+	return serveRPC(ln, handler, hmacKey)
+}
+
+func serveRPC(ln net.Listener, handler RPCHandler, hmacKey []byte) error {
 	for {
 		conn, err := ln.Accept()
 		if err != nil {
 			return err
 		}
-		go handleRPCConn(conn, handler)
+		go handleRPCConn(conn, handler, hmacKey)
 	}
 }
 
-func handleRPCConn(conn net.Conn, handler RPCHandler) {
+func handleRPCConn(conn net.Conn, handler RPCHandler, hmacKey []byte) {
 	defer func() { _ = conn.Close() }()
 	decoder := json.NewDecoder(conn)
 	for {
 		var msg rpcMessage
 		if err := decoder.Decode(&msg); err != nil {
 			return
+		}
+
+		// Verify HMAC signature if key is configured
+		if len(hmacKey) > 0 {
+			if msg.Signature == "" || !verifyRaftHMAC(hmacKey, &msg) {
+				// Log and drop unauthenticated message
+				continue
+			}
 		}
 		var resp interface{}
 		switch msg.Type {

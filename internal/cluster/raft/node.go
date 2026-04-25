@@ -1,15 +1,24 @@
 package raft
 
 import (
+	"crypto/rand"
+	"encoding/binary"
 	"encoding/json"
 	"fmt"
 	"log/slog"
-	"math/rand"
+	mathrand "math/rand"
 	"os"
 	"path/filepath"
 	"sync"
 	"time"
 )
+
+func init() {
+	var seed [8]byte
+	if _, err := rand.Read(seed[:]); err == nil {
+		mathrand.Seed(int64(binary.BigEndian.Uint64(seed[:])))
+	}
+}
 
 // RaftNode implements a single Raft consensus node.
 type RaftNode struct {
@@ -121,7 +130,10 @@ func (n *RaftNode) Start() error {
 	n.resetElectionTimer()
 
 	// Start background goroutines
-	go n.run()
+	go func() {
+		defer func() { if r := recover(); r != nil { slog.Error("raft run panicked", "err", r) } }()
+		n.run()
+	}()
 
 	return nil
 }
@@ -166,7 +178,10 @@ func (n *RaftNode) Propose(data []byte) (Index, error) {
 	_ = n.log.Save()
 
 	// Replicate to followers
-	go n.replicateLog()
+	go func() {
+		defer func() { if r := recover(); r != nil { slog.Error("raft replicateLog panicked", "err", r) } }()
+		n.replicateLog()
+	}()
 
 	return idx, nil
 }
@@ -272,7 +287,7 @@ func (n *RaftNode) randomElectionTimeout() time.Duration {
 	min := n.cfg.ElectionTimeout
 	max := min * 2
 	delta := max - min
-	return min + time.Duration(rand.Int63n(int64(delta)))
+	return min + time.Duration(mathrand.Int63n(int64(delta)))
 }
 
 // startElection starts a new election.
@@ -369,7 +384,10 @@ func (n *RaftNode) becomeLeader() {
 	n.resetElectionTimerLocked()
 
 	// Start heartbeats
-	go n.heartbeatLoop()
+	go func() {
+		defer func() { if r := recover(); r != nil { slog.Error("raft heartbeatLoop panicked", "err", r) } }()
+		n.heartbeatLoop()
+	}()
 }
 
 // becomeFollower transitions to follower state.
@@ -600,13 +618,21 @@ func (n *RaftNode) HandleInstallSnapshot(req *InstallSnapshotRequest) *InstallSn
 
 	resp := &InstallSnapshotResponse{Term: n.currentTerm}
 
+	// Reject if term is behind current term
 	if req.Term < n.currentTerm {
 		return resp
 	}
 
+	// Step down if term is higher
 	if req.Term > n.currentTerm {
 		n.becomeFollower(req.Term)
 		resp.Term = req.Term
+	}
+
+	// Reject stale snapshots: the snapshot index must be ahead of what
+	// we've already applied, otherwise we risk regressing state.
+	if req.LastIncludedIndex <= n.lastApplied {
+		return resp
 	}
 
 	// Restore FSM from snapshot
@@ -685,7 +711,7 @@ func (n *RaftNode) saveState() {
 		slog.Error("raft state marshal", "err", err)
 		return
 	}
-	if err := os.WriteFile(path, data, 0644); err != nil {
+	if err := os.WriteFile(path, data, 0600); err != nil {
 		slog.Error("raft state persist", "err", err)
 	}
 }

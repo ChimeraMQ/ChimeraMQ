@@ -64,7 +64,10 @@ func NewResourceQuotaEnforcer(m *Manager) *ResourceQuotaEnforcer {
 
 // Start begins periodic quota enforcement.
 func (e *ResourceQuotaEnforcer) Start() {
-	go e.run()
+	go func() {
+		defer func() { if r := recover(); r != nil { fmt.Printf("quota enforcer panicked: %v\n", r) } }()
+		e.run()
+	}()
 }
 
 // Stop stops the quota enforcer.

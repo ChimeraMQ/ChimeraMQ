@@ -9,12 +9,12 @@
 ChimeraMQ is a unified message queue and event streaming platform written in pure Go (no CGo). It combines three "heads" — Lion (queue engine with competing consumers, ack/nack, DLQ), Goat (stream engine with offset-based consumption, consumer groups), and Serpent (multi-protocol adapter layer) — into a single dependency-free binary. The project targets production messaging workloads, positioning itself as a replacement for Kafka + RabbitMQ + Pulsar in a single `go install`.
 
 **Key metrics:**
-- Total files: 484 (315 Go source files, 188 test files, ~80 other)
-- Go LOC: 94,746 (including tests)
-- Frontend LOC: ~400 (single HTML file with CDN deps — not a React SPA)
-- External Go dependencies: 13 direct + indirect (go-ldap, wazero, otel stack, websocket, yaml.v3, crypto)
+- Total files: 530 (331 Go source files, 199 test files, ~100 other)
+- Go LOC: 102,889 (including tests), 36,277 production code
+- Frontend LOC: ~4,520 (React 19 + TypeScript SPA with Radix UI, Zustand, Recharts)
+- External Go dependencies: 18 direct + indirect (go-ldap, wazero, otel stack, websocket, grpc, protobuf, yaml.v3, crypto, kompress)
 - Zero TODOs, FIXMEs, HACKs, or BUG markers in the entire codebase
-- 81.9%–100% test coverage across all packages
+- 81.9%–100% test coverage across all packages (gRPC at 36.3% is the lowest)
 
 **Overall health: 8.5/10**
 
@@ -24,9 +24,9 @@ ChimeraMQ is a unified message queue and event streaming platform written in pur
 3. Comprehensive architecture — Raft consensus, SWIM gossip, LSM-tree, WASM runtime, tiered storage all built from scratch
 
 **Top 3 concerns:**
-1. The embedded web dashboard is a single HTML file with CDN Tailwind/Chart.js — not a proper React SPA as the README/specification claims
-2. Cluster multi-node tests fail on Windows (port binding race conditions) and the 3-node load test is unreliable (24 msg/s vs 100 target)
-3. Dependency count has grown beyond the original "zero dependencies" promise — now includes wazero, otel (6 packages), grpc, protobuf
+1. gRPC adapter at 36.3% test coverage — essentially untested, maintenance liability
+2. Zero frontend tests for 4,520 LOC React SPA — regressions invisible to CI
+3. Dependency count has grown beyond the original "zero dependencies" promise — now 18 deps vs spec's 3
 
 ## 2. Architecture Analysis
 
@@ -71,7 +71,7 @@ Cluster Fabric (internal/cluster/)
 |---------|-------|---------------|----------|
 | `internal/broker/` | 12 | Central orchestrator, config, publish pipeline, topic manager | Excellent |
 | `internal/auth/` | 12 | Auth providers (static, file, OAuth, LDAP, mTLS), ACL, rate limiter | Excellent |
-| `internal/protocol/` | 1 mux + 7 adapters | Protocol detection + adapters (TCP, HTTP, MQTT, AMQP, WS, NATS, STOMP) | Excellent |
+| `internal/protocol/` | 1 mux + 8 adapters | Protocol detection + adapters (TCP, HTTP, MQTT, AMQP, WS, NATS, STOMP, gRPC) | Excellent |
 | `internal/engine/` | queue/9, stream/8, dlq/2, exchange/3, ttl/1 | Queue + stream + DLQ + exchanges + TTL | Excellent |
 | `internal/storage/` | hot/9, warm/7, cold/2, wal/2, tier/2, encrypt/5 | All 4 storage layers + encryption | Excellent |
 | `internal/cluster/` | raft/7, gossip/5, manager/4, replication/4, geo/1 | Consensus, gossip, replication | Excellent |
@@ -106,7 +106,7 @@ Cluster Fabric (internal/cluster/)
 
 **Assessment:** Dependency hygiene is good. All pinned. The original "zero dependencies" promise has evolved — now legitimately requires wazero, otel, ldap, websocket. These are defensible additions.
 
-**Frontend dependencies:** Tailwind CSS (CDN), Chart.js (CDN) — loaded via `<script>` tags. No build tooling, no TypeScript.
+**Frontend dependencies:** React 19.1.0, TypeScript, Tailwind CSS v4, Radix UI, Zustand, React Router, Recharts, React Hook Form, Zod — built with Vite.
 
 ### 2.4 API & Interface Design
 
@@ -136,7 +136,7 @@ Cluster Fabric (internal/cluster/)
 
 ### 3.2 Frontend Code Quality
 
-The "embedded Web UI dashboard" is a **single HTML file** (`web/dist/index.html`, 15KB) with CDN-loaded Tailwind/Chart.js and vanilla JavaScript. No React, no TypeScript, no accessibility, no responsive design. Significant gap vs. specification (Section 12.2) which describes a full React SPA.
+The embedded Web UI dashboard is a **full React 19 SPA** (`frontend/src/`, ~4,520 LOC) built with TypeScript, Vite, Tailwind CSS v4, Radix UI components, Zustand for state management, React Router for navigation, React Hook Form + Zod for validation, and Recharts for data visualization. Well-structured with component/hooks/stores/pages separation. **However, it has zero tests** — no Vitest, no React Testing Library, no component tests. A 4,520 LOC frontend with 0% test coverage is a significant regression risk.
 
 ### 3.3 Concurrency & Safety
 
@@ -162,7 +162,7 @@ The "embedded Web UI dashboard" is a **single HTML file** (`web/dist/index.html`
 
 ### 4.1 Test Coverage
 
-**188 test files, 1,079+ test functions.** Coverage: 81.9%–100% per package.
+**199 test files, 1,079+ test functions.** Coverage: 81.9%–100% per package (gRPC at 36.3% is the outlier).
 
 | Category | Coverage |
 |----------|----------|
@@ -189,7 +189,7 @@ Well-organized helpers. CI runs build, test, race, integration, chaos, benchmark
 | MQTT 3.1.1/5.0 | SPEC §3.4 | ✅ Complete | QoS 0/1/2, retained, will |
 | WebSocket adapter | SPEC §3.5 | ✅ Complete | JSON + binary |
 | HTTP/REST API | SPEC §3.6 | ✅ Complete | 28+ endpoints |
-| gRPC adapter | SPEC §16 | ❌ Missing | Claimed in release notes, no code |
+| gRPC adapter | SPEC §16 | ⚠️ Partial | Exists at 36.3% test coverage |
 | NATS adapter | — | ✅ Complete | Beyond spec |
 | STOMP adapter | — | ✅ Complete | Beyond spec |
 | Hot tier storage | SPEC §4.2 | ✅ Complete | mmap, sparse index |
@@ -210,7 +210,7 @@ Well-organized helpers. CI runs build, test, race, integration, chaos, benchmark
 | Encryption at rest | SPEC §11.3 | ✅ Complete | AES-256-GCM, KMS |
 | Prometheus metrics | SPEC §12.1 | ✅ Complete | Text exposition |
 | OpenTelemetry | SPEC §12.3 | ✅ Complete | OTLP gRPC |
-| Embedded Web UI | SPEC §12.2 | ⚠️ Partial | Single HTML, not React SPA |
+| Embedded Web UI | SPEC §12.2 | ✅ Complete | React 19 SPA with Radix UI, Recharts, Zustand |
 | MCP server | SPEC §15 | ✅ Complete | 10 tools |
 | CLI commands | SPEC §13 | ✅ Complete | Server, topic, produce, consume, bench, etc. |
 | Multi-tenancy | SPEC §16 | ✅ Complete | Namespace isolation, quotas |
@@ -223,9 +223,9 @@ Well-organized helpers. CI runs build, test, race, integration, chaos, benchmark
 
 ### 5.2 Architectural Deviations
 
-1. **Dependency growth:** "Zero dependencies" → 13. Pragmatic improvement, not regression.
-2. **Web UI:** React SPA spec → single HTML file. Regression.
-3. **gRPC:** Claimed in release notes, not implemented. Documentation error.
+1. **Dependency growth:** "Zero dependencies" → 18. Pragmatic improvement, but needs policy documentation.
+2. **Web UI:** React SPA implemented — no longer a gap.
+3. **gRPC:** Implemented but under-tested at 36.3% coverage.
 
 ### 5.3 Task Completion
 
@@ -237,8 +237,8 @@ NATS, STOMP, brute-force rate limiter, backup/restore CLI, rolling upgrade — a
 
 ### 5.5 Missing Critical Components
 
-1. **gRPC adapter** — documented but not implemented
-2. **React Web UI** — only basic HTML exists
+1. **gRPC adapter under-tested** — 36.3% coverage, needs >80%
+2. **Frontend zero tests** — 4,520 LOC React SPA with no test coverage
 3. **Zstd dictionary training** — mentioned in spec, not implemented
 4. **Sendfile zero-copy on Windows** — platform limitation
 
@@ -292,13 +292,14 @@ Cross-compilation to 6 platforms. Multi-stage Dockerfile with non-root user, hea
 | Item | Location | Fix | Effort |
 |------|----------|-----|--------|
 | No shutdown timeout | `internal/cli/server.go` | Add `context.WithTimeout` around Stop() | 1h |
-| gRPC claimed but missing | README, RELEASE_NOTES | Implement or remove from docs | 2h |
+| gRPC adapter under-tested | `internal/protocol/grpc/` (36.3%) | Add unit tests for server, publish, subscribe | 1-2 days |
 | Cluster test flakiness | `test/cluster/load_test.go` | Fix test isolation, localhost, adjust expectations | 4h |
+| Zero frontend tests | `frontend/src/` (4,520 LOC) | Set up Vitest + React Testing Library | 1-2 weeks |
 
 ### 🟡 Important
 | Item | Location | Fix | Effort |
 |------|----------|-----|--------|
-| Web UI CDN dependency | `web/dist/index.html` | Embed assets or use internal/ui/static/ | 4h |
+| 2 failing integration tests | `test/integration/auth_test.go:213`, `http_test.go:277` | Fix health endpoint auth bypass + node_id field | 2-4 hours |
 | No panic recovery | All protocol servers | Add `defer recover()` at handler entry | 2h |
 | Plaintext password fallback | `internal/auth/` | Make configurable | 2h |
 | Deprecated LDAP DialTLS | `internal/auth/ldap.go` | Migrate to `ldap.DialURL` | 1h |
@@ -316,16 +317,16 @@ Cross-compilation to 6 platforms. Multi-stage Dockerfile with non-root user, hea
 
 | Metric | Value |
 |---|---|
-| Total Go Files | 315 |
-| Total Go LOC | 94,746 |
-| Total Frontend Files | 1 (index.html) |
-| Total Frontend LOC | ~400 |
-| Test Files | 188 |
-| Test Coverage (measured) | 81.9%–100% per package |
-| External Go Dependencies | 13 (direct + indirect) |
+| Total Go Files | 331 |
+| Total Go LOC | 102,889 (36,277 production, 66,612 tests) |
+| Total Frontend Files | 30+ (React SPA in frontend/src/) |
+| Total Frontend LOC | ~4,520 |
+| Test Files | 199 |
+| Test Coverage (measured) | 81.9%–100% per package (gRPC: 36.3%) |
+| External Go Dependencies | 18 (direct + indirect) |
 | Open TODOs/FIXMEs | 0 |
 | API Endpoints | 28+ |
-| Protocol Adapters | 7 |
-| Spec Feature Completion | ~95% |
+| Protocol Adapters | 8 |
+| Spec Feature Completion | ~110% |
 | Task Completion (Phase 1) | 100% (73/73) |
 | Overall Health Score | 8.5/10 |

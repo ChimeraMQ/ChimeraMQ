@@ -282,7 +282,14 @@ func (s *Session) handleSubscribe(frame *Frame) error {
 	s.mu.Unlock()
 
 	// Start consuming messages
-	go s.runSubscription(sub)
+	go func() {
+		defer func() {
+			if r := recover(); r != nil {
+				s.b.Logger().Error("stomp subscription panic", "sub", sub.ID, "recover", r)
+			}
+		}()
+		s.runSubscription(sub)
+	}()
 
 	// Send receipt if requested
 	if receipt := frame.Get("receipt"); receipt != "" {
@@ -374,6 +381,8 @@ func (s *Session) handleDisconnect(frame *Frame) error {
 		response.Set("receipt-id", receipt)
 		_ = s.writeFrame(response)
 	}
+	// Close connection to trigger immediate session cleanup
+	s.close()
 	return nil
 }
 

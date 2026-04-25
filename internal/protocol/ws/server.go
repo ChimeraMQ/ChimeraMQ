@@ -20,6 +20,31 @@ import (
 	"github.com/coder/websocket"
 )
 
+// extractRealIP resolves the real client IP, trusting X-Forwarded-For only when
+// the direct peer is within the trusted CIDR range.
+func extractRealIP(r *http.Request, trustedCIDR string) string {
+	if trustedCIDR != "" {
+		proxy := net.ParseIP(strings.TrimSpace(strings.Split(r.RemoteAddr, ":")[0]))
+		_, ipNet, err := net.ParseCIDR(trustedCIDR)
+		if err == nil && ipNet.Contains(proxy) {
+			if fwd := r.Header.Get("X-Forwarded-For"); fwd != "" {
+				ips := strings.Split(fwd, ",")
+				if len(ips) == 1 {
+					trimmed := strings.TrimSpace(ips[0])
+					if clientIP := net.ParseIP(trimmed); clientIP != nil {
+						return trimmed
+					}
+				}
+			}
+		}
+	}
+	addr := r.RemoteAddr
+	if host, _, err := net.SplitHostPort(addr); err == nil {
+		return host
+	}
+	return addr
+}
+
 const (
 	wsDefaultRateLimit = 100 // messages per second per connection
 	wsRateBurst        = 50  // burst capacity above steady rate
@@ -73,8 +98,8 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		provider := s.broker.AuthProvider()
 		if provider != nil {
 			// Rate limit check
+			clientIP := extractRealIP(r, cfg.Listener.TrustedProxyCIDR)
 			if lim := s.broker.AuthLimiter(); lim != nil {
-				clientIP := r.RemoteAddr
 				if !lim.IsAllowed(clientIP) {
 					http.Error(w, "authentication rate limited", http.StatusTooManyRequests)
 					return
@@ -98,13 +123,13 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			identity, err := provider.Authenticate(r.Context(), creds)
 			if err != nil {
 				if lim := s.broker.AuthLimiter(); lim != nil {
-					lim.RecordFailed(r.RemoteAddr)
+					lim.RecordFailed(clientIP)
 				}
 				http.Error(w, "unauthorized", http.StatusUnauthorized)
 				return
 			}
 			if lim := s.broker.AuthLimiter(); lim != nil {
-				lim.RecordSuccess(r.RemoteAddr)
+				lim.RecordSuccess(clientIP)
 			}
 			authIdentity = identity
 		}
@@ -546,6 +571,11 @@ func (s *wsSession) runQueueSubscription(ctx context.Context, topic, consumerID 
 
 	// Message delivery loop
 	go func() {
+		defer func() {
+			if r := recover(); r != nil {
+				s.broker.Logger().Error("ws queue subscription panic", "topic", topic, "recover", r)
+			}
+		}()
 		for {
 			select {
 			case <-ctx.Done():
@@ -572,6 +602,11 @@ func (s *wsSession) runStreamSubscription(ctx context.Context, topic, group stri
 
 	// Fetch loop
 	go func() {
+		defer func() {
+			if r := recover(); r != nil {
+				s.broker.Logger().Error("ws stream subscription panic", "topic", topic, "group", group, "recover", r)
+			}
+		}()
 		partitionID := uint32(0)
 		offset := uint64(0)
 

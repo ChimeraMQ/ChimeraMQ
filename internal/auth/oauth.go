@@ -9,11 +9,15 @@ import (
 	"crypto/rsa"
 	"crypto/sha256"
 	"crypto/sha512"
+	"crypto/tls"
+	"crypto/x509"
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"math/big"
+	"net"
 	"net/http"
+	"net/url"
 	"os"
 	"strings"
 	"sync"
@@ -26,16 +30,27 @@ type OAuthProvider struct {
 	audience      string
 	clientID      string
 	roleAllowlist map[string]bool      // Role allowlist for filtering JWT roles
+	tenantID      string          // Default tenant ID for authenticated users
 	keySet        map[string]interface{} // kid → pubKey
 	keySetMux     sync.RWMutex
 
 	httpClient *http.Client
+	tlsConfig  *tls.Config        // Custom TLS config for OIDC/JWKS connections
 	closeCh    chan struct{}
 
 	// jtiCache prevents JWT replay attacks — tracks recently used jti values
 	jtiCache   map[string]time.Time // jti → expiry time
 	jtiCacheMux sync.RWMutex
 	jtiMaxAge  time.Duration        // max age for jti entries (default: 5 min)
+
+	// tokenCache is a secondary replay cache for tokens without jti.
+	// Tracks composite keys of sub+iat+iss to detect replays.
+	tokenCache   map[string]time.Time
+	tokenCacheMux sync.RWMutex
+	tokenMaxAge  time.Duration
+
+	// requireJTI rejects tokens that lack a jti claim.
+	requireJTI bool
 }
 
 // jwksResponse is the JWKS endpoint response.
@@ -61,15 +76,45 @@ type oidcDiscovery struct {
 	JWKSURI string `json:"jwks_uri"`
 }
 
+// isPrivateIP returns true if the host resolves to a private, loopback, or link-local address.
+func isPrivateIP(rawURL string) (bool, error) {
+	u, err := url.Parse(rawURL)
+	if err != nil {
+		return false, err
+	}
+	host := u.Hostname()
+
+	// Check for localhost
+	if host == "localhost" || host == "127.0.0.1" || host == "::1" {
+		return true, nil
+	}
+
+	// Resolve and check IP
+	addrs, err := net.LookupIP(host)
+	if err != nil {
+		return false, err
+	}
+	for _, addr := range addrs {
+		ip := net.ParseIP(addr.String())
+		if ip == nil {
+			continue
+		}
+		if ip.IsPrivate() || ip.IsLoopback() || ip.IsLinkLocalUnicast() {
+			return true, nil
+		}
+	}
+	return false, nil
+}
+
 // NewOAuthProvider creates an OAuth provider that validates JWTs from the given issuer.
-func NewOAuthProvider(issuer, clientID, audience string) (*OAuthProvider, error) {
-	return NewOAuthProviderWithRoleAllowlist(issuer, clientID, audience, nil)
+func NewOAuthProvider(issuer, clientID, audience, tenantID string) (*OAuthProvider, error) {
+	return NewOAuthProviderWithRoleAllowlist(issuer, clientID, audience, tenantID, nil)
 }
 
 // NewOAuthProviderWithRoleAllowlist creates an OAuth provider with a role allowlist.
 // The allowlist filters the roles extracted from JWT claims — only roles in the allowlist are granted.
 // If allowlist is nil, all roles from the JWT are accepted.
-func NewOAuthProviderWithRoleAllowlist(issuer, clientID, audience string, roleAllowlist []string) (*OAuthProvider, error) {
+func NewOAuthProviderWithRoleAllowlist(issuer, clientID, audience, tenantID string, roleAllowlist []string) (*OAuthProvider, error) {
 	allowmap := make(map[string]bool)
 	for _, r := range roleAllowlist {
 		allowmap[r] = true
@@ -79,11 +124,14 @@ func NewOAuthProviderWithRoleAllowlist(issuer, clientID, audience string, roleAl
 		clientID:      clientID,
 		audience:      audience,
 		roleAllowlist: allowmap,
+		tenantID:      tenantID,
 		keySet:        make(map[string]interface{}),
 		httpClient:    &http.Client{Timeout: 10 * time.Second},
 		closeCh:       make(chan struct{}),
 		jtiCache:      make(map[string]time.Time),
 		jtiMaxAge:     5 * time.Minute,
+		tokenCache:    make(map[string]time.Time),
+		tokenMaxAge:   5 * time.Minute,
 	}
 
 	// Fetch initial JWKS
@@ -92,10 +140,22 @@ func NewOAuthProviderWithRoleAllowlist(issuer, clientID, audience string, roleAl
 	}
 
 	// Background refresh every hour
-	go p.refreshLoop()
+	go func() {
+		defer func() { if r := recover(); r != nil { fmt.Fprintf(os.Stderr, "WARNING: OAuth refreshLoop panicked: %v\n", r) } }()
+		p.refreshLoop()
+	}()
 
 	// Background jti cache cleanup
-	go p.jtiCleanupLoop()
+	go func() {
+		defer func() { if r := recover(); r != nil { fmt.Fprintf(os.Stderr, "WARNING: OAuth jtiCleanupLoop panicked: %v\n", r) } }()
+		p.jtiCleanupLoop()
+	}()
+
+	// Background token cache cleanup (for non-jti replay prevention)
+	go func() {
+		defer func() { if r := recover(); r != nil { fmt.Fprintf(os.Stderr, "WARNING: OAuth tokenCleanupLoop panicked: %v\n", r) } }()
+		p.tokenCleanupLoop()
+	}()
 
 	return p, nil
 }
@@ -207,6 +267,23 @@ func (p *OAuthProvider) Authenticate(ctx context.Context, creds Credentials) (*I
 			exp = time.Unix(int64(expVal), 0)
 		}
 		p.markJTIUsed(jti, exp)
+	} else if p.requireJTI {
+		return nil, fmt.Errorf("missing jti claim")
+	} else {
+		// Secondary replay prevention: track sub+iat+iss composite key
+		sub, _ := payload["sub"].(string)
+		iat, hasIat := payload["iat"].(float64)
+		if sub != "" && hasIat {
+			tokenKey := fmt.Sprintf("%s:%d:%s", sub, int64(iat), p.issuer)
+			if p.isTokenUsed(tokenKey) {
+				return nil, fmt.Errorf("token replay detected")
+			}
+			exp := time.Now().Add(p.tokenMaxAge)
+			if expVal, ok := payload["exp"].(float64); ok {
+				exp = time.Unix(int64(expVal), 0)
+			}
+			p.markTokenUsed(tokenKey, exp)
+		}
 	}
 
 	sub, _ := payload["sub"].(string)
@@ -250,6 +327,7 @@ func (p *OAuthProvider) Authenticate(ctx context.Context, creds Credentials) (*I
 
 	return &Identity{
 		UserID: sub,
+		TenantID:    p.tenantID,
 		Roles:  roles,
 		Groups: groups,
 		Source: "oauth",
@@ -267,7 +345,7 @@ func (p *OAuthProvider) Close() error {
 }
 
 func (p *OAuthProvider) refreshLoop() {
-	ticker := time.NewTicker(time.Hour)
+	ticker := time.NewTicker(5 * time.Minute)
 	defer ticker.Stop()
 
 	for {
@@ -320,6 +398,77 @@ func (p *OAuthProvider) jtiCleanupLoop() {
 	}
 }
 
+// isTokenUsed checks if a composite token key (sub+iat+iss) has been used.
+func (p *OAuthProvider) isTokenUsed(key string) bool {
+	p.tokenCacheMux.RLock()
+	defer p.tokenCacheMux.RUnlock()
+	_, exists := p.tokenCache[key]
+	return exists
+}
+
+// markTokenUsed records a composite token key to prevent replay attacks.
+func (p *OAuthProvider) markTokenUsed(key string, expiry time.Time) {
+	p.tokenCacheMux.Lock()
+	defer p.tokenCacheMux.Unlock()
+	p.tokenCache[key] = expiry
+}
+
+// SetRequireJTI enforces that all JWTs must contain a jti claim.
+func (p *OAuthProvider) SetRequireJTI(v bool) {
+	p.requireJTI = v
+}
+
+// SetTLSConfig configures the HTTP client used for OIDC discovery and JWKS fetch
+// with a custom TLS configuration (custom CA roots, cert pinning, etc.).
+func (p *OAuthProvider) SetTLSConfig(cfg *tls.Config) {
+	p.tlsConfig = cfg
+	p.httpClient = &http.Client{
+		Timeout: 10 * time.Second,
+		Transport: &http.Transport{
+			TLSClientConfig: cfg,
+		},
+	}
+}
+
+// LoadTLSFromCAFile loads a TLS config from a CA file for OIDC/JWKS connections.
+func (p *OAuthProvider) LoadTLSFromCAFile(caFile string) error {
+	caPEM, err := os.ReadFile(caFile)
+	if err != nil {
+		return fmt.Errorf("read CA file: %w", err)
+	}
+	pool := x509.NewCertPool()
+	if !pool.AppendCertsFromPEM(caPEM) {
+		return fmt.Errorf("failed to parse CA file")
+	}
+	p.SetTLSConfig(&tls.Config{
+		RootCAs:    pool,
+		MinVersion: tls.VersionTLS12,
+	})
+	return nil
+}
+
+// tokenCleanupLoop periodically removes expired token entries.
+func (p *OAuthProvider) tokenCleanupLoop() {
+	ticker := time.NewTicker(1 * time.Minute)
+	defer ticker.Stop()
+
+	for {
+		select {
+		case <-p.closeCh:
+			return
+		case <-ticker.C:
+			p.tokenCacheMux.Lock()
+			now := time.Now()
+			for key, expiry := range p.tokenCache {
+				if now.After(expiry) {
+					delete(p.tokenCache, key)
+				}
+			}
+			p.tokenCacheMux.Unlock()
+		}
+	}
+}
+
 func (p *OAuthProvider) refreshKeys() error {
 	// Discover JWKS URI from issuer
 	discURL := strings.TrimRight(p.issuer, "/") + "/.well-known/openid-configuration"
@@ -342,6 +491,14 @@ func (p *OAuthProvider) refreshKeys() error {
 	isLocal := strings.Contains(disc.JWKSURI, "localhost") || strings.Contains(disc.JWKSURI, "127.0.0.1")
 	if !strings.HasPrefix(disc.JWKSURI, "https://") && !isLocal {
 		return fmt.Errorf("jwks URI must use HTTPS, got: %s", disc.JWKSURI)
+	}
+	// Reject JWKS URIs pointing to private/internal addresses (SSRF prevention)
+	if !isLocal {
+		if private, err := isPrivateIP(disc.JWKSURI); err != nil {
+			return fmt.Errorf("jwks URI DNS resolution failed: %w", err)
+		} else if private {
+			return fmt.Errorf("jwks URI resolves to a private/internal address")
+		}
 	}
 	jwksResp, err := p.httpClient.Get(disc.JWKSURI)
 	if err != nil {

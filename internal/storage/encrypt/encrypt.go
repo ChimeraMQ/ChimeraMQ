@@ -37,8 +37,8 @@ var weakKeyPatterns = [][]byte{
 // Encryptor provides AES-256-GCM encryption for storage segments.
 type Encryptor struct {
 	mu     sync.Mutex
-	key    [32]byte
-	keyID  uint32
+	keys   map[uint32][32]byte // keyID → key material
+	keyID  uint32              // current (active) key ID for encryption
 	keyLen int
 }
 
@@ -59,8 +59,13 @@ func NewEncryptor(keyPath string) (*Encryptor, error) {
 	if fips.IsEnabled() && len(data) != 32 {
 		return nil, errors.New("FIPS mode requires AES-256 (32 byte key)")
 	}
-	enc := &Encryptor{keyLen: 32}
-	copy(enc.key[:], data)
+	enc := &Encryptor{
+		keys:   make(map[uint32][32]byte),
+		keyLen: 32,
+	}
+	var k [32]byte
+	copy(k[:], data)
+	enc.keys[enc.keyID] = k
 	return enc, nil
 }
 
@@ -134,9 +139,11 @@ func containsPattern(data, pattern []byte) bool {
 // Output format: [KeyID:4][Nonce:12][Ciphertext:var][Tag:16]
 func (enc *Encryptor) Encrypt(plaintext []byte, segmentID string) ([]byte, error) {
 	enc.mu.Lock()
-	defer enc.mu.Unlock()
+	key := enc.keys[enc.keyID]
+	id := enc.keyID
+	enc.mu.Unlock()
 
-	block, err := aes.NewCipher(enc.key[:])
+	block, err := aes.NewCipher(key[:])
 	if err != nil {
 		return nil, err
 	}
@@ -153,7 +160,7 @@ func (enc *Encryptor) Encrypt(plaintext []byte, segmentID string) ([]byte, error
 
 	// Allocate output: 4 (keyID) + 12 (nonce) + len(ciphertext) + 16 (tag)
 	out := make([]byte, 4+len(nonce))
-	binary.BigEndian.PutUint32(out[0:4], enc.keyID)
+	binary.BigEndian.PutUint32(out[0:4], id)
 	copy(out[4:], nonce)
 
 	// Seal appends ciphertext+tag to the nonce prefix
@@ -169,7 +176,16 @@ func (enc *Encryptor) Decrypt(ciphertext []byte, segmentID string) ([]byte, erro
 		return nil, errBadCiphertext
 	}
 
-	block, err := aes.NewCipher(enc.key[:])
+	keyID := binary.BigEndian.Uint32(ciphertext[0:4])
+
+	enc.mu.Lock()
+	key, ok := enc.keys[keyID]
+	enc.mu.Unlock()
+	if !ok {
+		return nil, fmt.Errorf("no key found for keyID %d", keyID)
+	}
+
+	block, err := aes.NewCipher(key[:])
 	if err != nil {
 		return nil, err
 	}
@@ -199,10 +215,8 @@ func (enc *Encryptor) KeyID() uint32 {
 }
 
 // RotateKey loads a new key from the key file and increments the key ID.
+// The old key is retained in the key ring so previously encrypted data remains decryptable.
 func (enc *Encryptor) RotateKey(keyPath string) error {
-	enc.mu.Lock()
-	defer enc.mu.Unlock()
-
 	data, err := os.ReadFile(keyPath)
 	if err != nil {
 		return err
@@ -214,7 +228,13 @@ func (enc *Encryptor) RotateKey(keyPath string) error {
 	if err := validateKey(data); err != nil {
 		return fmt.Errorf("weak encryption key: %w", err)
 	}
-	copy(enc.key[:], data)
+
+	enc.mu.Lock()
+	defer enc.mu.Unlock()
+
 	enc.keyID++
+	var k [32]byte
+	copy(k[:], data)
+	enc.keys[enc.keyID] = k
 	return nil
 }

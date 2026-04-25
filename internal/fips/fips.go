@@ -281,7 +281,6 @@ func SecureTLSConfig() *tls.Config {
 			tls.TLS_RSA_WITH_AES_128_GCM_SHA256,
 			tls.TLS_RSA_WITH_AES_256_GCM_SHA384,
 		},
-		PreferServerCipherSuites: true,
 	}
 
 	if IsEnabled() {

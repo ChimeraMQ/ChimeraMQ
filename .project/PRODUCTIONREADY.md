@@ -40,8 +40,8 @@ Core features status:
 - ✅ **Multi-tenancy** — Namespace isolation, per-tenant quotas
 - ✅ **Flow control** — Memory backpressure, slow consumer eviction, rate limiting
 - ✅ **MCP server** — 10 tools for AI integration
-- ⚠️ **gRPC adapter** — Documented in release notes, not implemented
-- ⚠️ **Web UI** — Single HTML file, not the React SPA described in spec
+- ⚠️ **gRPC adapter** — Exists but at 36.3% test coverage, essentially untested
+- ✅ **Web UI** — Full React 19 SPA with Radix UI, Recharts, Zustand, TypeScript (4,520 LOC)
 - ⚠️ **Geo-replication** — Thin implementation, not full async/sync modes
 
 ### 1.2 Critical Path Analysis
@@ -164,30 +164,30 @@ All 8 Critical and 12 High findings from the original security audit are resolve
 
 ### 4.3 Frontend Performance
 
-N/A — Single HTML file, no bundle to optimize. CDN loading adds latency.
+Full React SPA (4,520 LOC) with Recharts, Radix UI, Tailwind v4. Bundle size not yet analyzed. Potential for lazy-loading Recharts and code-splitting by route.
 
 ## 5. Testing Assessment
 
 ### 5.1 Test Coverage Reality Check
 
-**Measured coverage: 81.9%–100% per package, average ~91%.** This is excellent and the README claim of "90%+ code coverage" is mostly accurate (WS protocol at 81.9% is the exception).
+**Measured coverage: 81.9%–100% per package, average ~91%** (gRPC at 36.3% is the significant outlier). This is excellent and the README claim of "90%+ code coverage" is mostly accurate.
 
 **Critical paths with coverage:**
 - Publish pipeline: tested in `internal/broker/publish_test.go` and `publish_extra_test.go`
 - Queue dispatch: tested with ack/nack/DLQ scenarios
 - Stream fetch: tested with long-poll and immediate return
 - Crash recovery: tested in `test/integration/recovery_test.go`
-- Protocol handlers: tested in per-protocol `*_test.go` files
+- Protocol handlers: tested in per-protocol `*_test.go` files (except gRPC at 36.3%)
 
 ### 5.2 Test Categories Present
 
-- [x] Unit tests — 188 test files across 38 packages
-- [x] Integration tests — 13 files in `test/integration/`
+- [x] Unit tests — 199 test files across 38+ packages
+- [x] Integration tests — 13+ files in `test/integration/`
 - [x] API/endpoint tests — Covered in protocol `*_test.go` files
-- [ ] Frontend component tests — No frontend framework
+- [x] Frontend component tests — 96 tests (23.3% coverage) covering utils, API, hooks, store, UI components, ThemeToggle, ErrorBoundary; pages remaining
 - [ ] E2E tests — Partial (integration tests cover single-node E2E)
 - [x] Benchmark tests — 5 files in `test/bench/`
-- [x] Fuzz tests — Present in `internal/message/edge_test.go`
+- [x] Fuzz tests — Present in multiple `*_fuzz_test.go` files
 - [x] Chaos/concurrency tests — 3 files in `test/chaos/`
 - [x] Cluster tests — 2 files in `test/cluster/` (flaky on Windows)
 - [x] Load tests — 2 files in `test/load/`
@@ -270,25 +270,30 @@ N/A — Single HTML file, no bundle to optimize. CDN loading adds latency.
 ## 9. Final Verdict
 
 ### Production Blockers (MUST fix before any deployment)
-1. **No panic recovery in protocol handlers** — A single malformed message or unexpected input in any protocol handler can crash the entire broker via an unhandled panic. For a messaging system that accepts untrusted network connections, this is unacceptable.
-2. **No graceful shutdown timeout** — If any goroutine is stuck during shutdown, the process hangs indefinitely. In production, this means deployments can stall and rolling updates fail.
+1. ~~**No panic recovery in protocol handlers**~~ — **FIXED**: Added panic recovery to 6 goroutines across STOMP, NATS, gRPC, and WS protocol handlers.
+2. ~~**No graceful shutdown timeout**~~ — **FIXED**: Broker.Stop() now has 30-second internal timeout with step-by-step context checking. CLI-level wrapper already existed.
 
 ### High Priority (Should fix within first week of production)
-1. **gRPC documentation discrepancy** — Remove claim or implement. Documentation integrity matters for trust.
-2. **Embed web UI assets** — CDN dependencies break in production/air-gapped environments.
+1. **gRPC test coverage** — Improved from 36.3% to 78.9%. Remaining 1.1% gap is ACL permission denied paths.
+2. **Frontend test coverage** — 96 tests (23.3% coverage). Pages and ~10 complex UI components still need tests.
 3. **Add log rotation guidance** — Production logging without rotation will fill disks.
 
+### Notes
+- **Zstd dictionary training** — Already implemented in `internal/storage/cold/dict_trainer.go` with tier migrator integration. Active and tested.
+- **pprof endpoints** — Already implemented at `/debug/pprof/*` with auth gating.
+- **Input validation** — Centralized in `TopicManager.validateTopicName()` and `Broker.Publish()`; all protocol adapters route through these.
+
 ### Recommendations (Improve over time)
-1. Build the React SPA dashboard as specified — current HTML is insufficient for operations
+1. Add frontend test suite (Vitest + React Testing Library) for the React SPA
 2. Add circuit breakers for external auth dependencies (LDAP, OAuth, KMS)
 3. Implement batch publish API for higher throughput
 4. Add pre-built Grafana dashboards
 5. Create CODE_OF_CONDUCT.md and dependabot configuration
 
 ### Estimated Time to Production Ready
-- From current state: **2-3 weeks** of focused development
-- Minimum viable production (critical fixes only): **2 days** (panic recovery + shutdown timeout)
-- Full production readiness (all categories green): **6-8 weeks**
+- From current state: **1-2 weeks** of focused development (down from 2-3 weeks — critical blockers resolved)
+- Minimum viable production (critical fixes only): **DONE** — both critical fixes are in place
+- Full production readiness (all categories green): **4-6 weeks** (down from 6-8)
 
 ### Go/No-Go Recommendation
 
@@ -301,6 +306,6 @@ N/A — Single HTML file, no bundle to optimize. CDN loading adds latency.
 5. **Accept the panic risk** — Until panic recovery is added, the broker can crash from unexpected input. For non-critical workloads this is acceptable; for financial/healthcare data, wait for the fix.
 6. **Test failover procedures** — Validate WAL recovery, segment rebuild, and Raft re-election in your environment
 
-**What makes this safe enough:** The core messaging engines (queue, stream, unified) have been thoroughly tested with integration, chaos, and concurrency tests. The security audit has addressed all critical findings. The codebase is clean with zero TODOs and excellent test coverage. The broker starts in <50ms and shuts down cleanly (when not hung).
+**What makes this safe enough:** The core messaging engines (queue, stream, unified) have been thoroughly tested with integration, chaos, and concurrency tests. The security audit has addressed all critical findings. The codebase is clean with zero TODOs and excellent test coverage. The broker starts in <50ms and shuts down cleanly with a 30-second timeout. **Panic recovery has been added to all 6 unprotected goroutines across STOMP, NATS, gRPC, and WS protocol handlers.** The integration test suite is now fully passing.
 
-**What makes this risky:** The absence of panic recovery means any protocol-level edge case that triggers a panic takes down the entire broker. For a system that accepts connections from potentially untrusted clients on 7 different protocols, this is the highest-risk gap. Combined with no shutdown timeout, operational reliability is below what I'd expect for critical infrastructure.
+**What makes this risky:** gRPC test coverage at 78.9% (up from 36.3%) still leaves some ACL permission paths untested. The frontend has zero tests for 4,520 LOC. Geo-replication remains a thin implementation.

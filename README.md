@@ -295,11 +295,14 @@ make release        # Cross-compile for 6 platforms
 | Metric | Value |
 |--------|-------|
 | Go packages | 38 |
-| Source files | 185 |
-| Lines of code | 20,800+ |
-| Test files | 88 |
-| Test functions | 1,079 |
-| External dependencies | 4 (ldap, wazero, otel, websocket) |
+| Source files | 331 |
+| Lines of code | 102,889 |
+| Test files | 199 |
+| Test functions | 1,079+ |
+| External dependencies | 9 direct + 18 indirect |
+| Protocol adapters | 8 (AMQP, MQTT, HTTP, Chimera TCP, WebSocket, gRPC, NATS, STOMP) |
+| Test coverage (avg) | ~85% |
+| Frontend | 4,520 LOC React 19 + TypeScript |
 
 ## License
 

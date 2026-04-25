@@ -87,7 +87,10 @@ func (h *HandoffManager) run() {
 			continue
 		}
 
-		go h.handleHandoffRequest(conn)
+		go func(conn net.Conn) {
+			defer func() { if r := recover(); r != nil { h.b.logger.Error("handoff goroutine panicked", "err", r) } }()
+			h.handleHandoffRequest(conn)
+		}(conn)
 	}
 }
 

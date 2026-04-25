@@ -2,6 +2,7 @@ package stream
 
 import (
 	"fmt"
+	"strconv"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -11,15 +12,21 @@ import (
 	"github.com/chimeramq/chimera/internal/storage/tier"
 )
 
+// Decryptor is the interface needed to decrypt stored messages.
+type Decryptor interface {
+	Decrypt(ciphertext []byte, segmentID string) ([]byte, error)
+}
+
 // Engine manages stream-mode topics, consumer groups, and long-poll fetches.
 type Engine struct {
-	mu       sync.RWMutex
-	groups   map[string]*ConsumerGroup // groupName → group
-	storage  *hot.Engine
-	offsets  *OffsetStore
-	waiters  *WaiterRegistry
-	migrator *tier.Migrator // optional tier-aware read fallback
-	closed   atomic.Bool
+	mu        sync.RWMutex
+	groups    map[string]*ConsumerGroup // groupName → group
+	storage   *hot.Engine
+	offsets   *OffsetStore
+	waiters   *WaiterRegistry
+	migrator  *tier.Migrator // optional tier-aware read fallback
+	encryptor Decryptor      // optional, for at-rest decryption
+	closed    atomic.Bool
 }
 
 // NewEngine creates a new stream engine.
@@ -47,6 +54,11 @@ func (se *Engine) Close() {
 // SetMigrator enables tier-aware read fallback.
 func (se *Engine) SetMigrator(m *tier.Migrator) {
 	se.migrator = m
+}
+
+// SetEncryptor sets the decryptor for at-rest encrypted messages.
+func (se *Engine) SetEncryptor(dec Decryptor) {
+	se.encryptor = dec
 }
 
 // JoinGroup adds a member to a consumer group (creating it if needed).
@@ -128,7 +140,7 @@ func (se *Engine) Fetch(topic string, partitionID uint32, fromOffset uint64, max
 
 	hw := part.HighWatermark()
 	if fromOffset <= hw {
-		return se.readMessages(part, fromOffset, hw, maxMessages)
+		return se.readMessages(part, topic, partitionID, fromOffset, hw, maxMessages)
 	}
 
 	// Long-poll: wait for new data
@@ -138,7 +150,7 @@ func (se *Engine) Fetch(topic string, partitionID uint32, fromOffset uint64, max
 	select {
 	case <-ch:
 		hw = part.HighWatermark()
-		return se.readMessages(part, fromOffset, hw, maxMessages)
+		return se.readMessages(part, topic, partitionID, fromOffset, hw, maxMessages)
 	case <-time.After(maxWait):
 		return nil, fromOffset, nil
 	}
@@ -159,7 +171,7 @@ func (se *Engine) NotifyWaiters(topic string, partID uint32) {
 	se.waiters.Notify(topic, partID)
 }
 
-func (se *Engine) readMessages(part *hot.Partition, from, to uint64, max int) ([]*message.Envelope, uint64, error) {
+func (se *Engine) readMessages(part *hot.Partition, topic string, partID uint32, from, to uint64, max int) ([]*message.Envelope, uint64, error) {
 	end := to
 	if from+uint64(max)-1 < end {
 		end = from + uint64(max) - 1
@@ -174,6 +186,14 @@ func (se *Engine) readMessages(part *hot.Partition, from, to uint64, max int) ([
 
 	msgs := make([]*message.Envelope, 0, len(rawMsgs))
 	for i, data := range rawMsgs {
+		if se.encryptor != nil {
+			segID := topic + "/" + strconv.Itoa(int(partID))
+			decrypted, err := se.encryptor.Decrypt(data, segID)
+			if err != nil {
+				continue
+			}
+			data = decrypted
+		}
 		env, err := message.Unmarshal(data)
 		if err != nil {
 			continue

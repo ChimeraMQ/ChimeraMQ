@@ -15,6 +15,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"log/slog"
 	"net"
 	"net/http"
 	"os"
@@ -22,6 +23,8 @@ import (
 	"sync"
 	"sync/atomic"
 	"time"
+
+	"github.com/chimeramq/chimera/internal/fips"
 
 	"github.com/chimeramq/chimera/internal/auth"
 	"github.com/chimeramq/chimera/internal/message"
@@ -389,7 +392,10 @@ func (r *Replica) Start() error {
 	}
 
 	// Start replication goroutine
-	go r.replicate()
+	go func() {
+		defer func() { if r := recover(); r != nil { slog.Error("geo replicate panicked", "err", r) } }()
+		r.replicate()
+	}()
 
 	return nil
 }
@@ -544,8 +550,15 @@ func (c *Client) Connect() error {
 
 	// Configure TLS if enabled
 	if c.tls.Enabled {
+		if c.tls.SkipVerify {
+			if fips.IsEnabled() {
+				return fmt.Errorf("geo-replication TLS InsecureSkipVerify is rejected in FIPS mode")
+			}
+			fmt.Fprintln(os.Stderr, "WARNING: geo-replication TLS InsecureSkipVerify is enabled — certificate validation is bypassed. This allows man-in-the-middle attacks and MUST NOT be used in production.")
+		}
 		tlsCfg := &tls.Config{
-			InsecureSkipVerify: c.tls.SkipVerify, //nolint:gosec
+			InsecureSkipVerify: c.tls.SkipVerify,
+			MinVersion:         tls.VersionTLS12,
 		}
 
 		if c.tls.CertFile != "" && c.tls.KeyFile != "" {
@@ -650,15 +663,19 @@ func (c *Client) Send(data []byte) error {
 }
 
 // applyAuth adds authentication headers to the request.
+// Auth values support ${ENV_VAR} substitution for secrets.
 func (c *Client) applyAuth(req *http.Request) {
 	switch c.auth.Type {
 	case "token":
-		if c.auth.Token != "" {
-			req.Header.Set("Authorization", "Bearer "+c.auth.Token)
+		token := expandEnv(c.auth.Token)
+		if token != "" {
+			req.Header.Set("Authorization", "Bearer "+token)
 		}
 	case "basic":
-		if c.auth.User != "" && c.auth.Pass != "" {
-			req.SetBasicAuth(c.auth.User, c.auth.Pass)
+		user := expandEnv(c.auth.User)
+		pass := expandEnv(c.auth.Pass)
+		if user != "" && pass != "" {
+			req.SetBasicAuth(user, pass)
 		}
 	}
 }
@@ -684,15 +701,28 @@ func (r *Receiver) Serve() error {
 	mux.HandleFunc(geoReplicatePath, r.handleReplicate)
 	mux.HandleFunc(geoHealthPath, r.handleHealth)
 
+	handler := securityMiddleware(mux)
+
 	r.mu.Lock()
 	r.server = &http.Server{
-		Handler:  mux,
+		Handler:  handler,
 		ErrorLog: nil, // use our own logger
 	}
 	r.mu.Unlock()
 
 	r.logger.Info("geo-replication receiver listening", "addr", r.listener.Addr().String())
 	return r.server.Serve(r.listener)
+}
+
+// securityMiddleware adds defense-in-depth headers to geo-replication endpoints.
+func securityMiddleware(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("X-Content-Type-Options", "nosniff")
+		w.Header().Set("X-Frame-Options", "DENY")
+		w.Header().Set("Strict-Transport-Security", "max-age=31536000; includeSubDomains")
+		w.Header().Set("Cache-Control", "no-store")
+		next.ServeHTTP(w, r)
+	})
 }
 
 // Stop gracefully shuts down the receiver.
@@ -789,7 +819,7 @@ func (r *Receiver) handleReplicate(w http.ResponseWriter, req *http.Request) {
 	// Read entire body
 	body, err := io.ReadAll(io.LimitReader(req.Body, 64*1024*1024)) // 64MB max
 	if err != nil {
-		http.Error(w, "read body: "+err.Error(), http.StatusBadRequest)
+		http.Error(w, "failed to read request", http.StatusBadRequest)
 		return
 	}
 
@@ -810,7 +840,7 @@ func (r *Receiver) handleReplicate(w http.ResponseWriter, req *http.Request) {
 	// Parse batch
 	var events []ReplicationEvent
 	if err := json.Unmarshal(payload, &events); err != nil {
-		http.Error(w, "parse batch: "+err.Error(), http.StatusBadRequest)
+		http.Error(w, "invalid batch format", http.StatusBadRequest)
 		return
 	}
 
@@ -871,4 +901,16 @@ func ParseReplicationMode(s string) ReplicationMode {
 	default:
 		return ReplicationAsync
 	}
+}
+
+// expandEnv replaces ${VAR} patterns with environment variable values.
+// Unset or empty variables are returned as-is.
+func expandEnv(s string) string {
+	return os.Expand(s, func(v string) string {
+		val := os.Getenv(v)
+		if val == "" {
+			return "${" + v + "}"
+		}
+		return val
+	})
 }

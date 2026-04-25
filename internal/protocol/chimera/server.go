@@ -243,6 +243,10 @@ func (s *Server) handleConnection(conn net.Conn) {
 				}
 				client.identity = identity
 			}
+			// Clear subscriptions and reset state on re-CONNECT
+			client.subsMu.Lock()
+			client.subs = make(map[string]*Subscription)
+			client.subsMu.Unlock()
 			s.clients.Delete(client.clientID)
 			if newPayload.ClientID == "" {
 				client.clientID = fmt.Sprintf("client-%d", s.clientSeq.Add(1))

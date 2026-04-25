@@ -34,6 +34,7 @@ type ClusterConfig struct {
 	RaftCertFile       string
 	RaftKeyFile        string
 	RaftCAFile         string
+	RaftHMACKey        []byte
 	GossipBindPort     int
 	GossipSeeds        []string
 	GossipHMACKey      []byte
@@ -95,14 +96,22 @@ func (m *Manager) Start() error {
 		return fmt.Errorf("create raft node: %w", err)
 	}
 
-	// Set up transport with optional TLS
+	// Set up transport with optional TLS and HMAC
 	var transport *raft.TCPTransport
-	if m.cfg.RaftTLSEnabled {
+	if m.cfg.RaftTLSEnabled && len(m.cfg.RaftHMACKey) > 0 {
+		tlsCfg, err := raft.LoadTLSConfig(m.cfg.RaftCertFile, m.cfg.RaftKeyFile, m.cfg.RaftCAFile)
+		if err != nil {
+			return fmt.Errorf("load raft TLS: %w", err)
+		}
+		transport = raft.NewTCPTransportWithTLSAndHMAC(tlsCfg, m.cfg.RaftHMACKey)
+	} else if m.cfg.RaftTLSEnabled {
 		tlsCfg, err := raft.LoadTLSConfig(m.cfg.RaftCertFile, m.cfg.RaftKeyFile, m.cfg.RaftCAFile)
 		if err != nil {
 			return fmt.Errorf("load raft TLS: %w", err)
 		}
 		transport = raft.NewTCPTransportWithTLS(tlsCfg)
+	} else if len(m.cfg.RaftHMACKey) > 0 {
+		transport = raft.NewTCPTransportWithHMAC(m.cfg.RaftHMACKey)
 	} else {
 		transport = raft.NewTCPTransport()
 	}

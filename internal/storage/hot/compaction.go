@@ -12,6 +12,11 @@ import (
 	"github.com/chimeramq/chimera/internal/message"
 )
 
+// Decryptor is the interface needed to decrypt stored messages.
+type Decryptor interface {
+	Decrypt(ciphertext []byte, segmentID string) ([]byte, error)
+}
+
 // MaxCompactionKeys limits the number of unique keys during compaction
 // to prevent unbounded memory growth. Default 1 million keys.
 const MaxCompactionKeys = 1_000_000
@@ -26,9 +31,10 @@ const (
 
 // LogCompactor performs log compaction on a partition.
 type LogCompactor struct {
-	mu      sync.Mutex
-	mode    CompactionMode
-	enabled bool
+	mu        sync.Mutex
+	mode      CompactionMode
+	enabled   bool
+	encryptor Decryptor // optional, for at-rest decryption
 }
 
 // NewLogCompactor creates a new compactor.
@@ -85,6 +91,8 @@ func (lc *LogCompactor) Compact(p *Partition) error {
 	totalRead := 0
 	keysExceeded := false
 
+	segID := p.Topic() + "/" + fmt.Sprintf("%d", p.PartitionID())
+
 	for _, seg := range frozen {
 		records, err := lc.readAllRecords(seg)
 		if err != nil {
@@ -92,6 +100,13 @@ func (lc *LogCompactor) Compact(p *Partition) error {
 		}
 		for _, data := range records {
 			totalRead++
+			if lc.encryptor != nil {
+				decrypted, derr := lc.encryptor.Decrypt(data, segID)
+				if derr != nil {
+					continue
+				}
+				data = decrypted
+			}
 			env, err := message.Unmarshal(data)
 			if err != nil {
 				continue

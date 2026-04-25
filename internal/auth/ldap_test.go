@@ -6,7 +6,7 @@ import (
 )
 
 func TestLDAPNoCredentials(t *testing.T) {
-	p := NewLDAPProvider("ldap://localhost:389", "", "", "dc=example,dc=com", "(uid={username})", false)
+	p := NewLDAPProvider("ldap://localhost:389", "", "", "dc=example,dc=com", "(uid={username})", false, "")
 	defer p.Close()
 
 	_, err := p.Authenticate(context.Background(), Credentials{})
@@ -16,7 +16,7 @@ func TestLDAPNoCredentials(t *testing.T) {
 }
 
 func TestLDAPNoUsername(t *testing.T) {
-	p := NewLDAPProvider("ldap://localhost:389", "", "", "dc=example,dc=com", "", false)
+	p := NewLDAPProvider("ldap://localhost:389", "", "", "dc=example,dc=com", "", false, "")
 	defer p.Close()
 
 	_, err := p.Authenticate(context.Background(), Credentials{Password: "pass"})
@@ -26,7 +26,7 @@ func TestLDAPNoUsername(t *testing.T) {
 }
 
 func TestLDAPNoPassword(t *testing.T) {
-	p := NewLDAPProvider("ldap://localhost:389", "", "", "dc=example,dc=com", "", false)
+	p := NewLDAPProvider("ldap://localhost:389", "", "", "dc=example,dc=com", "", false, "")
 	defer p.Close()
 
 	_, err := p.Authenticate(context.Background(), Credentials{Username: "user"})
@@ -51,7 +51,7 @@ func TestExtractCN(t *testing.T) {
 }
 
 func TestLDAPProviderClose(t *testing.T) {
-	p := NewLDAPProvider("ldap://localhost:389", "", "", "", "", false)
+	p := NewLDAPProvider("ldap://localhost:389", "", "", "", "", false, "")
 	if err := p.Close(); err != nil {
 		t.Errorf("Close() = %v, want nil", err)
 	}

@@ -117,7 +117,21 @@ func (b *Broker) Publish(env *message.Envelope) (uint64, error) {
 	if err != nil {
 		return 0, err
 	}
-	defer message.ReleaseBuffer(data)
+
+	// Encrypt payload before storage (if at-rest encryption is enabled)
+	if b.encryptor != nil {
+		segmentID := env.Topic + "/" + strconv.Itoa(int(env.PartitionID))
+		encrypted, err := b.encryptor.Encrypt(data, segmentID)
+		if err != nil {
+			message.ReleaseBuffer(data)
+			return 0, fmt.Errorf("encrypt payload: %w", err)
+		}
+		message.ReleaseBuffer(data)
+		defer message.ReleaseBuffer(encrypted)
+		data = encrypted
+	} else {
+		defer message.ReleaseBuffer(data)
+	}
 
 	// WAL first
 	if _, err := b.wal.Append(wal.EntryMessage, data); err != nil {

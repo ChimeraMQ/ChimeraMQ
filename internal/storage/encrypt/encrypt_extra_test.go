@@ -290,10 +290,23 @@ func TestEncryptDecryptAfterRotationOldCiphertextFails(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	// Old ciphertext should fail to decrypt with new key
-	_, err := enc.Decrypt(oldCT, "seg-old")
-	if err == nil {
-		t.Error("old ciphertext should fail to decrypt after key rotation")
+	// Old ciphertext should still decrypt after key rotation (key ring retains old keys)
+	decrypted, err := enc.Decrypt(oldCT, "seg-old")
+	if err != nil {
+		t.Fatalf("old ciphertext should decrypt after key rotation: %v", err)
+	}
+	if string(decrypted) != "old secret" {
+		t.Errorf("decrypted = %q, want %q", decrypted, "old secret")
+	}
+
+	// New ciphertext uses the new key
+	newCT, _ := enc.Encrypt([]byte("new secret"), "seg-new")
+	decNew, err := enc.Decrypt(newCT, "seg-new")
+	if err != nil {
+		t.Fatalf("new ciphertext should decrypt: %v", err)
+	}
+	if string(decNew) != "new secret" {
+		t.Errorf("new decrypted = %q, want %q", decNew, "new secret")
 	}
 }
 

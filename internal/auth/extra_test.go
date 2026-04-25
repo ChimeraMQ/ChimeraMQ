@@ -261,7 +261,7 @@ func TestNewOAuthProviderWithTestServer(t *testing.T) {
 	srv = httptest.NewServer(mux)
 	defer srv.Close()
 
-	p, err := NewOAuthProvider(srv.URL, "client-id", "aud")
+	p, err := NewOAuthProvider(srv.URL, "client-id", "aud", "")
 	if err != nil {
 		t.Fatalf("NewOAuthProvider failed: %v", err)
 	}
@@ -281,7 +281,7 @@ func TestNewOAuthProviderBadDiscovery(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	_, err := NewOAuthProvider(srv.URL, "cid", "aud")
+	_, err := NewOAuthProvider(srv.URL, "cid", "aud", "")
 	if err == nil {
 		t.Error("should fail when discovery returns 500")
 	}
@@ -694,7 +694,7 @@ func TestMTLSProviderContextWithMultipleCerts(t *testing.T) {
 // ---------------------------------------------------------------------------
 
 func TestLDAPProviderCreation(t *testing.T) {
-	p := NewLDAPProvider("ldap://localhost:389", "cn=admin,dc=example", "pass", "dc=example", "(uid={username})", true)
+	p := NewLDAPProvider("ldap://localhost:389", "cn=admin,dc=example", "pass", "dc=example", "(uid={username})", true, "")
 	if p.url != "ldap://localhost:389" {
 		t.Errorf("url = %q", p.url)
 	}
@@ -713,7 +713,7 @@ func TestLDAPProviderCreation(t *testing.T) {
 }
 
 func TestLDAPProviderDefaults(t *testing.T) {
-	p := NewLDAPProvider("ldap://localhost", "", "", "", "", false)
+	p := NewLDAPProvider("ldap://localhost", "", "", "", "", false, "")
 	defer p.Close()
 
 	// Verify defaults
@@ -726,7 +726,7 @@ func TestLDAPProviderDefaults(t *testing.T) {
 }
 
 func TestLDAPProviderCloseNil(t *testing.T) {
-	p := NewLDAPProvider("ldap://localhost", "", "", "", "", false)
+	p := NewLDAPProvider("ldap://localhost", "", "", "", "", false, "")
 	// Double close should not panic
 	if err := p.Close(); err != nil {
 		t.Errorf("first close: %v", err)

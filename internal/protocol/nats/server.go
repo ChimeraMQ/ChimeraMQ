@@ -281,7 +281,14 @@ func (s *Session) handleSub(msg *Message) error {
 	s.mu.Unlock()
 
 	// Start consuming messages
-	go s.runSubscription(sub, topic)
+	go func() {
+		defer func() {
+			if r := recover(); r != nil {
+				s.b.Logger().Error("nats subscription panic", "sid", sub.SID, "recover", r)
+			}
+		}()
+		s.runSubscription(sub, topic)
+	}()
 
 	return nil
 }

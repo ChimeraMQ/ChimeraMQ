@@ -3,6 +3,7 @@ package ttl
 import (
 	"context"
 	"log"
+	"strconv"
 	"sync"
 	"time"
 
@@ -24,12 +25,18 @@ type TopicTTLConfig struct {
 	Action     Action
 }
 
+// Decryptor is the interface needed to decrypt stored messages.
+type Decryptor interface {
+	Decrypt(ciphertext []byte, segmentID string) ([]byte, error)
+}
+
 // Expirer scans partitions and removes expired messages.
 type Expirer struct {
 	mu        sync.RWMutex
 	storage   *hot.Engine
 	configs   map[string]*TopicTTLConfig                // topic -> config
 	onExpired func(topic string, env *message.Envelope) // optional callback
+	encryptor Decryptor                                 // optional, for at-rest decryption
 
 	ctx    context.Context
 	cancel context.CancelFunc
@@ -52,6 +59,11 @@ func (e *Expirer) SetOnExpired(fn func(topic string, env *message.Envelope)) {
 	e.onExpired = fn
 }
 
+// SetEncryptor sets the decryptor for at-rest encrypted messages.
+func (e *Expirer) SetEncryptor(dec Decryptor) {
+	e.encryptor = dec
+}
+
 // SetTopicConfig configures TTL for a topic.
 func (e *Expirer) SetTopicConfig(topic string, cfg *TopicTTLConfig) {
 	e.mu.Lock()
@@ -69,7 +81,14 @@ func (e *Expirer) RemoveTopic(topic string) {
 // Start begins the background expiry scan.
 func (e *Expirer) Start() {
 	e.wg.Add(1)
-	go e.run()
+	go func() {
+		defer func() {
+			if r := recover(); r != nil {
+				log.Printf("ttl expirer panicked: %v", r)
+			}
+		}()
+		e.run()
+	}()
 }
 
 // Stop shuts down the expirer.
@@ -152,6 +171,15 @@ func (e *Expirer) scan() {
 					continue
 				}
 				checked++
+
+				if e.encryptor != nil {
+					segID := topic + "/" + strconv.Itoa(int(partID))
+					decrypted, derr := e.encryptor.Decrypt(data, segID)
+					if derr != nil {
+						continue
+					}
+					data = decrypted
+				}
 
 				env, err := message.Unmarshal(data)
 				if err != nil {

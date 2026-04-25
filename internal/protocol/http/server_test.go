@@ -508,11 +508,11 @@ func TestHandleNackInvalidJSON(t *testing.T) {
 
 // --- Health & Metrics ---
 
-func TestHandleHealth(t *testing.T) {
+func TestHandleHealthDetailed(t *testing.T) {
 	srv, _, cleanup := setupTestServer(t)
 	defer cleanup()
 
-	resp := doRequest(t, srv, "GET", "/v1/health", nil)
+	resp := doRequest(t, srv, "GET", "/v1/health/detailed", nil)
 	if resp.StatusCode != http.StatusOK {
 		t.Fatalf("status = %d, want 200", resp.StatusCode)
 	}

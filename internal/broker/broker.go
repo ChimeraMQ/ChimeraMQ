@@ -10,7 +10,6 @@ import (
 	"strings"
 	"sync"
 	"sync/atomic"
-	"syscall"
 	"time"
 
 	"github.com/chimeramq/chimera/internal/audit"
@@ -180,7 +179,8 @@ func (b *Broker) Start() error {
 				b.config.Auth.OAuth.Issuer,
 				b.config.Auth.OAuth.ClientID,
 				b.config.Auth.OAuth.Audience,
-				b.config.Auth.OAuth.RoleAllowlist,
+				b.config.Auth.OAuth.TenantID,
+		b.config.Auth.OAuth.RoleAllowlist,
 			)
 			if err != nil {
 				return fmt.Errorf("oauth provider: %w", err)
@@ -196,7 +196,8 @@ func (b *Broker) Start() error {
 					b.config.Auth.LDAP.BaseDN,
 					b.config.Auth.LDAP.Filter,
 					b.config.Auth.LDAP.UseTLS,
-					b.config.Auth.LDAP.RoleAllowlist,
+					b.config.Auth.LDAP.TenantID,
+			b.config.Auth.LDAP.RoleAllowlist,
 				)
 			} else {
 				provider = auth.NewLDAPProvider(
@@ -206,6 +207,7 @@ func (b *Broker) Start() error {
 					b.config.Auth.LDAP.BaseDN,
 					b.config.Auth.LDAP.Filter,
 					b.config.Auth.LDAP.UseTLS,
+			b.config.Auth.LDAP.TenantID,
 				)
 			}
 			b.authProvider = provider
@@ -220,6 +222,11 @@ func (b *Broker) Start() error {
 		// Initialize brute force protection rate limiter (5 attempts per 15 minutes, 30 minute ban)
 		b.authLimiter = auth.NewAuthRateLimiter(5, 15*time.Minute, 30*time.Minute)
 		b.logger.Info("auth brute force protection enabled", "max_attempts", 5, "window", "15m")
+		// Wire trusted proxy CIDR for X-Forwarded-For resolution
+		if cidr := b.config.Listener.TrustedProxyCIDR; cidr != "" {
+			b.authLimiter.SetTrustedProxies([]string{cidr})
+			b.logger.Info("auth rate limiter trusted proxy", "cidr", cidr)
+		}
 	} else {
 		// Check if binding to non-loopback address — auth must be enabled for security
 		if addr := b.config.Listener.Bind; addr != "localhost" && addr != "127.0.0.1" && addr != "::1" && !strings.HasPrefix(addr, "localhost:") {
@@ -305,6 +312,13 @@ func (b *Broker) Start() error {
 			return fmt.Errorf("encryption init: %w", err)
 		}
 		b.logger.Info("at-rest encryption enabled")
+		// Wire decryptor to shared read paths
+		if b.streamEngine != nil {
+			b.streamEngine.SetEncryptor(b.encryptor)
+		}
+		if b.ttlExpirer != nil {
+			b.ttlExpirer.SetEncryptor(b.encryptor)
+		}
 	}
 
 	// Step 11: Warm Tier (LSM-Tree, if enabled)
@@ -369,6 +383,9 @@ func (b *Broker) Start() error {
 	// Step 15: TTL Expirer (if enabled)
 	if b.config.TTL.Enabled {
 		b.ttlExpirer = ttl.NewExpirer(b.storage)
+		if b.encryptor != nil {
+			b.ttlExpirer.SetEncryptor(b.encryptor)
+		}
 		b.ttlExpirer.Start()
 		b.logger.Info("TTL expirer started")
 	}
@@ -387,6 +404,7 @@ func (b *Broker) Start() error {
 			RaftCertFile:       b.config.Cluster.Raft.CertFile,
 			RaftKeyFile:        b.config.Cluster.Raft.KeyFile,
 			RaftCAFile:         b.config.Cluster.Raft.CAFile,
+			RaftHMACKey:        []byte(b.config.Cluster.Raft.HMACKey),
 			GossipBindPort:     b.config.Cluster.Gossip.BindPort,
 			GossipSeeds:        b.config.Cluster.Gossip.Seeds,
 			GossipHMACKey:      []byte(b.config.Cluster.Gossip.HMACKey),
@@ -630,6 +648,8 @@ func (b *Broker) Start() error {
 }
 
 // Stop performs graceful shutdown in reverse order.
+// If shutdown takes longer than 30 seconds, a warning is logged and remaining
+// steps are skipped to prevent indefinite hangs.
 func (b *Broker) Stop() error {
 	if !b.stopped.CompareAndSwap(false, true) {
 		return nil // already stopped
@@ -638,107 +658,149 @@ func (b *Broker) Stop() error {
 
 	b.cancel()
 
+	// Internal timeout safety net — ensures Stop() never hangs indefinitely
+	stopCtx, stopCancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer stopCancel()
+
+	stopStep := func(name string, fn func()) bool {
+		select {
+		case <-stopCtx.Done():
+			b.logger.Warn("shutdown timed out, skipping remaining steps", "step", name)
+			return false
+		default:
+		}
+		fn()
+		b.logger.Debug("shutdown step completed", "step", name)
+		return true
+	}
+
 	// Stop geo-replication receiver and manager
 	if b.geoReceiver != nil {
-		b.geoReceiver.Stop()
-		b.logger.Info("geo-replication receiver stopped")
+		if !stopStep("geo-receiver", func() { b.geoReceiver.Stop() }) {
+			goto cleanup
+		}
 	}
 	if b.geoManager != nil {
-		b.geoManager.Stop()
-		b.logger.Info("geo-replication manager stopped")
+		if !stopStep("geo-manager", func() { b.geoManager.Stop() }) {
+			goto cleanup
+		}
 	}
 
 	// Stop quota enforcer
 	if b.quotaEnforcer != nil {
-		b.quotaEnforcer.Stop()
-		b.logger.Info("quota enforcer stopped")
+		if !stopStep("quota-enforcer", func() { b.quotaEnforcer.Stop() }) {
+			goto cleanup
+		}
 	}
 
 	// Stop handoff manager first (signal we're shutting down)
 	if b.handoff != nil {
-		b.handoff.Stop()
-		b.logger.Info("handoff manager stopped")
+		if !stopStep("handoff", func() { b.handoff.Stop() }) {
+			goto cleanup
+		}
 	}
 
 	// Close audit logger
 	if b.auditLogger != nil {
-		_ = b.auditLogger.Close()
-		b.logger.Info("audit logger closed")
+		if !stopStep("audit", func() { _ = b.auditLogger.Close() }) {
+			goto cleanup
+		}
 	}
 
 	// Stop engines (kills background goroutines)
-	b.queueEngine.Close()
-	b.streamEngine.Close()
-	b.logger.Info("engines stopped")
+	if !stopStep("engines", func() {
+		b.queueEngine.Close()
+		b.streamEngine.Close()
+	}) {
+		goto cleanup
+	}
 
 	// Stop flow controller (eviction ticker)
 	if b.flowCtrl != nil {
-		b.flowCtrl.Stop()
-		b.logger.Info("flow controller stopped")
+		if !stopStep("flow-controller", func() { b.flowCtrl.Stop() }) {
+			goto cleanup
+		}
 	}
 
 	// Stop TTL expirer
 	if b.ttlExpirer != nil {
-		b.ttlExpirer.Stop()
-		b.logger.Info("TTL expirer stopped")
+		if !stopStep("ttl-expirer", func() { b.ttlExpirer.Stop() }) {
+			goto cleanup
+		}
 	}
 
 	// Close schema registry
 	if b.schemaReg != nil {
-		_ = b.schemaReg.Close()
-		b.logger.Info("schema registry closed")
+		if !stopStep("schema-registry", func() { _ = b.schemaReg.Close() }) {
+			goto cleanup
+		}
 	}
 
 	// Stop tier migrator
 	if b.migrator != nil {
-		b.migrator.Stop()
-		b.logger.Info("tier migrator stopped")
+		if !stopStep("tier-migrator", func() { b.migrator.Stop() }) {
+			goto cleanup
+		}
 	}
 
 	// Close warm engine
 	if b.warmEngine != nil {
-		_ = b.warmEngine.Close()
-		b.logger.Info("warm tier closed")
+		if !stopStep("warm-tier", func() { _ = b.warmEngine.Close() }) {
+			goto cleanup
+		}
 	}
 
 	// Close cold manager
 	if b.coldMgr != nil {
-		b.coldMgr.Close()
-		b.logger.Info("cold tier closed")
+		if !stopStep("cold-tier", func() { b.coldMgr.Close() }) {
+			goto cleanup
+		}
 	}
 
 	// Stop cluster manager
 	if b.cluster != nil {
-		b.cluster.Stop()
-		b.logger.Info("cluster stopped")
+		if !stopStep("cluster", func() { b.cluster.Stop() }) {
+			goto cleanup
+		}
 	}
 
 	// Flush storage
-	b.storage.FlushAll()
-	b.logger.Info("storage flushed")
+	if !stopStep("storage-flush", func() { b.storage.FlushAll() }) {
+		goto cleanup
+	}
 
 	// Checkpoint WAL
-	_ = b.wal.Checkpoint(b.wal.Offset())
-	_ = b.wal.Close()
-	b.logger.Info("WAL closed")
+	if !stopStep("wal", func() {
+		_ = b.wal.Checkpoint(b.wal.Offset())
+		_ = b.wal.Close()
+	}) {
+		goto cleanup
+	}
 
 	// Close storage
-	_ = b.storage.Close()
-	b.logger.Info("storage closed")
+	if !stopStep("storage", func() { _ = b.storage.Close() }) {
+		goto cleanup
+	}
 
 	// Shutdown tracer
 	if b.otelTracer != nil {
-		_ = b.otelTracer.Shutdown(context.Background())
-		b.logger.Info("tracer shutdown")
+		if !stopStep("tracer", func() { _ = b.otelTracer.Shutdown(context.Background()) }) {
+			goto cleanup
+		}
 	}
 
 	// Release lock
 	if b.lockFile != nil {
-		lockPath := b.lockFile.Name()
-		_ = b.lockFile.Close()
-		_ = os.Remove(lockPath)
+		if !stopStep("lock", func() {
+			lockPath := b.lockFile.Name()
+			_ = b.lockFile.Close()
+			_ = os.Remove(lockPath)
+		}) {
+			// Don't skip cleanup — we'll still try to remove the lock
+		}
 	}
 
+cleanup:
 	b.logger.Info("shutdown complete")
 	return nil
 }
@@ -1009,7 +1071,7 @@ func acquireLockFile(dataDir string) (*os.File, error) {
 			} else if pid > 0 && isProcessAlive(pid) {
 				return nil, fmt.Errorf("data directory locked by process %d", pid)
 			}
-			// Stale or corrupt lock — remove and reclaim
+			// Stale or corrupt lock — attempt removal
 			os.Remove(lockPath)
 			f, err = os.OpenFile(lockPath, os.O_CREATE|os.O_WRONLY|os.O_EXCL, 0600)
 			if err != nil {
@@ -1042,12 +1104,8 @@ func isProcessAlive(pid int) bool {
 	if pid == os.Getpid() {
 		return true
 	}
-	proc, err := os.FindProcess(pid)
-	if err != nil {
-		return false
+	if isWindowsProcessAlive(pid) {
+		return true
 	}
-	// Signal(0) checks liveness on Unix.
-	// On Windows, FindProcess itself fails for non-existent PIDs.
-	err = proc.Signal(syscall.Signal(0))
-	return err == nil
+	return false
 }

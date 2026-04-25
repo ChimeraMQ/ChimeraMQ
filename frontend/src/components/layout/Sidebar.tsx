@@ -1,5 +1,5 @@
-import { NavLink } from 'react-router';
-import { Menu, X, Server, Layers, Users, BookOpen, AlertTriangle, Zap, Cpu, Workflow, PanelLeftClose, PanelLeftOpen } from 'lucide-react';
+import { NavLink, useNavigate } from 'react-router';
+import { Menu, X, Server, Layers, Users, BookOpen, AlertTriangle, Zap, Cpu, Workflow, PanelLeftClose, PanelLeftOpen, LogOut } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { ThemeToggle } from '@/components/shared/ThemeToggle';
 import { ScrollArea } from '@/components/ui/scroll-area';
@@ -8,6 +8,7 @@ import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip
 import { Button } from '@/components/ui/button';
 import { useRoutePrefetch } from '@/hooks/use-route-prefetch';
 import { useAppState } from '@/stores/app-store';
+import { useAuthStore } from '@/stores/auth-store';
 
 const navItems = [
   { to: '/', label: 'Overview', icon: Zap },
@@ -31,6 +32,24 @@ function NavIcon({ icon: Icon, label, collapsed }: { icon: typeof Zap; label: st
       </TooltipTrigger>
       <TooltipContent side="right">{label}</TooltipContent>
     </Tooltip>
+  );
+}
+
+function LogoutButton({ collapsed }: { collapsed: boolean }) {
+  const logout = useAuthStore(s => s.logout);
+  const navigate = useNavigate();
+
+  return (
+    <Button
+      variant="ghost"
+      size="sm"
+      className={cn('w-full justify-start gap-3 text-sm font-medium text-text-secondary hover:text-destructive', collapsed && 'justify-center')}
+      onClick={() => { logout(); navigate('/login', { replace: true }); }}
+      aria-label="Sign out"
+    >
+      <LogOut className="h-4 w-4 shrink-0" />
+      {!collapsed && <span>Sign Out</span>}
+    </Button>
   );
 }
 
@@ -118,12 +137,11 @@ export function Sidebar({ open, onClose }: { open: boolean; onClose: () => void 
 
           <Separator className="mx-2" />
 
-          <div className="p-2">
-            <div className={cn('rounded-md bg-background-muted px-3 py-2', sidebarCollapsed && 'hidden')}>
-              <p className="text-xs font-medium text-text-secondary">ChimeraMQ</p>
-              <p className="text-xs text-text-muted">v1.0.0-draft</p>
+          {useAuthStore.getState().isAuthenticated && (
+            <div className="p-2">
+              <LogoutButton collapsed={sidebarCollapsed} />
             </div>
-          </div>
+          )}
         </ScrollArea>
       </aside>
     </>

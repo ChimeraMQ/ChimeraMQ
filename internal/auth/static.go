@@ -50,18 +50,29 @@ func (p *StaticProvider) authenticateToken(token string) (*Identity, error) {
 	p.mu.RLock()
 	defer p.mu.RUnlock()
 
+	// Constant-time iteration: check ALL tokens regardless of match position
+	// to prevent timing side-channel that would leak token position.
+	var matchIdx int = -1
+	var matchLabel string
+	idx := 0
 	for storedToken, label := range p.tokens {
 		if subtle.ConstantTimeCompare([]byte(token), []byte(storedToken)) == 1 {
-			return &Identity{
-				UserID:   label,
-				TenantID: p.tenants[label],
-				Source:   "static",
-				Roles:    p.roles[label],
-			}, nil
+			matchIdx = idx
+			matchLabel = label
 		}
+		idx++
 	}
 
-	return nil, ErrInvalidCredentials
+	if matchIdx < 0 {
+		return nil, ErrInvalidCredentials
+	}
+
+	return &Identity{
+		UserID:   matchLabel,
+		TenantID: p.tenants[matchLabel],
+		Source:   "static",
+		Roles:    p.roles[matchLabel],
+	}, nil
 }
 
 func (p *StaticProvider) authenticateUser(username, password string) (*Identity, error) {
@@ -175,16 +186,23 @@ func (fp *FileProvider) Authenticate(ctx context.Context, creds Credentials) (*I
 	defer fp.mu.RUnlock()
 
 	if creds.Token != "" {
+		// Constant-time iteration: check ALL tokens regardless of match
+		var matchLabel string
+		var found bool
 		for storedToken, label := range fp.tokens {
 			if subtle.ConstantTimeCompare([]byte(creds.Token), []byte(storedToken)) == 1 {
-				return &Identity{
-					UserID:   label,
-					TenantID: fp.users[label].Tenant,
-					Source:   "file",
-				}, nil
+				matchLabel = label
+				found = true
 			}
 		}
-		return nil, ErrInvalidCredentials
+		if !found {
+			return nil, ErrInvalidCredentials
+		}
+		return &Identity{
+			UserID:   matchLabel,
+			TenantID: fp.users[matchLabel].Tenant,
+			Source:   "file",
+		}, nil
 	}
 
 	if creds.Username != "" {

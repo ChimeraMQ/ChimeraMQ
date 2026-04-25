@@ -422,11 +422,18 @@ func TestAuthBasicInvalidPassword(t *testing.T) {
 func TestHealthNoAuth(t *testing.T) {
 	srv, cleanup := setupAuthTestServer(t)
 	defer cleanup()
-
-	// Health endpoint should NOT require auth (no auth wrapper)
+	// Health endpoint is public — no auth required
 	resp := doRequest(t, srv, "GET", "/v1/health", nil)
 	if resp.StatusCode != http.StatusOK {
-		t.Errorf("health status = %d, want 200", resp.StatusCode)
+		t.Errorf("health without auth status = %d, want 200", resp.StatusCode)
+	}
+	var result map[string]interface{}
+	json.NewDecoder(resp.Body).Decode(&result)
+	if result["status"] == nil {
+		t.Error("expected status field in health response")
+	}
+	if result["node_id"] == nil {
+		t.Error("expected node_id field in health response")
 	}
 }
 

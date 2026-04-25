@@ -23,7 +23,7 @@ import (
 	"google.golang.org/grpc/status"
 )
 
-// authInterceptor middleware checks auth before allowing RPCs.
+// authInterceptor middleware checks auth before allowing unary RPCs.
 // Health RPC is always allowed.
 func authInterceptor(b *broker.Broker) grpc.UnaryServerInterceptor {
 	return func(ctx context.Context, req interface{}, info *grpc.UnaryServerInfo, handler grpc.UnaryHandler) (interface{}, error) {
@@ -32,58 +32,118 @@ func authInterceptor(b *broker.Broker) grpc.UnaryServerInterceptor {
 			return handler(ctx, req)
 		}
 
-		// Extract credentials from metadata
-		md, ok := metadata.FromIncomingContext(ctx)
-		if !ok {
-			return nil, status.Errorf(codes.Unauthenticated, "missing metadata")
-		}
-
-		// If auth is disabled (nil provider), allow all traffic
-		authProvider := b.AuthProvider()
-		if authProvider == nil {
-			return handler(ctx, req)
-		}
-
-		var token string
-		if vals := md.Get("authorization"); len(vals) > 0 {
-			token = vals[0]
-			if len(token) > 7 && token[:7] == "Bearer " {
-				token = token[7:]
-			}
-		}
-
-		creds := auth.Credentials{Token: token}
-		id, err := authProvider.Authenticate(ctx, creds)
+		ctx, id, err := authenticateGRPCRequest(b, ctx)
 		if err != nil {
-			return nil, status.Errorf(codes.Unauthenticated, "auth failed: %v", err)
+			return nil, err
 		}
 
-		// ACL check for topic operations
+		// ACL check for topic operations using actual topic name
 		aclEngine := b.ACLEngine()
 		if aclEngine != nil {
-			switch info.FullMethod {
-			case "/chimera.ChimeraService/Publish":
-				allowed := aclEngine.Check(id, auth.ResourceTopic, "*", auth.OpWrite)
-				if !allowed {
-					return nil, status.Errorf(codes.PermissionDenied, "publish denied")
+			var topic string
+			var op auth.Operation
+			var needsACL bool
+			switch r := req.(type) {
+			case *proto.PublishRequest:
+				topic = r.Topic
+				op = auth.OpWrite
+				needsACL = true
+			case *proto.CreateTopicRequest:
+				if r.Config != nil {
+					topic = r.Config.Name
 				}
-			case "/chimera.ChimeraService/Consume":
-				// Consume is streaming; we allow it but check per-subscription in handler
-			case "/chimera.ChimeraService/CreateTopic":
-				allowed := aclEngine.Check(id, auth.ResourceTopic, "*", auth.OpCreate)
-				if !allowed {
-					return nil, status.Errorf(codes.PermissionDenied, "create topic denied")
-				}
-			case "/chimera.ChimeraService/DeleteTopic":
-				allowed := aclEngine.Check(id, auth.ResourceTopic, "*", auth.OpDelete)
-				if !allowed {
-					return nil, status.Errorf(codes.PermissionDenied, "delete topic denied")
-				}
+				op = auth.OpCreate
+				needsACL = true
+			case *proto.DeleteTopicRequest:
+				topic = r.Topic
+				op = auth.OpDelete
+				needsACL = true
+			}
+			if needsACL && topic != "" && !aclEngine.Check(id, auth.ResourceTopic, topic, op) {
+				return nil, status.Errorf(codes.PermissionDenied, "operation denied by ACL")
 			}
 		}
 
 		return handler(ctx, req)
 	}
+}
+
+// authStreamInterceptor middleware checks auth before allowing streaming RPCs.
+func authStreamInterceptor(b *broker.Broker) grpc.StreamServerInterceptor {
+	return func(srv interface{}, ss grpc.ServerStream, info *grpc.StreamServerInfo, handler grpc.StreamHandler) error {
+		// Skip auth for Health RPC
+		if info.FullMethod == "/chimera.ChimeraService/Health" {
+			return handler(srv, ss)
+		}
+
+		ctx := ss.Context()
+		_, id, err := authenticateGRPCRequest(b, ctx)
+		if err != nil {
+			return err
+		}
+
+		// Attach identity to context for downstream ACL checks
+		ctx = context.WithValue(ctx, authIdentityKey{}, id)
+
+		// Wrap the stream with the authenticated context
+		wrapped := &wrappedServerStream{
+			ServerStream: ss,
+			ctx:          ctx,
+		}
+
+		return handler(srv, wrapped)
+	}
+}
+
+type authIdentityKey struct{}
+
+// wrappedServerStream carries the authenticated context through the stream.
+type wrappedServerStream struct {
+	grpc.ServerStream
+	ctx context.Context
+}
+
+func (w *wrappedServerStream) Context() context.Context {
+	return w.ctx
+}
+
+// authenticateGRPCRequest extracts and validates credentials from metadata.
+func authenticateGRPCRequest(b *broker.Broker, ctx context.Context) (context.Context, *auth.Identity, error) {
+	// Extract credentials from metadata
+	md, ok := metadata.FromIncomingContext(ctx)
+	if !ok {
+		return ctx, nil, status.Errorf(codes.Unauthenticated, "missing metadata")
+	}
+
+	// If auth is disabled (nil provider), allow all traffic
+	authProvider := b.AuthProvider()
+	if authProvider == nil {
+		return ctx, &auth.Identity{}, nil
+	}
+
+	var token string
+	if vals := md.Get("authorization"); len(vals) > 0 {
+		token = vals[0]
+		if len(token) > 7 && token[:7] == "Bearer " {
+			token = token[7:]
+		}
+	}
+
+	creds := auth.Credentials{Token: token}
+	id, err := authProvider.Authenticate(ctx, creds)
+	if err != nil {
+		return ctx, nil, status.Errorf(codes.Unauthenticated, "auth failed: %v", err)
+	}
+
+	return ctx, id, nil
+}
+
+// GetIdentityFromContext retrieves the authenticated identity from context.
+func GetIdentityFromContext(ctx context.Context) *auth.Identity {
+	if id, ok := ctx.Value(authIdentityKey{}).(*auth.Identity); ok {
+		return id
+	}
+	return nil
 }
 
 // topicModeFromProto converts a proto mode string to broker.TopicMode.
@@ -145,8 +205,9 @@ func NewServer(b *broker.Broker) (*Server, error) {
 	}
 
 	s.grpcSrv = grpc.NewServer(
-		grpc.MaxRecvMsgSize(10 * 1024 * 1024), // 10MB max message size
+		grpc.MaxRecvMsgSize(10*1024*1024), // 10MB max message size
 		grpc.UnaryInterceptor(authInterceptor(b)),
+		grpc.StreamInterceptor(authStreamInterceptor(b)),
 	)
 	proto.RegisterChimeraServiceServer(s.grpcSrv, s)
 
@@ -255,6 +316,11 @@ func (s *Server) Consume(stream proto.ChimeraService_ConsumeServer) error {
 	defer close(hbDone)
 	s.wg.Add(1)
 	go func() {
+		defer func() {
+			if r := recover(); r != nil {
+				s.broker.Logger().Error("grpc heartbeat panic", "client_id", clientID, "recover", r)
+			}
+		}()
 		defer s.wg.Done()
 		ticker := time.NewTicker(30 * time.Second)
 		defer ticker.Stop()
@@ -397,6 +463,20 @@ func (s *Server) Health(ctx context.Context, req *proto.HealthRequest) (*proto.H
 // --- Stream Handlers ---
 
 func (s *Server) handleSubscribe(client *grpcClientConn, req *proto.SubscribeRequest) {
+	// ACL check for subscription
+	aclEngine := s.broker.ACLEngine()
+	if aclEngine != nil {
+		id := GetIdentityFromContext(client.stream.Context())
+		if id != nil && !aclEngine.Check(id, auth.ResourceTopic, req.Topic, auth.OpRead) {
+			_ = client.stream.Send(&proto.ConsumeResponse{
+				Event: &proto.ConsumeResponse_Error{
+					Error: &proto.ErrorInfo{Message: fmt.Sprintf("subscribe denied by ACL: %s", req.Topic), Code: int32(codes.PermissionDenied)},
+				},
+			})
+			return
+		}
+	}
+
 	part, err := s.broker.Storage().GetOrCreatePartition(req.Topic, 0)
 	if err != nil {
 		_ = client.stream.Send(&proto.ConsumeResponse{
@@ -419,6 +499,11 @@ func (s *Server) handleSubscribe(client *grpcClientConn, req *proto.SubscribeReq
 	// Start streaming messages for this subscription
 	s.wg.Add(1)
 	go func() {
+		defer func() {
+			if r := recover(); r != nil {
+				s.broker.Logger().Error("grpc stream panic", "topic", req.Topic, "recover", r)
+			}
+		}()
 		defer s.wg.Done()
 		s.streamMessages(client, req.Topic)
 	}()
@@ -446,6 +531,15 @@ func (s *Server) streamMessages(client *grpcClientConn, topic string) {
 				return
 			case <-time.After(100 * time.Millisecond):
 				continue
+			}
+		}
+
+		// Decrypt if at-rest encryption is enabled
+		if enc := s.broker.Encryptor(); enc != nil {
+			segmentID := topic + "/0"
+			decrypted, decErr := enc.Decrypt(data, segmentID)
+			if decErr == nil {
+				data = decrypted
 			}
 		}
 
@@ -491,6 +585,15 @@ func (s *Server) handleFetch(client *grpcClientConn, req *proto.FetchRequest) {
 			data, err := sub.partition.Read(offset)
 			if err != nil {
 				break
+			}
+
+			// Decrypt if at-rest encryption is enabled
+			if enc := s.broker.Encryptor(); enc != nil {
+				segmentID := sub.topic + "/0"
+				decrypted, decErr := enc.Decrypt(data, segmentID)
+				if decErr == nil {
+					data = decrypted
+				}
 			}
 
 			env, err := message.Unmarshal(data)

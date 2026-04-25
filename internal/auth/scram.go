@@ -145,6 +145,8 @@ type SCRAMSession struct {
 	serverKey       []byte
 	clientFirstBare string
 	serverFirst     string
+	lastClientFinal string
+	authMessage     string
 }
 
 // StartExchange parses the client-first-message and returns the server-first-message.
@@ -203,6 +205,9 @@ func (p *SCRAMProvider) StartExchange(clientFirst string) (*SCRAMSession, string
 
 // VerifyClientFinal verifies the client-final-message and returns the server-final-message.
 // clientFinal format: "c=<channel-binding>,r=<nonce>,p=<proof>"
+// The caller (protocol adapter) must ensure the client validates the returned serverFinal
+// before marking the session as fully authenticated. Without this step, the server is not
+// mutually authenticated and a MITM proxy could collect the client's proof undetected.
 func (s *SCRAMSession) VerifyClientFinal(clientFinal string) (string, error) {
 	attrs, err := parseSCRAMAttributes(clientFinal)
 	if err != nil {
@@ -229,6 +234,10 @@ func (s *SCRAMSession) VerifyClientFinal(clientFinal string) (string, error) {
 	withoutProof := stripProof(clientFinal)
 	authMessage := s.clientFirstBare + "," + s.serverFirst + "," + withoutProof
 
+	// Store for ValidateClientServerFinal
+	s.lastClientFinal = clientFinal
+	s.authMessage = authMessage
+
 	// Verify client proof
 	// ClientSignature = HMAC(StoredKey, AuthMessage)
 	clientSig := hmacSHA256(s.storedKey, []byte(authMessage))
@@ -247,6 +256,27 @@ func (s *SCRAMSession) VerifyClientFinal(clientFinal string) (string, error) {
 	serverFinal := fmt.Sprintf("v=%s", base64.StdEncoding.EncodeToString(serverSig))
 
 	return serverFinal, nil
+}
+
+// ValidateClientServerFinal checks that the client correctly validated the server's
+// signature. The client must send back the serverFinal value (or an acknowledgment)
+// to prove it verified the server's identity. If the client rejects the serverFinal,
+// the session is invalid — this indicates a MITM attack.
+func (s *SCRAMSession) ValidateClientServerFinal(clientResponse string) error {
+	// clientResponse should be "v=<base64>" matching our computed server signature
+	if !strings.HasPrefix(clientResponse, "v=") {
+		return fmt.Errorf("scram: client rejected server signature")
+	}
+	clientVerifiedSig := strings.TrimPrefix(clientResponse, "v=")
+
+	// Re-compute the expected server signature from stored authMessage
+	expectedSig := base64.StdEncoding.EncodeToString(hmacSHA256(s.serverKey, []byte(s.authMessage)))
+
+	// The client should echo back our server signature verbatim to confirm validation
+	if clientVerifiedSig != expectedSig {
+		return fmt.Errorf("scram: client sent unexpected server signature echo")
+	}
+	return nil
 }
 
 // Username returns the authenticated username for this session.

@@ -108,6 +108,8 @@ func (c *Controller) Start() {
 	if !c.enabled.Load() || c.slowThreshold <= 0 {
 		return
 	}
+	// Stop existing ticker if already running (prevents goroutine leak on double-Start)
+	c.Stop()
 	c.tickStop = make(chan struct{})
 	go func() {
 		ticker := time.NewTicker(c.slowInterval)

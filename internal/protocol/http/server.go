@@ -10,6 +10,7 @@ import (
 	"net/http"
 	"net/http/pprof"
 	"os"
+	"path/filepath"
 	"runtime/trace"
 	"strconv"
 	"strings"
@@ -121,6 +122,7 @@ func (s *AdminServer) registerRoutes() {
 	s.mux.HandleFunc("GET /v1/consumers/{group}/offsets", s.auth(s.handleConsumerOffsets))
 	s.mux.HandleFunc("POST /v1/consumers/{group}/offsets", s.auth(s.handleConsumerCommitOffsets))
 	s.mux.HandleFunc("GET /v1/health", s.handleHealth)
+	s.mux.HandleFunc("GET /v1/health/detailed", s.auth(s.handleHealthDetailed))
 	s.mux.HandleFunc("GET /v1/metrics", s.auth(s.handleMetrics))
 	s.mux.HandleFunc("GET /v1/cluster/members", s.auth(s.handleClusterMembers))
 	s.mux.HandleFunc("POST /v1/schemas/{subject}", s.auth(s.handleRegisterSchema))
@@ -346,8 +348,9 @@ func (s *AdminServer) auth(next http.HandlerFunc) http.HandlerFunc {
 		}
 
 		// Rate limit check
+		var clientIP string
 		if lim := s.broker.AuthLimiter(); lim != nil {
-			clientIP := extractRealIP(r, cfg.Listener.TrustedProxyCIDR)
+			clientIP = extractRealIP(r, cfg.Listener.TrustedProxyCIDR)
 			if !lim.IsAllowed(clientIP) {
 				writeError(w, http.StatusTooManyRequests, "authentication rate limited")
 				return
@@ -375,13 +378,13 @@ func (s *AdminServer) auth(next http.HandlerFunc) http.HandlerFunc {
 		identity, err := provider.Authenticate(r.Context(), creds)
 		if err != nil {
 			if lim := s.broker.AuthLimiter(); lim != nil {
-				lim.RecordFailed(r.RemoteAddr)
+				lim.RecordFailed(clientIP)
 			}
 			writeError(w, http.StatusUnauthorized, "unauthorized")
 			return
 		}
 		if lim := s.broker.AuthLimiter(); lim != nil {
-			lim.RecordSuccess(r.RemoteAddr)
+			lim.RecordSuccess(clientIP)
 		}
 
 		// Store identity in context for downstream handlers
@@ -829,6 +832,21 @@ func (s *AdminServer) handleHealth(w http.ResponseWriter, r *http.Request) {
 	if s.broker.IsDrainMode() {
 		status = "draining"
 	}
+	writeJSON(w, http.StatusOK, map[string]interface{}{
+		"status":     status,
+		"node_id":    s.broker.Config().Node.ID,
+		"name":       s.broker.Config().Node.Name,
+		"version":    version,
+		"uptime":     time.Since(s.broker.StartTime()).String(),
+		"drain_mode": s.broker.IsDrainMode(),
+	})
+}
+
+func (s *AdminServer) handleHealthDetailed(w http.ResponseWriter, r *http.Request) {
+	status := "healthy"
+	if s.broker.IsDrainMode() {
+		status = "draining"
+	}
 
 	resp := map[string]interface{}{
 		"status":     status,
@@ -1220,7 +1238,7 @@ func validateTopicName(name string) bool {
 	if name == "" || len(name) > 255 {
 		return false
 	}
-	if strings.Contains(name, "..") || strings.ContainsAny(name, "/\\") {
+	if strings.Contains(name, "..") || strings.ContainsAny(name, "/\\\r\n") {
 		return false
 	}
 	return true
@@ -1397,11 +1415,21 @@ func (s *AdminServer) handleUploadWASM(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "name parameter is required", http.StatusBadRequest)
 		return
 	}
+	// Reject path traversal and special characters in module name
+	if strings.ContainsAny(name, "/\\") || strings.Contains(name, "..") {
+		http.Error(w, "invalid module name", http.StatusBadRequest)
+		return
+	}
 
 	maxSize := int64(16 * 1024 * 1024)
 	body, err := io.ReadAll(io.LimitReader(r.Body, maxSize))
 	if err != nil {
 		http.Error(w, "failed to read request body", http.StatusBadRequest)
+		return
+	}
+	// Validate WASM magic bytes (\0asm) before compilation
+	if len(body) < 4 || body[0] != 0x00 || body[1] != 0x61 || body[2] != 0x73 || body[3] != 0x6d {
+		http.Error(w, "invalid WASM module: missing magic bytes", http.StatusBadRequest)
 		return
 	}
 
@@ -1796,7 +1824,7 @@ func (s *AdminServer) handleDLQExport(w http.ResponseWriter, r *http.Request) {
 
 // handleConfigReload reloads configuration from file.
 func (s *AdminServer) handleConfigReload(w http.ResponseWriter, r *http.Request) {
-	configPath := s.broker.Config().Node.DataDir + "/../chimera.yaml"
+	configPath := filepath.Join(s.broker.Config().Node.DataDir, "chimera.yaml")
 
 	// Try to find config file
 	if _, err := os.Stat(configPath); err != nil {

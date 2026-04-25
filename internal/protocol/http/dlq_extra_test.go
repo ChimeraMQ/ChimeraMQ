@@ -212,9 +212,9 @@ func TestHandleConfigReload(t *testing.T) {
 	srv, _, cleanup := setupTestServer(t)
 	defer cleanup()
 
-	// Create a config file in the expected location (DataDir/../chimera.yaml)
+	// Create a config file in the expected location (DataDir/chimera.yaml)
 	dataDir := srv.broker.Config().Node.DataDir
-	configPath := filepath.Join(dataDir, "..", "chimera.yaml")
+	configPath := filepath.Join(dataDir, "chimera.yaml")
 	configContent := `
 node:
   id: 1

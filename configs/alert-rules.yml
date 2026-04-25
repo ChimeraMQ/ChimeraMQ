@@ -1,0 +1,127 @@
+# ChimeraMQ Alert Rules for Prometheus
+# Usage: Include in your Prometheus rules_files or Alertmanager config.
+
+groups:
+  - name: chimera_critical
+    rules:
+      # Broker down
+      - alert: ChimeraBrokerDown
+        expr: up{job="chimera"} == 0
+        for: 1m
+        labels:
+          severity: critical
+        annotations:
+          summary: "ChimeraMQ broker is down ({{ $labels.instance }})"
+          description: "Broker {{ $labels.instance }} has been unreachable for over 1 minute."
+
+      # No messages flowing in
+      - alert: ChimeraNoIngress
+        expr: sum(rate(chimera_messages_in_total[5m])) == 0
+        for: 10m
+        labels:
+          severity: warning
+        annotations:
+          summary: "No message ingress on ChimeraMQ"
+          description: "Zero messages published in the last 5 minutes."
+
+      # High consumer lag
+      - alert: ChimeraHighConsumerLag
+        expr: chimera_consumer_lag > 10000
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "High consumer lag ({{ $labels.group }}/{{ $labels.topic }})"
+          description: "Consumer group {{ $labels.group }} has lag of {{ $value }} messages on partition {{ $labels.partition }}."
+
+      # Critical consumer lag
+      - alert: ChimeraCriticalConsumerLag
+        expr: chimera_consumer_lag > 100000
+        for: 2m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Critical consumer lag ({{ $labels.group }}/{{ $labels.topic }})"
+          description: "Consumer group {{ $labels.group }} has critical lag of {{ $value }} messages."
+
+  - name: chimera_performance
+    rules:
+      # High message drop rate
+      - alert: ChimeraHighMessageDropRate
+        expr: |
+          (
+            sum(rate(chimera_messages_in_total[5m])) -
+            sum(rate(chimera_messages_out_total[5m]))
+          ) / sum(rate(chimera_messages_in_total[5m])) > 0.1
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "ChimeraMQ message drop rate above 10%"
+          description: "{{ $value | humanizePercentage }} of messages are being dropped."
+
+      # Queue depth growing
+      - alert: ChimeraQueueDepthHigh
+        expr: chimera_queue_depth > 100000
+        for: 10m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Queue depth high on {{ $labels.topic }}/{{ $labels.partition }}"
+          description: "Queue has {{ $value }} pending messages."
+
+      # Schema validation failures
+      - alert: ChimeraSchemaValidationFailure
+        expr: rate(chimera_schema_validation_failed_total[5m]) > 0
+        for: 1m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Schema validation failures on {{ $labels.subject }}"
+          description: "{{ $value }} schema validation failures per second."
+
+  - name: chimera_storage
+    rules:
+      # Storage growth rate
+      - alert: ChimeraStorageGrowthRate
+        expr: |
+          rate(chimera_tier_storage_bytes{tier="hot"}[1h]) * 3600 * 24 > 10737418240
+        for: 1h
+        labels:
+          severity: warning
+        annotations:
+          summary: "ChimeraMQ hot storage growing > 10GB/day"
+          description: "Current growth rate: {{ $value | humanizeBytes }}/day."
+
+      # Migration failure rate
+      - alert: ChimeraMigrationFailure
+        expr: |
+          rate(chimera_wasm_executions_total{status="failed"}[5m]) > 0
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "WASM module execution failures"
+          description: "{{ $value }} WASM execution failures per second."
+
+  - name: chimera_connections
+    rules:
+      # Connection storm
+      - alert: ChimeraConnectionStorm
+        expr: rate(chimera_active_connections[1m]) > 100
+        for: 1m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Connection storm detected on {{ $labels.protocol }}"
+          description: "{{ $value }} new connections per second on {{ $labels.protocol }}."
+
+      # Too many connections
+      - alert: ChimeraTooManyConnections
+        expr: sum(chimera_active_connections) > 10000
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "ChimeraMQ has {{ $value }} active connections"
+          description: "Connection count exceeds 10,000 threshold."

@@ -21,8 +21,11 @@ make cover              # Coverage report
 make integration        # Integration tests (test/integration/)
 make chaos              # Concurrency/chaos tests (test/chaos/)
 make bench              # Micro benchmarks
+make bench-e2e          # End-to-end benchmarks
 make docker             # Build Docker image
 make release            # Cross-compile for 6 platforms (linux/mac/windows x amd64/arm64)
+make web-build          # Build frontend SPA and embed into binary
+make web-dev            # Run frontend dev server (Vite HMR)
 make clean              # Remove bin/, coverage files
 ```
 
@@ -40,11 +43,11 @@ go test ./test/integration/ -v -count=1 -timeout 120s
 
 **Startup flow:** `cmd/chimera/main.go` -> `internal/cli/server.go` -> `internal/broker/broker.go`
 
-The `Broker` struct is the central orchestrator holding all subsystem references. Startup sequence in `Broker.Start()`: Logger -> Auth -> ACL -> Data dir -> Lock file -> WAL -> Hot Storage -> Topic Manager -> Queue Engine -> Stream Engine -> Encryption -> Warm/Cold Tier -> Schema Registry -> TTL Expirer -> Cluster Manager -> DLQ -> Flow Control -> Idempotent Producer. Shutdown reverses this order.
+The `Broker` struct is the central orchestrator holding all subsystem references. Startup sequence in `Broker.Start()`: Logger -> Auth -> ACL -> Data dir -> Lock file -> WAL -> Hot Storage -> Topic Manager -> Queue Engine -> Stream Engine -> Encryption -> Warm/Cold Tier -> Schema Registry -> TTL Expirer -> Cluster Manager -> DLQ -> Flow Control -> Idempotent Producer -> Exchange Registry -> Geo Replication -> Audit Log. Shutdown reverses this order.
 
-**Publish pipeline:** `Broker.Publish()` flows through: idempotent dedup -> flow control -> schema enforcement -> WASM transforms -> partition routing -> WAL append -> hot storage append -> stream notification -> queue dispatch -> metrics update.
+**Publish pipeline:** `Broker.Publish()` flows through: idempotent dedup -> flow control -> schema enforcement -> WASM transforms -> partition routing -> WAL append -> hot storage append -> stream notification -> queue dispatch -> metrics update -> audit log.
 
-**Protocol multiplexing** (`internal/protocol/mux.go`): All protocols share TCP port 5672. The mux peeks at first bytes and routes by detection order: AMQP -> MQTT -> HTTP -> Chimera native TCP. Admin HTTP runs on separate port 9090.
+**Protocol multiplexing** (`internal/protocol/mux.go`): Protocols share TCP port 5672. The mux peeks at first bytes and routes by detection order: AMQP -> MQTT -> HTTP -> Chimera native TCP. gRPC runs on a dedicated port. Admin HTTP runs on separate port 9090. Eight protocol adapters are supported: AMQP, MQTT, HTTP, Chimera native TCP, WebSocket, gRPC, NATS, and STOMP.
 
 **Config hierarchy:** CLI flags > env vars (`CHIMERA_*`) > YAML file > compiled defaults.
 
@@ -53,15 +56,25 @@ The `Broker` struct is the central orchestrator holding all subsystem references
 | Package | Purpose |
 |---------|---------|
 | `internal/broker/` | Central orchestrator, config, publish pipeline, topic manager |
-| `internal/protocol/` | Protocol adapters (http/, chimera/, mqtt/, amqp/, ws/) + mux.go for auto-detection |
+| `internal/protocol/` | Protocol adapters (http/, chimera/, mqtt/, amqp/, ws/, grpc/, nats/, stomp/) + mux.go for auto-detection |
 | `internal/engine/queue/` | Queue engine: competing consumers, priority, delay, ack |
 | `internal/engine/stream/` | Stream engine: offsets, consumer groups, waiters |
+| `internal/engine/dlq/` | Dead letter queue for failed message handling |
+| `internal/engine/exchange/` | Message exchange routing (direct, fanout, topic, headers) |
+| `internal/engine/ttl/` | TTL-based message expiration and cleanup |
 | `internal/storage/hot/` | Segment-based storage with sparse indexing, compaction |
-| `internal/storage/warm/` | LSM-tree (bloom filters, SSTables, memtables) |
+| `internal/storage/wal/` | Write-ahead log for durability before hot storage |
+| `internal/storage/encrypt/` | AES-GCM at-rest encryption with KMS key management |
+| `internal/storage/warm/` | LSM-tree (bloom filters, SSTables, memtables, compaction) |
+| `internal/storage/cold/` | Compressed cold archives |
 | `internal/storage/tier/` | Tier migration orchestrator (hot->warm->cold) |
 | `internal/cluster/raft/` | Custom Raft consensus (leader election, log replication, snapshots) |
 | `internal/cluster/gossip/` | SWIM gossip failure detection |
+| `internal/cluster/geo/` | Geo-replication across data centers (cross-cluster sync) |
+| `internal/cluster/replication/` | Cluster-to-cluster replication protocol |
 | `internal/auth/` | Auth providers (static, file, OAuth, LDAP, mTLS) + ACL engine |
+| `internal/audit/` | Audit logging (AUTH, ADMIN, MESSAGE, CLUSTER, CONFIG events) |
+| `internal/fips/` | FIPS 140-3 compliance checks and cryptographic validation |
 | `internal/wasm/` | WASM runtime via wazero for transform pipelines |
 | `internal/mcp/` | MCP server for AI tooling (JSON-RPC over stdio) |
 | `internal/processing/` | Stream processor (filter, map, flatMap, aggregate, windowed) |
@@ -71,15 +84,22 @@ The `Broker` struct is the central orchestrator holding all subsystem references
 | `internal/flow/` | Flow control / backpressure controller |
 | `internal/idempotent/` | Producer deduplication |
 | `internal/cli/` | CLI subcommands (server, topic, produce, consume, cluster, wasm, mcp) |
+| `internal/ui/` | Embedded Web UI dashboard (built from frontend/) |
+| `internal/tracing/` | OpenTelemetry integration (W3C TraceContext, OTLP gRPC) |
+| `internal/metrics/` | Prometheus metrics collector |
 
 ## Conventions
 
 - **Commits:** Conventional commits format: `type(scope): description` (e.g., `feat(http): add consumer group endpoints`)
-- **Testing:** Table-driven tests with standard `testing` package. Tests co-located as `*_test.go`. Extra coverage in `*_extra_test.go`, `*_edge_test.go`, `*_coverage_test.go` files.
+- **Testing:** Table-driven tests with standard `testing` package. Tests co-located as `*_test.go`. Extra coverage in `*_extra_test.go`, `*_edge_test.go`, `*_coverage_test.go` files. Fuzz tests in `*_fuzz_test.go` files.
 - **Linter:** golangci-lint with govet, errcheck, staticcheck, unused, gosimple, ineffassign, typecheck, misspell, gofmt (configured in `.golangci.yml`)
 - **Version injection:** Build uses ldflags (`-X main.version=...`) for version/commit/date
 - **Pure Go:** No CGo dependency anywhere, including WASM runtime (wazero)
-- **External deps are minimal:** Only 4 direct dependencies (ldap, wazero, otel, websocket) plus yaml.v3 and x/crypto
+- **External deps:** ldap, wazero, otel, websocket, kompress, grpc/protobuf, yaml.v3, x/crypto
+
+## Frontend
+
+The Web UI is a React + Vite + TypeScript SPA in `frontend/`, using Tailwind CSS v4, Radix UI components, and Zustand for state management. Build with `make web-build`, which copies the output to `internal/ui/_embed/dist/` for embedding in the binary. Dev server: `make web-dev`.
 
 <!-- rtk-instructions v2 -->
 # RTK (Rust Token Killer) - Token-Optimized Commands

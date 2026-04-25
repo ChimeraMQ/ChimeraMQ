@@ -19,11 +19,12 @@ type LDAPProvider struct {
 	useTLS    bool
 	roleAttr  string // attribute for roles (default: "memberOf")
 	groupAttr string // attribute for groups
+	tenantID      string          // default tenant ID for authenticated users
 	roleAllowlist map[string]bool // optional allowlist for role filtering
 }
 
 // NewLDAPProvider creates an LDAP auth provider.
-func NewLDAPProvider(url, bindDN, bindPass, baseDN, filter string, useTLS bool) *LDAPProvider {
+func NewLDAPProvider(url, bindDN, bindPass, baseDN, filter string, useTLS bool, tenantID string) *LDAPProvider {
 	return &LDAPProvider{
 		url:      url,
 		bindDN:   bindDN,
@@ -32,12 +33,13 @@ func NewLDAPProvider(url, bindDN, bindPass, baseDN, filter string, useTLS bool) 
 		filter:   filter,
 		useTLS:   useTLS,
 		roleAttr: "memberOf",
+		tenantID:     tenantID,
 	}
 }
 
 // NewLDAPProviderWithRoleAllowlist creates an LDAP provider with a role allowlist.
 // Only roles in the allowlist are granted; if allowlist is nil, all roles are accepted.
-func NewLDAPProviderWithRoleAllowlist(url, bindDN, bindPass, baseDN, filter string, useTLS bool, roleAllowlist []string) *LDAPProvider {
+func NewLDAPProviderWithRoleAllowlist(url, bindDN, bindPass, baseDN, filter string, useTLS bool, tenantID string, roleAllowlist []string) *LDAPProvider {
 	allowmap := make(map[string]bool)
 	for _, r := range roleAllowlist {
 		allowmap[r] = true
@@ -49,6 +51,7 @@ func NewLDAPProviderWithRoleAllowlist(url, bindDN, bindPass, baseDN, filter stri
 		baseDN:        baseDN,
 		filter:        filter,
 		useTLS:        useTLS,
+		tenantID:     tenantID,
 		roleAttr:      "memberOf",
 		roleAllowlist: allowmap,
 	}
@@ -144,6 +147,7 @@ func (p *LDAPProvider) Authenticate(ctx context.Context, creds Credentials) (*Id
 
 	return &Identity{
 		UserID: userID,
+		TenantID:    p.tenantID,
 		Roles:  roles,
 		Groups: groups,
 		Source: "ldap",

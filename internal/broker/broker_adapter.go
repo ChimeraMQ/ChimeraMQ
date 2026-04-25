@@ -1,6 +1,8 @@
 package broker
 
 import (
+	"strconv"
+
 	"github.com/chimeramq/chimera/internal/message"
 	"github.com/chimeramq/chimera/internal/processing"
 )
@@ -22,8 +24,20 @@ func (a *brokerAPIAdapter) FetchMessages(topic string, partition uint32, offset 
 	if err != nil {
 		return nil, err
 	}
+
+	// Decrypt if at-rest encryption is enabled
+	decryptor := a.broker.encryptor
+	segmentID := topic + "/" + strconv.Itoa(int(partition))
+
 	envs := make([]*message.Envelope, 0, len(data))
 	for _, d := range data {
+		if decryptor != nil {
+			decrypted, err := decryptor.Decrypt(d, segmentID)
+			if err != nil {
+				continue // skip unreadable entries
+			}
+			d = decrypted
+		}
 		env, err := message.Unmarshal(d)
 		if err != nil {
 			continue

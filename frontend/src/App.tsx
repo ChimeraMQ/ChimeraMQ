@@ -6,6 +6,8 @@ import { AppLayout } from '@/components/layout/AppLayout';
 import { Skeleton } from '@/components/ui/skeleton';
 import { ErrorBoundary } from '@/components/shared/ErrorBoundary';
 import { SkipToContent } from '@/components/shared/SkipToContent';
+import { AuthGuard } from '@/components/shared/AuthGuard';
+import { LoginPage } from '@/pages/LoginPage';
 
 const OverviewPage = lazy(() => import('@/pages/OverviewPage').then(m => ({ default: m.OverviewPage })));
 const TopicsPage = lazy(() => import('@/pages/TopicsPage').then(m => ({ default: m.TopicsPage })));
@@ -35,7 +37,8 @@ export function App() {
       <SkipToContent />
       <TooltipProvider delayDuration={150}>
         <Routes>
-          <Route path="/" element={<AppLayout />}>
+          <Route path="/login" element={<LoginPage />} />
+          <Route path="/" element={<AuthGuard><AppLayout /></AuthGuard>}>
             <Route index element={<Suspense fallback={<PageFallback />}><OverviewPage /></Suspense>} />
             <Route path="topics" element={<Suspense fallback={<PageFallback />}><TopicsPage /></Suspense>} />
             <Route path="consumers" element={<Suspense fallback={<PageFallback />}><ConsumersPage /></Suspense>} />

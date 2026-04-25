@@ -2,6 +2,8 @@ package auth
 
 import (
 	"net"
+	"net/http"
+	"strings"
 	"sync"
 	"time"
 )
@@ -14,6 +16,9 @@ type AuthRateLimiter struct {
 	window      time.Duration          // sliding window duration
 	banDuration time.Duration          // how long to ban after exceeding maxAttempts
 	banned      map[string]time.Time   // IP → ban expiry
+
+	// Trusted proxy configuration for X-Forwarded-For resolution
+	trustedProxies []*net.IPNet // CIDR ranges of trusted proxies
 }
 
 // RateLimiter is an alias for AuthRateLimiter for external use.
@@ -97,4 +102,78 @@ func ExtractIP(conn net.Conn) string {
 		return host
 	}
 	return addr
+}
+
+// SetTrustedProxies configures CIDR ranges for trusted reverse proxies.
+// When set, ResolveIP will extract the real client IP from X-Forwarded-For
+// or X-Real-IP headers instead of using the direct connection IP.
+func (r *AuthRateLimiter) SetTrustedProxies(cidrs []string) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.trustedProxies = nil
+	for _, cidr := range cidrs {
+		_, ipNet, err := net.ParseCIDR(cidr)
+		if err == nil {
+			r.trustedProxies = append(r.trustedProxies, ipNet)
+		}
+	}
+}
+
+// ResolveIP extracts the client IP, respecting X-Forwarded-For/X-Real-IP
+// headers when the direct connection IP is from a trusted proxy.
+// For direct connections (no proxy), falls back to RemoteAddr.
+func (r *AuthRateLimiter) ResolveIP(remoteAddr string, xForwardedFor string, xRealIP string) string {
+	// First, check if the direct connection is from a trusted proxy
+	r.mu.Lock()
+	trusted := len(r.trustedProxies) == 0 // if no proxies configured, trust nothing
+	if !trusted {
+		host, _, err := net.SplitHostPort(remoteAddr)
+		if err != nil {
+			host = remoteAddr
+		}
+		ip := net.ParseIP(host)
+		for _, cidr := range r.trustedProxies {
+			if cidr.Contains(ip) {
+				trusted = true
+				break
+			}
+		}
+	}
+	r.mu.Unlock()
+
+	if !trusted {
+		// Not from a trusted proxy — use the direct IP
+		host, _, err := net.SplitHostPort(remoteAddr)
+		if err != nil {
+			return remoteAddr
+		}
+		return host
+	}
+
+	// From a trusted proxy — extract real IP from headers
+	// X-Forwarded-For: reject if multiple IPs present (spoofing indicator)
+	if xff := strings.TrimSpace(xForwardedFor); xff != "" {
+		if !strings.Contains(xff, ",") {
+			return xff
+		}
+		// Multiple IPs — spoofing attempt, fall back to direct IP
+	}
+
+	// Fallback to X-Real-IP
+	if xri := strings.TrimSpace(xRealIP); xri != "" {
+		return xri
+	}
+
+	// No header found — fall back to direct IP
+	host, _, err := net.SplitHostPort(remoteAddr)
+	if err != nil {
+		return remoteAddr
+	}
+	return host
+}
+
+// ResolveIPFromHTTP extracts the client IP from an HTTP request,
+// respecting trusted proxy configuration.
+func (r *AuthRateLimiter) ResolveIPFromHTTP(req *http.Request) string {
+	return r.ResolveIP(req.RemoteAddr, req.Header.Get("X-Forwarded-For"), req.Header.Get("X-Real-IP"))
 }

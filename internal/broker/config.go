@@ -56,6 +56,7 @@ type RaftConfig struct {
 	CertFile          string   `yaml:"cert_file"`
 	KeyFile           string   `yaml:"key_file"`
 	CAFile            string   `yaml:"ca_file"`
+	HMACKey           string   `yaml:"hmac_key"`
 }
 
 // GossipConfig controls the SWIM gossip layer.
@@ -180,6 +181,7 @@ type OAuthConfig struct {
 	Scopes        []string `yaml:"scopes"`
 	Audience      string   `yaml:"audience"`
 	RoleAllowlist []string `yaml:"role_allowlist"` // Optional allowlist of roles to grant from JWT claims
+	TenantID      string   `yaml:"tenant_id"`      // Default tenant ID for OAuth users (can be overridden by claim)
 }
 
 // LDAPConfig controls LDAP authentication.
@@ -191,6 +193,7 @@ type LDAPConfig struct {
 	Filter       string   `yaml:"filter"`
 	UseTLS       bool     `yaml:"tls"`
 	RoleAllowlist []string `yaml:"role_allowlist"` // Optional allowlist for LDAP role filtering
+	TenantID      string   `yaml:"tenant_id"`      // Default tenant ID for LDAP users
 }
 
 // MTLSConfig controls mTLS authentication settings.

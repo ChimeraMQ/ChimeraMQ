@@ -155,7 +155,11 @@ func Marshal(e *Envelope) ([]byte, error) {
 
 	copy(buf[pos:], e.Payload)
 
-	return buf, nil
+	// Return a copy so callers own the buffer without needing to call ReleaseBuffer.
+	result := make([]byte, len(buf))
+	copy(result, buf)
+	bufferPool.Put(bufPtr)
+	return result, nil
 }
 
 // ReleaseBuffer returns a buffer to the pool for reuse.
