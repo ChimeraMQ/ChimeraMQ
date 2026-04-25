@@ -28,13 +28,17 @@ func Marshal(e *Envelope) ([]byte, error) {
 		return nil, fmt.Errorf("payload too large: %d bytes (max 4GB)", len(e.Payload))
 	}
 
-	hdrBytes := marshalHeaders(e.Headers)
+	// Calculate header size inline — no allocation
+	hdrSize := 0
+	for k, v := range e.Headers {
+		hdrSize += 2 + len(k) + 4 + len(v)
+	}
 
 	size := FixedHeaderSize
 	size += len(e.Topic)
 	size += len(e.RoutingKey)
 	size += len(e.Payload)
-	size += len(hdrBytes)
+	size += hdrSize
 	if e.TraceID != [16]byte{} {
 		size += 24
 	}
@@ -110,7 +114,7 @@ func Marshal(e *Envelope) ([]byte, error) {
 	pos += 4
 
 	// Bytes 48-51: HeadersLength
-	binary.BigEndian.PutUint32(buf[pos:], uint32(len(hdrBytes)))
+	binary.BigEndian.PutUint32(buf[pos:], uint32(hdrSize))
 	pos += 4
 
 	// Bytes 52-53: TopicLength (uint16)
@@ -141,9 +145,9 @@ func Marshal(e *Envelope) ([]byte, error) {
 		pos += len(e.RoutingKey)
 	}
 
-	if len(hdrBytes) > 0 {
-		copy(buf[pos:], hdrBytes)
-		pos += len(hdrBytes)
+	// Headers written inline — no separate allocation
+	if hdrSize > 0 {
+		pos = marshalHeadersTo(buf, pos, e.Headers)
 	}
 
 	if e.TraceID != [16]byte{} {

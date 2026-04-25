@@ -29,6 +29,21 @@ func marshalHeaders(headers map[string][]byte) []byte {
 	return buf
 }
 
+// marshalHeadersTo writes headers directly into a pre-allocated buffer at offset,
+// returning the new offset. Used by Marshal to avoid allocation.
+func marshalHeadersTo(buf []byte, offset int, headers map[string][]byte) int {
+	pos := offset
+	for k, v := range headers {
+		binary.BigEndian.PutUint16(buf[pos:], uint16(len(k)))
+		pos += 2
+		pos += copy(buf[pos:], k)
+		binary.BigEndian.PutUint32(buf[pos:], uint32(len(v)))
+		pos += 4
+		pos += copy(buf[pos:], v)
+	}
+	return pos
+}
+
 // unmarshalHeaders decodes TLV binary back to map.
 func unmarshalHeaders(data []byte) map[string][]byte {
 	headers := make(map[string][]byte)
