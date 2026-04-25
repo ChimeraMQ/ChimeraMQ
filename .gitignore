@@ -16,6 +16,7 @@ coverage.out
 *_cov.html
 *.test
 *.out
+coverage/
 
 # Development tools
 test_dict_build.go
@@ -29,6 +30,15 @@ security-report/
 *.swp
 *.swo
 *~
+
+# Node dependencies
+node_modules/
+frontend/node_modules/
+
+# Temporary scan findings
+*-findings.md
+architecture.md
+client_cover.html
 
 # OS
 .DS_Store
