@@ -70,6 +70,8 @@ func (s *Server) Stop() {
 }
 
 func (s *Server) handleConnection(conn net.Conn) {
+	s.broker.RecordConnection("mqtt")
+	defer s.broker.RecordDisconnection("mqtt")
 	defer func() { _ = conn.Close() }()
 
 	reader := bufio.NewReaderSize(conn, 64*1024)
@@ -348,6 +350,8 @@ func (s *Server) handleSubscribe(writer *bufio.Writer, session *Session, pkt *Pa
 			pid := session.NextPacketID()
 			flags, data := BuildPublish(rm.Topic, rm.Payload, grantedQoS, true, pid)
 			s.writePacket(writer, PacketPublish, flags, data)
+			chimeraTopic := s.topics.MQTTToChimera(rm.Topic)
+			s.broker.Metrics().MessageOut(chimeraTopic, 0, "")
 		}
 	}
 

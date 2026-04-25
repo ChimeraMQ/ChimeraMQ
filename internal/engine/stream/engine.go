@@ -27,6 +27,8 @@ type Engine struct {
 	migrator  *tier.Migrator // optional tier-aware read fallback
 	encryptor Decryptor      // optional, for at-rest decryption
 	closed    atomic.Bool
+
+	OnConsumerLag func(topic string, partition uint32, group string, lag uint64) // optional callback for metrics
 }
 
 // NewEngine creates a new stream engine.
@@ -103,11 +105,25 @@ func (se *Engine) Heartbeat(groupName, memberID string) error {
 func (se *Engine) CommitOffset(groupName string, partitionID uint32, offset uint64) error {
 	se.mu.RLock()
 	cg, ok := se.groups[groupName]
+	topic := ""
+	if ok {
+		topic = cg.topic
+	}
 	se.mu.RUnlock()
 	if !ok {
 		return nil
 	}
-	return cg.CommitOffset(partitionID, offset)
+	err := cg.CommitOffset(partitionID, offset)
+	if err == nil && se.OnConsumerLag != nil && topic != "" {
+		// Calculate actual lag: high watermark - committed offset
+		hw := se.GetHighWatermark(topic, partitionID)
+		var lag uint64
+		if hw > offset {
+			lag = hw - offset
+		}
+		se.OnConsumerLag(topic, partitionID, groupName, lag)
+	}
+	return err
 }
 
 // GetGroup returns a consumer group by name.

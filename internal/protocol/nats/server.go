@@ -65,6 +65,8 @@ func NewServer(b *broker.Broker) *Server {
 
 // HandleConnection handles a NATS client connection.
 func (s *Server) HandleConnection(conn net.Conn, _ []byte) error {
+	s.b.RecordConnection("nats")
+	defer s.b.RecordDisconnection("nats")
 	session := &Session{
 		id:            generateSessionID(),
 		conn:          conn,
@@ -343,6 +345,7 @@ func (s *Session) runSubscription(sub *Subscription, topic string) {
 			if err := s.sendMessage(sub, env); err != nil {
 				return
 			}
+			s.b.Metrics().MessageOut(env.Topic, env.PartitionID, sub.Group)
 		}
 	}
 }

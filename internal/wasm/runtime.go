@@ -37,6 +37,8 @@ type Runtime struct {
 	config  RuntimeConfig
 	ctx     context.Context
 	cancel  context.CancelFunc
+
+	OnExec func(moduleName string, status string) // optional callback for metrics
 }
 
 // CompiledModule is a compiled WASM module with an instance pool.
@@ -192,6 +194,15 @@ func (r *Runtime) Transform(ctx context.Context, moduleName string, input []byte
 	}
 
 	result, err := cm.execute(ctx, inst, input)
+
+	// Report metrics
+	if r.OnExec != nil {
+		if err != nil {
+			r.OnExec(moduleName, "error")
+		} else {
+			r.OnExec(moduleName, "ok")
+		}
+	}
 
 	// Return instance to pool only if it was from pool and execution succeeded
 	if pooled {

@@ -43,6 +43,8 @@ type Engine struct {
 	mu              sync.RWMutex
 	queues          map[string]*QueueState
 	priorityEnabled bool
+
+	OnQueueDepth func(topic string, depth int) // optional callback for metrics
 }
 
 // NewEngine creates a new queue engine.
@@ -130,6 +132,9 @@ func (e *Engine) TryDispatch(topic string, partID uint32, offset uint64, env *me
 	}
 
 	qs.ackTracker.Track(offset, consumerID, env.DeliverCount, env.MaxRetries)
+	if e.OnQueueDepth != nil {
+		e.OnQueueDepth(topic, qs.ackTracker.PendingCount())
+	}
 	return consumerID, nil
 }
 
@@ -141,7 +146,11 @@ func (e *Engine) HandleAck(topic string, offset uint64) bool {
 	if !ok {
 		return false
 	}
-	return qs.ackTracker.Ack(offset)
+	result := qs.ackTracker.Ack(offset)
+	if e.OnQueueDepth != nil {
+		e.OnQueueDepth(topic, qs.ackTracker.PendingCount())
+	}
+	return result
 }
 
 // HandleNack processes a negative acknowledgment.
@@ -152,7 +161,11 @@ func (e *Engine) HandleNack(topic string, offset uint64) (bool, uint32) {
 	if !ok {
 		return false, 0
 	}
-	return qs.ackTracker.Nack(offset)
+	shouldDLQ, deliverCount := qs.ackTracker.Nack(offset)
+	if e.OnQueueDepth != nil {
+		e.OnQueueDepth(topic, qs.ackTracker.PendingCount())
+	}
+	return shouldDLQ, deliverCount
 }
 
 // ScheduleDelayed adds a message to the delay scheduler.

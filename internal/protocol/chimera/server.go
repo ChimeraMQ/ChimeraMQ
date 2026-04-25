@@ -137,6 +137,8 @@ func (s *Server) Stop() {
 }
 
 func (s *Server) handleConnection(conn net.Conn) {
+	s.broker.RecordConnection("chimera")
+	defer s.broker.RecordDisconnection("chimera")
 	defer conn.Close()
 
 	client := &ClientConn{
@@ -470,6 +472,7 @@ func (s *Server) handleFetch(client *ClientConn, frame *Frame) {
 		}
 		resp = binary.BigEndian.AppendUint32(resp, uint32(len(data)))
 		resp = append(resp, data...)
+		s.broker.Metrics().MessageOut(env.Topic, env.PartitionID, "")
 	}
 
 	respFrame, _ := EncodeFrame(&Frame{Version: FrameVersion, OpCode: OpFetchResp, Payload: resp})

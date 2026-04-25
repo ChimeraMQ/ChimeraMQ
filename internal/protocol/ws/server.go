@@ -160,6 +160,8 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 
 	s.sessions.Store(conn, sess)
 	defer s.sessions.Delete(conn)
+	defer s.broker.RecordDisconnection("ws")
+	s.broker.RecordConnection("ws")
 
 	sess.serve()
 }
@@ -636,6 +638,7 @@ func (s *wsSession) runStreamSubscription(ctx context.Context, topic, group stri
 					Partition: env.PartitionID,
 					Headers:   bytesHeadersToString(env.Headers),
 				})
+				s.broker.Metrics().MessageOut(env.Topic, env.PartitionID, group)
 				offset = env.Sequence + 1
 			}
 
@@ -694,6 +697,7 @@ func (s *wsSession) handleFetchJSON(msg *wsMessage) {
 			Partition: env.PartitionID,
 			Headers:   bytesHeadersToString(env.Headers),
 		})
+		s.broker.Metrics().MessageOut(env.Topic, env.PartitionID, msg.Group)
 	}
 
 	// Send fetch complete

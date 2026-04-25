@@ -79,6 +79,10 @@ type Broker struct {
 
 	drainMode atomic.Bool // true when server is in graceful drain mode
 
+	connMu     sync.Mutex          // guards connCount
+	connCount  map[string]int      // active connections per protocol
+	totalConns int                 // total active connections across all protocols
+
 	startTime time.Time
 	ctx       context.Context
 	cancel    context.CancelFunc
@@ -90,10 +94,11 @@ type Broker struct {
 func NewBroker(cfg *Config) (*Broker, error) {
 	ctx, cancel := context.WithCancel(context.Background())
 	b := &Broker{
-		config:  cfg,
-		ctx:     ctx,
-		cancel:  cancel,
-		metrics: metrics.NewCollector(),
+		config:    cfg,
+		ctx:       ctx,
+		cancel:    cancel,
+		metrics:   metrics.NewCollector(),
+		connCount: make(map[string]int),
 	}
 	return b, nil
 }
@@ -294,12 +299,18 @@ func (b *Broker) Start() error {
 	if b.config.Priority.Enabled {
 		b.queueEngine.SetPriorityEnabled(true)
 	}
+	b.queueEngine.OnQueueDepth = func(topic string, depth int) {
+		b.metrics.QueueDepth(topic, depth)
+	}
 	// Step 9: Stream Engine
 	offsetStore, err := stream.NewOffsetStore(b.config.Node.DataDir)
 	if err != nil {
 		return fmt.Errorf("offset store init: %w", err)
 	}
 	b.streamEngine = stream.NewEngine(b.storage, offsetStore)
+	b.streamEngine.OnConsumerLag = func(topic string, partition uint32, group string, lag uint64) {
+		b.metrics.ConsumerLag(topic, partition, group, lag)
+	}
 
 	// Step 10: Encryption (if enabled)
 	if b.config.Storage.Encryption.Enabled {
@@ -377,6 +388,9 @@ func (b *Broker) Start() error {
 			return fmt.Errorf("schema registry init: %w", err)
 		}
 		b.schemaEnf = schema.NewEnforcer(b.schemaReg)
+		b.schemaReg.OnRegister = func(subject, schemaType string) {
+			b.metrics.SchemaRegistered(subject, schemaType)
+		}
 		b.logger.Info("schema registry enabled")
 	}
 
@@ -386,6 +400,9 @@ func (b *Broker) Start() error {
 		if b.encryptor != nil {
 			b.ttlExpirer.SetEncryptor(b.encryptor)
 		}
+		b.ttlExpirer.SetOnMetric(func(topic, action string) {
+			b.metrics.MessageExpired(topic, action)
+		})
 		b.ttlExpirer.Start()
 		b.logger.Info("TTL expirer started")
 	}
@@ -558,6 +575,13 @@ func (b *Broker) Start() error {
 			wasmCfg.ModulePoolSize = 4
 		}
 		b.wasmRT = wasm.NewRuntime(wasmCfg)
+		b.wasmRT.OnExec = func(moduleName string, status string) {
+			if status == "ok" {
+				b.metrics.WASMExecOK(moduleName)
+			} else {
+				b.metrics.WASMExecError(moduleName)
+			}
+		}
 		b.logger.Info("WASM runtime enabled", "modules_dir", modulesDir)
 	}
 
@@ -822,6 +846,35 @@ func (b *Broker) StreamEngine() *stream.Engine { return b.streamEngine }
 
 // Metrics returns the metrics collector.
 func (b *Broker) Metrics() *metrics.Collector { return b.metrics }
+
+// RecordConnection increments the active connection count for a protocol.
+func (b *Broker) RecordConnection(proto string) {
+	b.connMu.Lock()
+	b.connCount[proto]++
+	b.totalConns++
+	count := b.connCount[proto]
+	b.connMu.Unlock()
+	b.metrics.ActiveConnections(proto, count)
+}
+
+// RecordDisconnection decrements the active connection count for a protocol.
+func (b *Broker) RecordDisconnection(proto string) {
+	b.connMu.Lock()
+	b.connCount[proto]--
+	if b.connCount[proto] <= 0 {
+		delete(b.connCount, proto)
+		b.connCount[proto] = 0
+	}
+	b.totalConns--
+	count := b.connCount[proto]
+	b.connMu.Unlock()
+	b.metrics.ActiveConnections(proto, count)
+}
+
+// RecordQueueDepth sets the queue depth gauge for a topic.
+func (b *Broker) RecordQueueDepth(topic string, depth int) {
+	b.metrics.QueueDepth(topic, depth)
+}
 
 // StartTime returns when the broker started.
 func (b *Broker) StartTime() time.Time { return b.startTime }

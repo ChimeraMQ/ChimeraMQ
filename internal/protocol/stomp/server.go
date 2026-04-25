@@ -51,6 +51,8 @@ func NewServer(b *broker.Broker) *Server {
 
 // HandleConnection handles a STOMP client connection.
 func (s *Server) HandleConnection(conn net.Conn, _ []byte) error {
+	s.b.RecordConnection("stomp")
+	defer s.b.RecordDisconnection("stomp")
 	session := &Session{
 		id:            generateSessionID(),
 		conn:          conn,
@@ -410,6 +412,7 @@ func (s *Session) runSubscription(sub *Subscription) {
 			if err := s.sendMessage(sub, env); err != nil {
 				return
 			}
+			s.b.Metrics().MessageOut(env.Topic, env.PartitionID, sub.ConsumerID)
 		}
 	}
 }

@@ -299,6 +299,8 @@ func (s *Server) PublishBatch(ctx context.Context, req *proto.PublishBatchReques
 
 // Consume handles bidirectional streaming for message consumption.
 func (s *Server) Consume(stream proto.ChimeraService_ConsumeServer) error {
+	s.broker.RecordConnection("grpc")
+	defer s.broker.RecordDisconnection("grpc")
 	clientID := fmt.Sprintf("grpc-%d", s.clientSeq.Add(1))
 	client := &grpcClientConn{
 		clientID:      clientID,
@@ -555,6 +557,8 @@ func (s *Server) streamMessages(client *grpcClientConn, topic string) {
 			return
 		}
 
+		s.broker.Metrics().MessageOut(env.Topic, env.PartitionID, sub.groupID)
+
 		client.mu.Lock()
 		sub.nextOffset = offset + 1
 		client.subscriptions[topic] = sub
@@ -611,6 +615,8 @@ func (s *Server) handleFetch(client *grpcClientConn, req *proto.FetchRequest) {
 			}); err != nil {
 				return
 			}
+
+			s.broker.Metrics().MessageOut(env.Topic, env.PartitionID, "")
 
 			client.mu.Lock()
 			sub.nextOffset = offset + 1

@@ -37,6 +37,7 @@ type Expirer struct {
 	configs   map[string]*TopicTTLConfig                // topic -> config
 	onExpired func(topic string, env *message.Envelope) // optional callback
 	encryptor Decryptor                                 // optional, for at-rest decryption
+	onMetric  func(topic, action string)                // optional callback for metrics
 
 	ctx    context.Context
 	cancel context.CancelFunc
@@ -62,6 +63,11 @@ func (e *Expirer) SetOnExpired(fn func(topic string, env *message.Envelope)) {
 // SetEncryptor sets the decryptor for at-rest encrypted messages.
 func (e *Expirer) SetEncryptor(dec Decryptor) {
 	e.encryptor = dec
+}
+
+// SetOnMetric sets the callback for expired message metrics.
+func (e *Expirer) SetOnMetric(fn func(topic, action string)) {
+	e.onMetric = fn
 }
 
 // SetTopicConfig configures TTL for a topic.
@@ -198,6 +204,13 @@ func (e *Expirer) scan() {
 
 				if env.Timestamp+env.TTL < now {
 					// Message expired
+					if e.onMetric != nil {
+						action := "drop"
+						if cfg.Action == ActionDLQ {
+							action = "dlq"
+						}
+						e.onMetric(topic, action)
+					}
 					if cfg.Action == ActionDLQ && e.onExpired != nil {
 						e.onExpired(topic, env)
 					}

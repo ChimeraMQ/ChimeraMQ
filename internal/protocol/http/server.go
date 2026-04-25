@@ -1039,6 +1039,11 @@ func (s *AdminServer) handleFetch(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Record MessageOut metrics
+	for _, env := range msgs {
+		s.broker.Metrics().MessageOut(env.Topic, env.PartitionID, "")
+	}
+
 	// Record fetch for quota tracking
 	if qe := s.broker.QuotaEnforcer(); qe != nil {
 		if tm := s.broker.TenantManager(); tm != nil {

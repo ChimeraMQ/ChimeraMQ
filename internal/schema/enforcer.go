@@ -16,6 +16,8 @@ type ValidationResult struct {
 // Enforcer validates messages against registered schemas.
 type Enforcer struct {
 	registry *Registry
+
+	OnValidationFailed func(topic string) // optional callback for metrics
 }
 
 // NewEnforcer creates a new schema enforcer.

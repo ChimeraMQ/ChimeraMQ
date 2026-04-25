@@ -67,6 +67,7 @@ func (b *Broker) Publish(env *message.Envelope) (uint64, error) {
 			return 0, fmt.Errorf("schema validation error: %w", err)
 		}
 		if !result.Valid {
+			b.metrics.SchemaValidationFailed(env.Topic)
 			return 0, fmt.Errorf("schema validation failed: %s", strings.Join(result.Errors, "; "))
 		}
 	}

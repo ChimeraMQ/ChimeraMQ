@@ -68,6 +68,8 @@ type Registry struct {
 	versions   map[string][]*SchemaVersion  // subject -> ordered versions
 	byID       map[uint32]*SchemaVersion    // global ID -> schema
 	compat     map[string]CompatibilityMode // subject -> compatibility mode
+
+	OnRegister func(subject, schemaType string) // optional callback for metrics
 }
 
 // validateSubjectName checks if a subject name is safe for use as a directory name.
@@ -176,6 +178,9 @@ func (r *Registry) Register(subject string, schemaType SchemaType, schemaText st
 	}
 
 	r.saveGlobalID()
+	if r.OnRegister != nil {
+		r.OnRegister(sv.Subject, sv.Type.String())
+	}
 	return sv, nil
 }
 

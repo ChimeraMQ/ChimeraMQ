@@ -93,6 +93,13 @@ func (at *AckTracker) Stop() {
 	close(at.stopChan)
 }
 
+// PendingCount returns the number of messages currently in-flight.
+func (at *AckTracker) PendingCount() int {
+	at.mu.Lock()
+	defer at.mu.Unlock()
+	return len(at.pending)
+}
+
 func (at *AckTracker) visibilityTimeoutLoop() {
 	ticker := time.NewTicker(1 * time.Second)
 	defer ticker.Stop()
