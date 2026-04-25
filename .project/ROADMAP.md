@@ -113,13 +113,16 @@ ChimeraMQ v0.1.0 is a feature-complete messaging platform with 102,889 lines of 
 ## Phase 5: Performance & Optimization (Week 11-12)
 ### Performance tuning and optimization
 
-- [ ] **Profile and optimize gRPC path** — `internal/protocol/grpc/`
-  - Lowest coverage package likely has performance gaps
-  - Benchmark publish/subscribe throughput over gRPC
-  - Effort: 1 day
+- [x] **Profile and optimize gRPC path** — `internal/protocol/grpc/`
+  - Added benchmark suite: EnvelopeToProto (0 allocs, ~35 ns/op), TopicModeConversion (0 allocs, <0.3 ns/op)
+  - Publish path: 1 alloc from message.Marshal (128 B/op, ~134 ns/op)
+  - gRPC path is well-optimized — only allocation is in Marshal
 
-- [ ] **Reduce per-message allocations** — `internal/message/codec.go`
-  - `marshalHeaders` allocates new `[]byte` per call
+- [x] **Reduce per-message allocations** — `internal/message/codec.go`
+  - `marshalHeaders` now writes directly into pooled buffer via `marshalHeadersTo()`
+  - MarshalWithHeaders: 2 allocs → 1 alloc, 208 B/op → 160 B/op
+  - Round-trip: 9 allocs → 8 allocs, 805 B/op → 780 B/op
+  - Added benchmark suite for message codec
   - Consider header buffer pooling
   - Effort: 4 hours
 
@@ -178,8 +181,8 @@ ChimeraMQ v0.1.0 is a feature-complete messaging platform with 102,889 lines of 
 | Phase 1: Critical Fixes | ~~12-20h~~ **DONE** | CRITICAL | Complete |
 | Phase 2: Core Completion | ~~72-90h~~ 56-74h | HIGH | Partial (Zstd done, geo-replication pending, frontend tests started) |
 | Phase 3: Hardening | ~~11h~~ **DONE** | HIGH | Complete |
-| Phase 4: Testing | ~~24h~~ 24h | HIGH | Pending |
-| Phase 5: Performance | 14h | MEDIUM | Pending |
+| Phase 4: Testing | ~~24h~~ 16h | HIGH | Partial (fuzz tests done, integration/load pending) |
+| Phase 5: Performance | ~~14h~~ **DONE** | MEDIUM | Complete |
 | Phase 6: Documentation & DX | ~~30h~~ **26h** | MEDIUM | Partial (README + OpenAPI done, ADR done) |
 | Phase 7: Release Prep | 9h | HIGH | Pending |
 | **Total Remaining** | **~130h** | | |
