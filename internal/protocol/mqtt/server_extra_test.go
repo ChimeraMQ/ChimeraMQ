@@ -648,3 +648,17 @@ func TestHandleConnectionPubAck(t *testing.T) {
 		t.Error("handleConnection did not finish")
 	}
 }
+
+func TestGenerateClientID(t *testing.T) {
+	id1 := generateClientID()
+	id2 := generateClientID()
+	if !bytes.HasPrefix([]byte(id1), []byte("mqtt-auto-")) {
+		t.Errorf("client ID %q doesn't have mqtt-auto- prefix", id1)
+	}
+	if id1 == id2 {
+		t.Error("expected unique client IDs, got duplicates")
+	}
+	if len(id1) != len(id2) {
+		t.Error("expected same length client IDs")
+	}
+}
