@@ -3,6 +3,8 @@ package mqtt
 import (
 	"bytes"
 	"encoding/binary"
+	"fmt"
+	"io"
 	"testing"
 )
 
@@ -251,6 +253,43 @@ func TestWritePacketEmpty(t *testing.T) {
 		t.Errorf("wrote %d bytes, want 2", buf.Len())
 	}
 }
+
+func TestWritePacketWriteError(t *testing.T) {
+	// failingWriter always returns an error on Write
+	err := WritePacket(&failingWriter{}, PacketPingReq, 0, []byte("test"))
+	if err == nil {
+		t.Error("expected error from failing writer")
+	}
+}
+
+func TestWritePacketPayloadWriteError(t *testing.T) {
+	// failingWriter after header succeeds — only payload fails
+	err := WritePacket(&failingWriterPartial{}, PacketPublish, 0, []byte("test"))
+	if err == nil {
+		t.Error("expected error from failing writer on payload")
+	}
+}
+
+type failingWriter struct{}
+
+func (f *failingWriter) Write(p []byte) (int, error) {
+	return 0, fmt.Errorf("write failed")
+}
+
+type failingWriterPartial struct {
+	writeCount int
+}
+
+func (f *failingWriterPartial) Write(p []byte) (int, error) {
+	if f.writeCount == 0 {
+		f.writeCount++
+		return len(p), nil
+	}
+	return 0, fmt.Errorf("write failed")
+}
+
+var _ io.Writer = (*failingWriter)(nil)
+var _ io.Writer = (*failingWriterPartial)(nil)
 
 func TestWriteReadRoundTrip(t *testing.T) {
 	payload := []byte("test-payload-data")
