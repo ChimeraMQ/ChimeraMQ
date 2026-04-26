@@ -873,3 +873,122 @@ func TestWSFetchMessages(t *testing.T) {
 		t.Errorf("expected fetch_complete, got %q", m2.Op)
 	}
 }
+
+func TestWSEvictConsumer(t *testing.T) {
+	wsSrv, _, httpSrv, cleanup := setupWSTestServer(t)
+	defer cleanup()
+
+	conn := connectWS(t, "ws://"+httpSrv.Listener.Addr().String(), "chimera-json-v1")
+	defer conn.Close(websocket.StatusNormalClosure, "")
+
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	// Create a topic
+	wsSrv.broker.Topics().CreateTopic(broker.TopicConfig{Name: "evict-topic", Mode: broker.ModeQueue, Partitions: 1})
+
+	// Subscribe
+	subMsg, _ := json.Marshal(wsMessage{Op: "subscribe", Topic: "evict-topic"})
+	err := conn.Write(ctx, websocket.MessageText, subMsg)
+	if err != nil {
+		t.Fatalf("subscribe write: %v", err)
+	}
+
+	// Wait for suback
+	time.Sleep(50 * time.Millisecond)
+
+	// Find the consumerID from sessions
+	var consumerID string
+	wsSrv.sessions.Range(func(key, value any) bool {
+		sess := value.(*wsSession)
+		sess.mu.Lock()
+		consumerID = sess.consumerID
+		sess.mu.Unlock()
+		return false
+	})
+	if consumerID == "" {
+		t.Fatal("no consumerID found")
+	}
+
+	// Evict the consumer
+	wsSrv.EvictConsumer(consumerID)
+
+	// Connection should be closed
+	time.Sleep(50 * time.Millisecond)
+	_, _, err = conn.Read(ctx)
+	if err == nil {
+		t.Error("expected connection to be closed after eviction")
+	}
+}
+
+func TestWSEvictNonExistentConsumer(t *testing.T) {
+	wsSrv, _, httpSrv, cleanup := setupWSTestServer(t)
+	defer cleanup()
+
+	conn := connectWS(t, "ws://"+httpSrv.Listener.Addr().String(), "chimera-json-v1")
+	defer conn.Close(websocket.StatusNormalClosure, "")
+
+	// Evict a consumer that doesn't exist — should be a no-op
+	wsSrv.EvictConsumer("non-existent-consumer-id")
+
+	// Connection should still be alive
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+	pingMsg, _ := json.Marshal(wsMessage{Op: "ping"})
+	err := conn.Write(ctx, websocket.MessageText, pingMsg)
+	if err != nil {
+		t.Fatalf("ping write: %v", err)
+	}
+}
+
+func TestWSRunStreamSubscriptionErrorPaths(t *testing.T) {
+	wsSrv, _, httpSrv, cleanup := setupWSTestServer(t)
+	defer cleanup()
+
+	conn := connectWS(t, "ws://"+httpSrv.Listener.Addr().String(), "chimera-json-v1")
+	defer conn.Close(websocket.StatusNormalClosure, "")
+
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	// Create a stream topic
+	wsSrv.broker.Topics().CreateTopic(broker.TopicConfig{Name: "stream-err-topic", Mode: broker.ModeStream, Partitions: 1})
+
+	// Subscribe in stream mode with a group
+	subMsg, _ := json.Marshal(wsMessage{Op: "subscribe", Topic: "stream-err-topic", Group: "test-group"})
+	err := conn.Write(ctx, websocket.MessageText, subMsg)
+	if err != nil {
+		t.Fatalf("subscribe write: %v", err)
+	}
+
+	// Read suback
+	_, data, err := conn.Read(ctx)
+	if err != nil {
+		t.Fatalf("read suback: %v", err)
+	}
+	var subResp wsMessage
+	json.Unmarshal(data, &subResp)
+	if subResp.Op != "suback" {
+		t.Fatalf("expected suback, got %q", subResp.Op)
+	}
+
+	// Unsubscribe
+	time.Sleep(50 * time.Millisecond)
+
+	unsubMsg, _ := json.Marshal(wsMessage{Op: "unsubscribe"})
+	err = conn.Write(ctx, websocket.MessageText, unsubMsg)
+	if err != nil {
+		t.Fatalf("unsubscribe write: %v", err)
+	}
+
+	// Read unsuback
+	_, data, err = conn.Read(ctx)
+	if err != nil {
+		t.Fatalf("read: %v", err)
+	}
+	var resp wsMessage
+	json.Unmarshal(data, &resp)
+	if resp.Op != "unsuback" {
+		t.Errorf("expected unsuback, got %q", resp.Op)
+	}
+}

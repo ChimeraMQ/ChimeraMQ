@@ -1523,3 +1523,133 @@ func TestExtractRealIPInvalidCIDR(t *testing.T) {
 		t.Errorf("extractRealIP = %q, want 192.168.1.100", ip)
 	}
 }
+
+func TestHasClusterAdminRole(t *testing.T) {
+	tests := []struct {
+		roles []string
+		want  bool
+	}{
+		{[]string{"admin"}, true},
+		{[]string{"cluster-admin"}, true},
+		{[]string{"reader"}, false},
+		{[]string{"admin", "reader"}, true},
+		{[]string{}, false},
+	}
+	for _, tt := range tests {
+		ident := &auth.Identity{Roles: tt.roles}
+		got := hasClusterAdminRole(ident)
+		if got != tt.want {
+			t.Errorf("hasClusterAdminRole(%v) = %v, want %v", tt.roles, got, tt.want)
+		}
+	}
+}
+
+func TestHandleBatchPublish(t *testing.T) {
+	srv, b, cleanup := setupTestServer(t)
+	defer cleanup()
+
+	// Create topic
+	b.Topics().CreateTopic(broker.TopicConfig{Name: "batch-http", Mode: broker.ModeStream, Partitions: 1})
+
+	body := []map[string]interface{}{
+		{"payload": "msg1"},
+		{"payload": "msg2"},
+	}
+	data, _ := json.Marshal(body)
+	resp := doRequest(t, srv, "POST", "/v1/messages/batch-http/batch", data)
+	if resp.StatusCode != http.StatusOK {
+		t.Errorf("batch publish: status = %d, want 200", resp.StatusCode)
+	}
+	var result map[string]interface{}
+	json.NewDecoder(resp.Body).Decode(&result)
+	if result["ok"] == nil {
+		t.Error("expected ok in response")
+	}
+}
+
+func TestHandleBatchPublishEmpty(t *testing.T) {
+	srv, _, cleanup := setupTestServer(t)
+	defer cleanup()
+
+	body := []map[string]interface{}{}
+	data, _ := json.Marshal(body)
+	resp := doRequest(t, srv, "POST", "/v1/messages/empty-batch/batch", data)
+	if resp.StatusCode != http.StatusBadRequest {
+		t.Errorf("empty batch: status = %d, want 400", resp.StatusCode)
+	}
+}
+
+func TestHandleBatchPublishInvalidJSON(t *testing.T) {
+	srv, _, cleanup := setupTestServer(t)
+	defer cleanup()
+
+	resp := doRequest(t, srv, "POST", "/v1/messages/bad-batch/batch", []byte("not-json"))
+	if resp.StatusCode != http.StatusBadRequest {
+		t.Errorf("invalid batch JSON: status = %d, want 400", resp.StatusCode)
+	}
+}
+
+func TestHandleGeoStatusNoGeo(t *testing.T) {
+	srv, _, cleanup := setupTestServer(t)
+	defer cleanup()
+
+	resp := doRequest(t, srv, "GET", "/v1/geo-replication/status", nil)
+	if resp.StatusCode != http.StatusOK {
+		t.Errorf("geo status: status = %d, want 200", resp.StatusCode)
+	}
+	var result map[string]interface{}
+	json.NewDecoder(resp.Body).Decode(&result)
+	if result["enabled"] != false {
+		t.Error("expected enabled=false when geo is nil")
+	}
+}
+
+func TestHandleGeoLagNoGeo(t *testing.T) {
+	srv, _, cleanup := setupTestServer(t)
+	defer cleanup()
+
+	resp := doRequest(t, srv, "GET", "/v1/geo-replication/lag", nil)
+	if resp.StatusCode != http.StatusOK {
+		t.Errorf("geo lag: status = %d, want 200", resp.StatusCode)
+	}
+	var result map[string]interface{}
+	json.NewDecoder(resp.Body).Decode(&result)
+	if result["enabled"] != false {
+		t.Error("expected enabled=false when geo is nil")
+	}
+}
+
+func TestHandleDrain(t *testing.T) {
+	srv, _, cleanup := setupTestServer(t)
+	defer cleanup()
+
+	body := map[string]bool{"drain": true}
+	data, _ := json.Marshal(body)
+	resp := doRequest(t, srv, "POST", "/v1/admin/drain", data)
+	if resp.StatusCode != http.StatusOK {
+		t.Errorf("drain enable: status = %d, want 200", resp.StatusCode)
+	}
+	var result map[string]string
+	json.NewDecoder(resp.Body).Decode(&result)
+	if result["message"] != "drain mode enabled" {
+		t.Errorf("drain message = %q, want 'drain mode enabled'", result["message"])
+	}
+
+	// Disable drain
+	body["drain"] = false
+	data, _ = json.Marshal(body)
+	resp = doRequest(t, srv, "POST", "/v1/admin/drain", data)
+	if resp.StatusCode != http.StatusOK {
+		t.Errorf("drain disable: status = %d, want 200", resp.StatusCode)
+	}
+}
+
+func TestHandleDrainInvalidJSON(t *testing.T) {
+	srv, _, cleanup := setupTestServer(t)
+	defer cleanup()
+
+	resp := doRequest(t, srv, "POST", "/v1/admin/drain", []byte("not-json"))
+	if resp.StatusCode != http.StatusBadRequest {
+		t.Errorf("invalid drain JSON: status = %d, want 400", resp.StatusCode)
+	}
+}
