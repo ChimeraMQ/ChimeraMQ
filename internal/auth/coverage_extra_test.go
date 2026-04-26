@@ -3,13 +3,20 @@ package auth
 import (
 	"context"
 	"crypto/x509"
+	"crypto/x509/pkix"
+	"encoding/base64"
+	"fmt"
 	"math/big"
 	"net"
 	"net/http/httptest"
 	"os"
+	"strings"
 	"sync"
 	"testing"
 	"time"
+
+	"crypto/sha256"
+	"golang.org/x/crypto/pbkdf2"
 )
 
 func TestNewAuthRateLimiter(t *testing.T) {
@@ -631,5 +638,510 @@ func TestOAuthDirectTokenCleanup(t *testing.T) {
 	}
 	if _, ok := p.tokenCache["future"]; !ok {
 		t.Error("future token should not be cleaned up")
+	}
+}
+
+func TestSCRAMFullSASLExchangeCoverage(t *testing.T) {
+	provider := NewSCRAMProvider()
+	err := provider.RegisterUser("exchange-user", "secure-password", 4096)
+	if err != nil {
+		t.Fatalf("RegisterUser: %v", err)
+	}
+
+	// Step 1: Client sends client-first-message
+	clientFirst := "n,,n=exchange-user,r=cN0n0HJgBqM7sC9r1zL4"
+	sess, serverFirst, err := provider.StartExchange(clientFirst)
+	if err != nil {
+		t.Fatalf("StartExchange: %v", err)
+	}
+	if sess == nil {
+		t.Fatal("expected non-nil session")
+	}
+	if !strings.HasPrefix(serverFirst, "r=") {
+		t.Errorf("server-first should start with r=, got: %s", serverFirst[:20])
+	}
+
+	// Step 2: Client sends client-final-message with proof
+	// We need to compute a valid proof — use the session to get attributes
+	attrs, err := parseSCRAMAttributes(serverFirst)
+	if err != nil {
+		t.Fatalf("parse server-first: %v", err)
+	}
+	serverNonce := attrs['r']
+	saltB64 := attrs['s']
+	salt, _ := base64.StdEncoding.DecodeString(saltB64)
+
+	// Derive keys for the user (storedKey used for HMAC in proof computation)
+	storedKey, _ := deriveKeys("secure-password", salt, 4096)
+
+	// Build auth message
+	clientFirstBare := "n=exchange-user,r=cN0n0HJgBqM7sC9r1zL4"
+	channelBinding := base64.StdEncoding.EncodeToString([]byte("n,,,"))
+	clientFinalNoProof := fmt.Sprintf("c=%s,r=%s", channelBinding, serverNonce)
+	authMessage := clientFirstBare + "," + serverFirst + "," + clientFinalNoProof
+
+	// Re-derive full keys to compute valid proof
+	saltedPassword := pbkdf2.Key([]byte("secure-password"), salt, 4096, scramSHA256KeyLen, sha256.New)
+	realClientKey := hmacSHA256(saltedPassword, []byte(scramClientKey))
+	realClientSig := hmacSHA256(storedKey, []byte(authMessage))
+	proof := xorBytes(realClientKey, realClientSig)
+	proofB64 := base64.StdEncoding.EncodeToString(proof)
+
+	clientFinal := fmt.Sprintf("c=%s,r=%s,p=%s", channelBinding, serverNonce, proofB64)
+	serverFinal, err := sess.VerifyClientFinal(clientFinal)
+	if err != nil {
+		t.Fatalf("VerifyClientFinal: %v", err)
+	}
+	if !strings.HasPrefix(serverFinal, "v=") {
+		t.Errorf("server-final should start with v=, got: %s", serverFinal[:20])
+	}
+
+	// Step 3: Client validates server and echoes back
+	err = sess.ValidateClientServerFinal(serverFinal)
+	if err != nil {
+		t.Errorf("ValidateClientServerFinal: %v", err)
+	}
+	if sess.Username() != "exchange-user" {
+		t.Errorf("Username() = %q, want exchange-user", sess.Username())
+	}
+}
+
+func TestSCRAMAuthenticateCorrectPassword(t *testing.T) {
+	provider := NewSCRAMProvider()
+	err := provider.RegisterUser("auth-user", "mypassword", 4096)
+	if err != nil {
+		t.Fatalf("RegisterUser: %v", err)
+	}
+
+	id, err := provider.Authenticate(context.Background(), Credentials{
+		Username: "auth-user",
+		Password: "mypassword",
+	})
+	if err != nil {
+		t.Fatalf("Authenticate: %v", err)
+	}
+	if id.UserID != "auth-user" {
+		t.Errorf("UserID = %q, want auth-user", id.UserID)
+	}
+	if id.Source != "scram" {
+		t.Errorf("Source = %q, want scram", id.Source)
+	}
+}
+
+func TestSCRAMAuthenticateWrongPasswordCoverage(t *testing.T) {
+	provider := NewSCRAMProvider()
+	err := provider.RegisterUser("auth-user", "correct", 4096)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	_, err = provider.Authenticate(context.Background(), Credentials{
+		Username: "auth-user",
+		Password: "wrong",
+	})
+	if err == nil {
+		t.Error("expected error for wrong password")
+	}
+}
+
+func TestSCRAMAuthenticateEmptyCredentials(t *testing.T) {
+	provider := NewSCRAMProvider()
+	_, err := provider.Authenticate(context.Background(), Credentials{})
+	if err == nil {
+		t.Error("expected error for empty credentials")
+	}
+}
+
+func TestSCRAMAuthenticateUnknownUserCoverage(t *testing.T) {
+	provider := NewSCRAMProvider()
+	_, err := provider.Authenticate(context.Background(), Credentials{
+		Username: "nobody",
+		Password: "pass",
+	})
+	if err == nil {
+		t.Error("expected error for unknown user")
+	}
+}
+
+func TestSCRAMRemoveAndGetUser(t *testing.T) {
+	provider := NewSCRAMProvider()
+	err := provider.RegisterUser("remove-me", "password", 4096)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	user, ok := provider.GetUser("remove-me")
+	if !ok {
+		t.Error("GetUser should find registered user")
+	}
+	if user == nil || len(user.Salt) == 0 {
+		t.Error("user should have salt")
+	}
+
+	provider.RemoveUser("remove-me")
+	_, ok = provider.GetUser("remove-me")
+	if ok {
+		t.Error("GetUser should not find removed user")
+	}
+
+	// Remove non-existent — should not panic
+	provider.RemoveUser("nonexistent")
+}
+
+func TestSCRAMRegisterEmptyUsernameCoverage(t *testing.T) {
+	provider := NewSCRAMProvider()
+	err := provider.RegisterUser("", "password", 4096)
+	if err == nil {
+		t.Error("expected error for empty username")
+	}
+}
+
+func TestSCRAMRegisterEmptyPasswordCoverage(t *testing.T) {
+	provider := NewSCRAMProvider()
+	err := provider.RegisterUser("user", "", 4096)
+	if err == nil {
+		t.Error("expected error for empty password")
+	}
+}
+
+func TestSCRAMRegisterLowIterations(t *testing.T) {
+	provider := NewSCRAMProvider()
+	err := provider.RegisterUser("user", "pass", 100) // below min
+	if err != nil {
+		t.Fatalf("should accept low iterations (clamps to default): %v", err)
+	}
+	user, _ := provider.GetUser("user")
+	if user.Iterations != scramDefaultIters {
+		t.Errorf("Iterations = %d, want %d", user.Iterations, scramDefaultIters)
+	}
+}
+
+func TestSCRAMInvalidClientFinal(t *testing.T) {
+	provider := NewSCRAMProvider()
+	err := provider.RegisterUser("inv-user", "pass", 4096)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	clientFirst := "n,,n=inv-user,r=nonce123"
+	sess, _, err := provider.StartExchange(clientFirst)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// Invalid client-final (no proof)
+	_, err = sess.VerifyClientFinal("c=abc,r=nonce123")
+	if err == nil {
+		t.Error("expected error for missing proof")
+	}
+
+	// Wrong nonce (replay)
+	_, err = sess.VerifyClientFinal("c=abc,r=wrong-nonce,p=proof")
+	if err == nil {
+		t.Error("expected error for wrong nonce")
+	}
+
+	// Invalid attributes
+	_, err = sess.VerifyClientFinal("bad-format")
+	if err == nil {
+		t.Error("expected error for invalid attributes")
+	}
+}
+
+func TestSCRAMValidateClientServerFinalRejection(t *testing.T) {
+	provider := NewSCRAMProvider()
+	err := provider.RegisterUser("reject-user", "pass", 4096)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	clientFirst := "n,,n=reject-user,r=nonce123"
+	sess, serverFirst, err := provider.StartExchange(clientFirst)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	attrs, _ := parseSCRAMAttributes(serverFirst)
+	serverNonce := attrs['r']
+	saltB64 := attrs['s']
+	salt, _ := base64.StdEncoding.DecodeString(saltB64)
+	saltedPassword := pbkdf2.Key([]byte("pass"), salt, 4096, scramSHA256KeyLen, sha256.New)
+	storedKey, serverKey := deriveKeys("pass", salt, 4096)
+
+	clientFirstBare := "n=reject-user,r=nonce123"
+	channelBinding := base64.StdEncoding.EncodeToString([]byte("n,,,"))
+	clientFinalNoProof := fmt.Sprintf("c=%s,r=%s", channelBinding, serverNonce)
+	authMessage := clientFirstBare + "," + serverFirst + "," + clientFinalNoProof
+
+	realClientKey := hmacSHA256(saltedPassword, []byte(scramClientKey))
+	realClientSig := hmacSHA256(storedKey, []byte(authMessage))
+	proof := xorBytes(realClientKey, realClientSig)
+	proofB64 := base64.StdEncoding.EncodeToString(proof)
+
+	clientFinal := fmt.Sprintf("c=%s,r=%s,p=%s", channelBinding, serverNonce, proofB64)
+	serverFinal, err := sess.VerifyClientFinal(clientFinal)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_ = serverFinal // signature computed successfully
+
+	// Client rejects server signature (wrong echo)
+	err = sess.ValidateClientServerFinal("v=wrong-signature")
+	if err == nil {
+		t.Error("expected error for wrong server signature echo")
+	}
+
+	// Missing v= prefix
+	err = sess.ValidateClientServerFinal("no-prefix")
+	if err == nil {
+		t.Error("expected error for missing v= prefix")
+	}
+
+	// Unused serverKey to avoid linter
+	_ = serverKey
+}
+
+func TestSCRAMStartExchangeInvalidMessages(t *testing.T) {
+	provider := NewSCRAMProvider()
+	err := provider.RegisterUser("test", "pass", 4096)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// Empty message
+	_, _, err = provider.StartExchange("")
+	if err == nil {
+		t.Error("expected error for empty message")
+	}
+
+	// No GS2 header structure
+	_, _, err = provider.StartExchange("no-commas")
+	if err == nil {
+		t.Error("expected error for malformed message")
+	}
+
+	// Unknown user
+	_, _, err = provider.StartExchange("n,,n=nonexistent,r=nonce")
+	if err == nil {
+		t.Error("expected error for unknown user")
+	}
+}
+
+func TestMTLSAuthenticateWithSAN(t *testing.T) {
+	// Cert with empty CN but with SAN DNS names
+	cert := &x509.Certificate{
+		Subject: pkix.Name{CommonName: ""},
+		DNSNames: []string{"client.example.com"},
+	}
+	ctx := ContextWithPeerCerts(context.Background(), []*x509.Certificate{cert})
+	provider := NewMTLSProvider()
+
+	id, err := provider.Authenticate(ctx, Credentials{})
+	if err != nil {
+		t.Fatalf("Authenticate: %v", err)
+	}
+	if id.UserID != "client.example.com" {
+		t.Errorf("UserID = %q, want client.example.com", id.UserID)
+	}
+	if id.Source != "mtls" {
+		t.Errorf("Source = %q, want mtls", id.Source)
+	}
+}
+
+func TestMTLSAuthenticateNoCNOrSAN(t *testing.T) {
+	cert := &x509.Certificate{
+		Subject: pkix.Name{CommonName: ""},
+		DNSNames: []string{},
+	}
+	ctx := ContextWithPeerCerts(context.Background(), []*x509.Certificate{cert})
+	provider := NewMTLSProvider()
+
+	_, err := provider.Authenticate(ctx, Credentials{})
+	if err == nil {
+		t.Error("expected error when cert has no CN or SAN")
+	}
+}
+
+func TestMTLSAuthenticateWithRoleAllowlist(t *testing.T) {
+	cert := &x509.Certificate{
+		Subject: pkix.Name{
+			CommonName:         "admin-client",
+			OrganizationalUnit: []string{"admin", "viewer", "superuser"},
+			Organization:       []string{"myorg"},
+		},
+	}
+	ctx := ContextWithPeerCerts(context.Background(), []*x509.Certificate{cert})
+	provider := NewMTLSProviderWithRoleAllowlist([]string{"admin", "viewer"})
+
+	id, err := provider.Authenticate(ctx, Credentials{})
+	if err != nil {
+		t.Fatalf("Authenticate: %v", err)
+	}
+	if len(id.Roles) != 2 {
+		t.Errorf("Roles = %v, want [admin viewer]", id.Roles)
+	}
+	if len(id.Groups) != 1 || id.Groups[0] != "myorg" {
+		t.Errorf("Groups = %v, want [myorg]", id.Groups)
+	}
+}
+
+func TestMTLSAuthenticateNilContext(t *testing.T) {
+	provider := NewMTLSProvider()
+	_, err := provider.Authenticate(nil, Credentials{})
+	if err == nil {
+		t.Error("expected error for nil context")
+	}
+}
+
+func TestMTLSClose(t *testing.T) {
+	provider := NewMTLSProvider()
+	if err := provider.Close(); err != nil {
+		t.Errorf("Close should return nil: %v", err)
+	}
+}
+
+func TestACLDefaultResourceType(t *testing.T) {
+	rt := ParseResourceType("unknown-type")
+	if rt != ResourceTopic {
+		t.Errorf("ParseResourceType(unknown) = %d, want ResourceTopic", rt)
+	}
+}
+
+func TestACLDefaultOperation(t *testing.T) {
+	op := ParseOperation("unknown-op")
+	if op != OpRead {
+		t.Errorf("ParseOperation(unknown) = %d, want OpRead", op)
+	}
+}
+
+func TestACLMatchGlobExact(t *testing.T) {
+	if !matchGlob("topic-name", "topic-name") {
+		t.Error("exact match should succeed")
+	}
+	if matchGlob("topic-name", "topic-other") {
+		t.Error("exact mismatch should fail")
+	}
+}
+
+func TestACLRoleNoMatch(t *testing.T) {
+	acl := NewACLEngine(PermissionDeny)
+	acl.AddEntry(ACLEntry{
+		Principal:    "admin",
+		ResourceType: ResourceTopic,
+		ResourceName: "*",
+		Operation:    OpRead,
+		Permission:   PermissionAllow,
+	})
+
+	// User with no matching role
+	id := &Identity{UserID: "user1", Roles: []string{"viewer"}}
+	if acl.Check(id, ResourceTopic, "test", OpRead) {
+		t.Error("user with non-matching role should be denied")
+	}
+}
+
+func TestRateLimiterRecordSuccessRemovesBan(t *testing.T) {
+	rl := NewAuthRateLimiter(1, 1*time.Minute, 5*time.Minute)
+	rl.RecordFailed("127.0.0.1")
+	if rl.IsAllowed("127.0.0.1") {
+		t.Error("should be blocked after 1 failure")
+	}
+	rl.RecordSuccess("127.0.0.1")
+	if !rl.IsAllowed("127.0.0.1") {
+		t.Error("should be allowed after success clears ban")
+	}
+}
+
+func TestRateLimiterBanExpiredCleanup(t *testing.T) {
+	rl := NewAuthRateLimiter(1, 1*time.Millisecond, 50*time.Millisecond)
+	rl.RecordFailed("127.0.0.1")
+	if rl.IsAllowed("127.0.0.1") {
+		t.Error("should be blocked")
+	}
+	time.Sleep(60 * time.Millisecond)
+	if !rl.IsAllowed("127.0.0.1") {
+		t.Error("should be allowed after ban expires")
+	}
+}
+
+func TestValidateAlgCoverage(t *testing.T) {
+	// Test none algorithm rejected
+	if err := validateAlg("none"); err == nil {
+		t.Error("alg=none should be rejected")
+	}
+	// Test empty rejected
+	if err := validateAlg(""); err == nil {
+		t.Error("empty alg should be rejected")
+	}
+	// Test supported algs
+	for _, alg := range []string{"RS256", "RS384", "RS512", "ES256", "ES384", "ES512", "EdDSA"} {
+		if err := validateAlg(alg); err != nil {
+			t.Errorf("alg %s should be allowed: %v", alg, err)
+		}
+	}
+	// Test unsupported
+	if err := validateAlg("HS256"); err == nil {
+		t.Error("HS256 should be unsupported")
+	}
+}
+
+func TestDecodeJWTPartInvalid(t *testing.T) {
+	_, err := decodeJWTPart("not-base64!!!")
+	if err == nil {
+		t.Error("expected error for invalid base64")
+	}
+	_, err = decodeJWTPart(base64.RawURLEncoding.EncodeToString([]byte("not-json")))
+	if err == nil {
+		t.Error("expected error for invalid JSON")
+	}
+}
+
+func TestParseJWKUnsupported(t *testing.T) {
+	_, err := parseJWK(jwkKey{Kty: "oct"})
+	if err == nil {
+		t.Error("expected error for oct key type")
+	}
+}
+
+func TestParseJWKECInvalidCurve(t *testing.T) {
+	_, err := parseJWK(jwkKey{Kty: "EC", Crv: "P-192", X: "AA", Y: "AA"})
+	if err == nil {
+		t.Error("expected error for unsupported curve")
+	}
+}
+
+func TestParseJWKECInvalidBase64Coverage(t *testing.T) {
+	_, err := parseJWK(jwkKey{Kty: "EC", Crv: "P-256", X: "!!!", Y: "AA"})
+	if err == nil {
+		t.Error("expected error for invalid base64 in X")
+	}
+	_, err = parseJWK(jwkKey{Kty: "EC", Crv: "P-256", X: "AA", Y: "!!!"})
+	if err == nil {
+		t.Error("expected error for invalid base64 in Y")
+	}
+}
+
+func TestParseJWKRSAInvalidBase64Coverage(t *testing.T) {
+	_, err := parseJWK(jwkKey{Kty: "RSA", N: "!!!", E: "AA"})
+	if err == nil {
+		t.Error("expected error for invalid base64 in N")
+	}
+	_, err = parseJWK(jwkKey{Kty: "RSA", N: "AA", E: "!!!"})
+	if err == nil {
+		t.Error("expected error for invalid base64 in E")
+	}
+}
+
+func TestParseJWOKPInvalidBase64(t *testing.T) {
+	_, err := parseJWK(jwkKey{Kty: "OKP", X: "!!!"})
+	if err == nil {
+		t.Error("expected error for invalid base64 in OKP X")
+	}
+}
+
+func TestVerifyJWTUnsupportedKeyTypeCoverage(t *testing.T) {
+	err := verifyJWT([]string{"a", "b", "c"}, "not-a-key", "RS256")
+	if err == nil {
+		t.Error("expected error for unsupported key type")
 	}
 }

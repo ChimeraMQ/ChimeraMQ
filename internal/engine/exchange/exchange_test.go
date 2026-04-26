@@ -274,6 +274,17 @@ func TestExchangeTypeString(t *testing.T) {
 	if TypeTopic.String() != "topic" {
 		t.Errorf("TypeTopic.String() = %q", TypeTopic.String())
 	}
+	if TypeFanout.String() != "fanout" {
+		t.Errorf("TypeFanout.String() = %q", TypeFanout.String())
+	}
+	if TypeHeaders.String() != "headers" {
+		t.Errorf("TypeHeaders.String() = %q", TypeHeaders.String())
+	}
+	// Unknown type
+	unknown := ExchangeType(99)
+	if unknown.String() != "unknown" {
+		t.Errorf("unknown ExchangeType.String() = %q, want unknown", unknown.String())
+	}
 }
 
 func TestExchangeName(t *testing.T) {

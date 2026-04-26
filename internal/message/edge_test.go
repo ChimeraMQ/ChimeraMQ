@@ -59,6 +59,9 @@ func TestProtocolTypeString(t *testing.T) {
 		{ProtoMQTT, "mqtt"},
 		{ProtoWS, "websocket"},
 		{ProtoHTTP, "http"},
+		{ProtoSTOMP, "stomp"},
+		{ProtoNATS, "nats"},
+		{ProtoGRPC, "grpc"},
 		{ProtocolType(99), "unknown"},
 	}
 	for _, tt := range tests {
@@ -143,5 +146,36 @@ func TestMarshalUnmarshalFullEnvelope(t *testing.T) {
 	}
 	if string(got.Headers["h1"]) != "v1" {
 		t.Errorf("header h1 = %q, want v1", got.Headers["h1"])
+	}
+}
+
+func TestEnvelopeEstimateSize(t *testing.T) {
+	env := &Envelope{
+		Topic:      "test",
+		RoutingKey: "rk",
+		Payload:    []byte("hello"),
+	}
+	size := env.EstimateSize()
+	expected := FixedHeaderSize + len("test") + len("rk") + len("hello")
+	if size != expected {
+		t.Errorf("EstimateSize = %d, want %d", size, expected)
+	}
+
+	// With tracing headers
+	var tid [16]byte
+	tid[0] = 1
+	var sid [8]byte
+	sid[0] = 2
+	env2 := &Envelope{
+		Topic:   "t",
+		Payload: []byte("x"),
+		TraceID: tid,
+		SpanID:  sid,
+		Headers: map[string][]byte{"k": []byte("v")},
+	}
+	size2 := env2.EstimateSize()
+	expected2 := FixedHeaderSize + len("t") + len("x") + 2 + len("k") + 4 + len("v") + 24
+	if size2 != expected2 {
+		t.Errorf("EstimateSize with trace = %d, want %d", size2, expected2)
 	}
 }
