@@ -1420,3 +1420,106 @@ func TestValidateTopicNamePathTraversal(t *testing.T) {
 		t.Errorf("status = %d, want 400", resp.StatusCode)
 	}
 }
+
+// --- parsePagination edge cases ---
+
+func TestParsePaginationNegativeLimit(t *testing.T) {
+	req := httptest.NewRequest("GET", "/test?limit=-5", nil)
+	limit, offset := parsePagination(req)
+	if limit != defaultListLimit {
+		t.Errorf("limit = %d, want default %d", limit, defaultListLimit)
+	}
+	if offset != 0 {
+		t.Errorf("offset = %d, want 0", offset)
+	}
+}
+
+func TestParsePaginationNegativeOffset(t *testing.T) {
+	req := httptest.NewRequest("GET", "/test?offset=-10", nil)
+	_, offset := parsePagination(req)
+	if offset != 0 {
+		t.Errorf("offset = %d, want 0", offset)
+	}
+}
+
+func TestParsePaginationLimitExceedsMax(t *testing.T) {
+	req := httptest.NewRequest("GET", "/test?limit=99999", nil)
+	limit, _ := parsePagination(req)
+	if limit != maxListLimit {
+		t.Errorf("limit = %d, want maxListLimit %d", limit, maxListLimit)
+	}
+}
+
+func TestParsePaginationLimitAtMax(t *testing.T) {
+	req := httptest.NewRequest("GET", "/test?limit=1000", nil)
+	limit, _ := parsePagination(req)
+	if limit != 1000 {
+		t.Errorf("limit = %d, want 1000", limit)
+	}
+}
+
+func TestParsePaginationInvalidValues(t *testing.T) {
+	req := httptest.NewRequest("GET", "/test?limit=abc&offset=xyz", nil)
+	limit, offset := parsePagination(req)
+	if limit != defaultListLimit {
+		t.Errorf("limit = %d, want default", limit)
+	}
+	if offset != 0 {
+		t.Errorf("offset = %d, want 0", offset)
+	}
+}
+
+func TestParsePaginationZeroLimit(t *testing.T) {
+	req := httptest.NewRequest("GET", "/test?limit=0", nil)
+	limit, _ := parsePagination(req)
+	if limit != defaultListLimit {
+		t.Errorf("limit = %d, want default (0 is not > 0)", limit)
+	}
+}
+
+// --- extractRealIP edge cases ---
+
+func TestExtractRealIPTrustedProxySingleIP(t *testing.T) {
+	req := httptest.NewRequest("GET", "/", nil)
+	req.RemoteAddr = "10.0.0.1:8080"
+	req.Header.Set("X-Forwarded-For", "203.0.113.50")
+
+	ip := extractRealIP(req, "10.0.0.0/8")
+	if ip != "203.0.113.50" {
+		t.Errorf("extractRealIP = %q, want 203.0.113.50", ip)
+	}
+}
+
+func TestExtractRealIPTrustedProxyMultipleIPs(t *testing.T) {
+	req := httptest.NewRequest("GET", "/", nil)
+	req.RemoteAddr = "10.0.0.1:8080"
+	req.Header.Set("X-Forwarded-For", "203.0.113.50, 192.168.1.1")
+
+	// Multiple IPs → spoofing detection → fallback to RemoteAddr
+	ip := extractRealIP(req, "10.0.0.0/8")
+	if ip != "10.0.0.1" {
+		t.Errorf("extractRealIP = %q, want 10.0.0.1", ip)
+	}
+}
+
+func TestExtractRealIPNoTrustedCIDR(t *testing.T) {
+	req := httptest.NewRequest("GET", "/", nil)
+	req.RemoteAddr = "192.168.1.100:12345"
+	req.Header.Set("X-Forwarded-For", "10.0.0.1")
+
+	ip := extractRealIP(req, "")
+	if ip != "192.168.1.100" {
+		t.Errorf("extractRealIP = %q, want 192.168.1.100", ip)
+	}
+}
+
+func TestExtractRealIPInvalidCIDR(t *testing.T) {
+	req := httptest.NewRequest("GET", "/", nil)
+	req.RemoteAddr = "192.168.1.100:12345"
+	req.Header.Set("X-Forwarded-For", "10.0.0.1")
+
+	ip := extractRealIP(req, "not-a-valid-cidr")
+	if ip != "192.168.1.100" {
+		t.Errorf("extractRealIP = %q, want 192.168.1.100", ip)
+	}
+}

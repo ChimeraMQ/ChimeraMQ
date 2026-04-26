@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/x509"
 	"math/big"
+	"net"
 	"net/http/httptest"
 	"testing"
 	"time"
@@ -349,6 +350,24 @@ func TestOAuthHashCrypto(t *testing.T) {
 	if h == 0 {
 		t.Error("expected non-zero hash for RS256")
 	}
+	// SHA384 branch
+	h = hashCrypto("RS384")
+	if h == 0 {
+		t.Error("expected non-zero hash for RS384")
+	}
+	h = hashCrypto("ES384")
+	if h == 0 {
+		t.Error("expected non-zero hash for ES384")
+	}
+	// SHA512 branch
+	h = hashCrypto("RS512")
+	if h == 0 {
+		t.Error("expected non-zero hash for RS512")
+	}
+	h = hashCrypto("ES512")
+	if h == 0 {
+		t.Error("expected non-zero hash for ES512")
+	}
 	// unknown defaults to SHA256, not zero
 	h = hashCrypto("unknown")
 	if h == 0 {
@@ -417,6 +436,33 @@ func TestExtractIPNilConn(t *testing.T) {
 		t.Errorf("ExtractIP(nil) = %q, want unknown", ip)
 	}
 }
+
+func TestExtractIPNoPort(t *testing.T) {
+	// Mock net.Conn with RemoteAddr returning IP without port
+	conn := &mockConnNoPort{ip: "10.0.0.1"}
+	ip := ExtractIP(conn)
+	if ip != "10.0.0.1" {
+		t.Errorf("ExtractIP(no port) = %q, want 10.0.0.1", ip)
+	}
+}
+
+type mockConnNoPort struct{ ip string }
+
+func (m *mockConnNoPort) RemoteAddr() net.Addr {
+	return &mockAddrNoPort{ip: m.ip}
+}
+func (m *mockConnNoPort) Read(b []byte) (n int, err error)  { return 0, nil }
+func (m *mockConnNoPort) Write(b []byte) (n int, err error) { return 0, nil }
+func (m *mockConnNoPort) Close() error                      { return nil }
+func (m *mockConnNoPort) LocalAddr() net.Addr               { return nil }
+func (m *mockConnNoPort) SetDeadline(t time.Time) error     { return nil }
+func (m *mockConnNoPort) SetReadDeadline(t time.Time) error { return nil }
+func (m *mockConnNoPort) SetWriteDeadline(t time.Time) error { return nil }
+
+type mockAddrNoPort struct{ ip string }
+
+func (m *mockAddrNoPort) Network() string { return "mock" }
+func (m *mockAddrNoPort) String() string  { return m.ip }
 
 func TestAuthRateLimiterSetTrustedProxiesInvalid(t *testing.T) {
 	rl := NewAuthRateLimiter(3, 1*time.Minute, 5*time.Minute)
