@@ -1,7 +1,11 @@
 package fips
 
 import (
+	"crypto/ecdsa"
 	"crypto/elliptic"
+	"crypto/rand"
+	"crypto/x509"
+	"math/big"
 	"testing"
 )
 
@@ -120,4 +124,109 @@ func TestNewAESCTR(t *testing.T) {
 func TestComplianceError(t *testing.T) {
 	// Just ensure it doesn't panic and returns either nil or an error
 	_ = ComplianceError()
+}
+
+func TestValidateGoRuntimeForceFlag(t *testing.T) {
+	// Set the force flag to skip validation
+	t.Setenv("CHIMERA_FIPS_FORCE", "1")
+
+	err := validateGoRuntime()
+	if err != nil {
+		t.Errorf("CHIMERA_FIPS_FORCE=1 should skip validation, got: %v", err)
+	}
+}
+
+func TestValidateGoRuntimeNoForce(t *testing.T) {
+	// Without force flag, validation should fail on non-Linux or systems
+	// without /proc/sys/crypto/fips_enabled
+	t.Setenv("CHIMERA_FIPS_FORCE", "0")
+
+	err := validateGoRuntime()
+	if err == nil {
+		t.Log("validation passed (may be expected on some systems)")
+	} else {
+		t.Logf("validation failed (expected on most dev systems): %v", err)
+	}
+}
+
+func TestValidateCertificateECDSANonApprovedCurve(t *testing.T) {
+	origMode := GetMode()
+	defer SetMode(origMode)
+
+	SetMode(ModeEnabled)
+
+	// Create a self-signed cert with P224 (non-approved)
+	template := &x509.Certificate{
+		SerialNumber:          big.NewInt(1),
+		PublicKeyAlgorithm:    x509.ECDSA,
+		SignatureAlgorithm:    x509.ECDSAWithSHA256,
+	}
+	priv, err := ecdsa.GenerateKey(elliptic.P224(), rand.Reader)
+	if err != nil {
+		t.Skipf("P224 not available: %v", err)
+	}
+	template.PublicKey = &priv.PublicKey
+
+	cert, err := x509.CreateCertificate(rand.Reader, template, template, &priv.PublicKey, priv)
+	if err != nil {
+		t.Fatalf("create cert: %v", err)
+	}
+
+	parsed, err := x509.ParseCertificate(cert)
+	if err != nil {
+		t.Fatalf("parse cert: %v", err)
+	}
+
+	err = ValidateCertificate(parsed)
+	if err == nil {
+		t.Error("expected error for non-approved ECDSA curve")
+	}
+}
+
+func TestValidateCertificateUnknownPublicKeyType(t *testing.T) {
+	origMode := GetMode()
+	defer SetMode(origMode)
+
+	SetMode(ModeEnabled)
+
+	// Generate an ECDSA cert, then manually replace the public key
+	// with an unsupported type to exercise the default case.
+	priv, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	template := &x509.Certificate{
+		SerialNumber:       big.NewInt(2),
+		PublicKeyAlgorithm: x509.ECDSA,
+		SignatureAlgorithm: x509.ECDSAWithSHA256,
+	}
+	certBytes, err := x509.CreateCertificate(rand.Reader, template, template, &priv.PublicKey, priv)
+	if err != nil {
+		t.Fatalf("create cert: %v", err)
+	}
+	parsed, err := x509.ParseCertificate(certBytes)
+	if err != nil {
+		t.Fatalf("parse cert: %v", err)
+	}
+
+	// Manually replace the public key with an unsupported type
+	parsed.PublicKey = struct{}{}
+
+	err = ValidateCertificate(parsed)
+	if err == nil {
+		t.Error("expected error for non-approved public key type")
+	}
+}
+
+func TestSecureRandomReturnsCorrectSize(t *testing.T) {
+	for _, size := range []int{1, 16, 32, 256} {
+		buf, err := SecureRandom(size)
+		if err != nil {
+			t.Errorf("SecureRandom(%d): %v", size, err)
+		}
+		if len(buf) != size {
+			t.Errorf("SecureRandom(%d) len = %d, want %d", size, len(buf), size)
+		}
+	}
 }
