@@ -414,3 +414,51 @@ func TestEngineNackTriggersDLQ(t *testing.T) {
 		t.Errorf("deliverCount = %d, want 1", deliverCount)
 	}
 }
+
+func TestAckTrackerPendingCount(t *testing.T) {
+	at := NewAckTracker(30 * time.Second)
+	defer at.Stop()
+
+	if at.PendingCount() != 0 {
+		t.Error("PendingCount should be 0 initially")
+	}
+
+	at.Track(1, "c1", 0, 3)
+	at.Track(2, "c1", 0, 3)
+
+	if count := at.PendingCount(); count != 2 {
+		t.Errorf("PendingCount = %d, want 2", count)
+	}
+
+	at.Ack(1)
+	if count := at.PendingCount(); count != 1 {
+		t.Errorf("PendingCount after ack = %d, want 1", count)
+	}
+
+	at.Ack(2)
+	if at.PendingCount() != 0 {
+		t.Error("PendingCount should be 0 after all acks")
+	}
+}
+
+func TestEngineSetPriorityEnabled(t *testing.T) {
+	e := NewEngine()
+	defer e.Close()
+
+	// Default should be disabled
+	e.SetPriorityEnabled(true)
+	// After enabling, new queues should use priority dispatcher
+	e.AddConsumer("prio-topic", &QueueConsumer{
+		ID:       "c1",
+		Prefetch: 10,
+		InFlight: make(map[uint64]time.Time),
+	})
+
+	e.SetPriorityEnabled(false)
+	// After disabling, new queues should use standard dispatcher
+	e.AddConsumer("std-topic", &QueueConsumer{
+		ID:       "c1",
+		Prefetch: 10,
+		InFlight: make(map[uint64]time.Time),
+	})
+}

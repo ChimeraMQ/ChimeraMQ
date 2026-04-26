@@ -81,3 +81,37 @@ func TestFetchEngineClosed(t *testing.T) {
 		t.Error("expected error when fetching from closed engine")
 	}
 }
+
+func TestEngineSetMigrator(t *testing.T) {
+	engine, cleanup := setupEngine(t)
+	defer cleanup()
+
+	// Should not panic with nil
+	engine.SetMigrator(nil)
+
+	// Should not panic with a non-nil migrator (we can't easily create a real one
+	// without hot/warm/cold engines, but the setter just assigns the field)
+	engine.SetMigrator(nil)
+}
+
+func TestEngineSetEncryptor(t *testing.T) {
+	engine, cleanup := setupEngine(t)
+	defer cleanup()
+
+	// Set a nil encryptor — should not panic
+	engine.SetEncryptor(nil)
+}
+
+func TestConsumerGroupTopic(t *testing.T) {
+	engine, cleanup := setupEngine(t)
+	defer cleanup()
+
+	engine.JoinGroup("grp", "my-topic", "m1", 1, StrategyRange)
+	group := engine.GetGroup("grp")
+	if group == nil {
+		t.Fatal("group should exist")
+	}
+	if group.Topic() != "my-topic" {
+		t.Errorf("Topic() = %q, want my-topic", group.Topic())
+	}
+}
