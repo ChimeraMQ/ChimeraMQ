@@ -900,3 +900,233 @@ func TestLoadExistingWithCompressedArchive(t *testing.T) {
 		t.Errorf("expected 1 archive, got %d", count)
 	}
 }
+
+// TestNewColdManagerWithExistingDict exercises the dictionary loading path
+// in NewColdManager (lines 61-71) when a zstd.dict file exists.
+func TestNewColdManagerWithExistingDict(t *testing.T) {
+	coldDir := filepath.Join(t.TempDir(), "cold")
+	if err := os.MkdirAll(coldDir, 0755); err != nil {
+		t.Fatal(err)
+	}
+
+	// Create a valid zstd dictionary using a known-good compressor.
+	// We first create a compressor with nil dict, then export the dict-like bytes
+	// from it. Since we can't easily export a dict, we create a compressed archive
+	// first, then create a separate dict file from a second compressor's dict.
+	comp, err := cold.NewDictCompressor(nil)
+	if err != nil {
+		t.Skip("cannot create compressor")
+	}
+
+	mt := warm.NewMemTable(4096)
+	for i := uint64(0); i < 5; i++ {
+		key := make([]byte, 8)
+		binary.BigEndian.PutUint64(key, i)
+		mt.Put(key, []byte("dict-test-data-for-existing-dict"))
+	}
+	mt.Freeze()
+	sst, err := warm.FlushMemTable(mt, coldDir, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	archivePath := filepath.Join(coldDir, "compressed-archive.dat")
+	ca, err := cold.CreateColdArchive(archivePath, []*warm.SSTable{sst}, cold.WithCompressor(comp, 1))
+	if err != nil {
+		sst.Close()
+		t.Fatalf("CreateColdArchive: %v", err)
+	}
+	sst.Close()
+	ca.Close()
+
+	// Create a dummy dict file. It won't be a real zstd dict, but it will trigger
+	// the HasDict() → LoadDict() → NewDictCompressor() path. Since the dict is
+	// invalid, the compressor creation will fail and cm.compressor stays nil,
+	// but lines 61-71 are still exercised.
+	dictPath := filepath.Join(coldDir, "zstd.dict")
+	_ = os.WriteFile(dictPath, []byte("dummy-dict-bytes"), 0644)
+
+	// NewColdManager should try to load the dict (lines 61-71)
+	cm, err := NewColdManager(coldDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer cm.Close()
+
+	// The compressor will be nil because the dummy dict is invalid,
+	// but the code path (HasDict → LoadDict → NewDictCompressor) ran
+	cm.mu.RLock()
+	count := len(cm.archives)
+	cm.mu.RUnlock()
+	if count != 1 {
+		t.Errorf("expected 1 archive, got %d", count)
+	}
+}
+
+// TestMigrateWarmToColdNoMetricsPath verifies the migration completes when
+// metrics is nil (skips the metrics callback at line 353).
+func TestMigrateWarmToColdNoMetricsPath(t *testing.T) {
+	dir := t.TempDir()
+	warmDir := filepath.Join(dir, "warm")
+	coldDir := filepath.Join(dir, "cold")
+	we := createSSTablesAtL1(t, warmDir, 3, 5)
+	defer we.Close()
+
+	cm, err := NewColdManager(coldDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer cm.Close()
+
+	// nil metrics — exercises the "if archivedCount > 0 && m.metrics != nil" skip
+	policy := TierPolicy{WarmRetention: -1 * time.Second}
+	m := NewMigrator(policy, nil, we, cm, nil)
+	m.migrateWarmToCold()
+
+	cm.mu.RLock()
+	count := len(cm.archives)
+	cm.mu.RUnlock()
+	t.Logf("no-metrics path: %d archive(s)", count)
+}
+
+// TestMigrateHotToWarmNilMetricsPath verifies migrateHotToWarm with nil metrics
+// skips the metrics callback at line 256.
+func TestMigrateHotToWarmNilMetricsPath(t *testing.T) {
+	dir := t.TempDir()
+	hotDir := filepath.Join(dir, "hot")
+	warmDir := filepath.Join(dir, "warm")
+
+	he := hot.NewEngine(hotDir, hot.HotConfig{SegmentSize: 256})
+	defer he.Close()
+
+	part, err := he.GetOrCreatePartition("nil-metrics-topic", 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for i := 0; i < 20; i++ {
+		part.Append([]byte("nil-metrics-msg"))
+	}
+	time.Sleep(200 * time.Millisecond)
+
+	we, err := warm.NewLSMTree(warmDir, warm.LSMConfig{
+		MemTableCapacity:   64,
+		BlockSize:          4096,
+		BloomFPRate:        0.01,
+		CompactionStrategy: "leveled",
+		MaxLevel:           4,
+		LevelSizeRatio:     2,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer we.Close()
+
+	// nil metrics — skips TierMigrationTotal callback
+	policy := TierPolicy{HotRetention: -1 * time.Second}
+	m := NewMigrator(policy, he, we, nil, nil)
+	m.migrateHotToWarm()
+}
+
+// TestMigrateHotToWarmNoFrozenSegments exercises the path where there are
+// no frozen segments to migrate (line 219 returns empty slice).
+func TestMigrateHotToWarmNoFrozenSegments(t *testing.T) {
+	dir := t.TempDir()
+	hotDir := filepath.Join(dir, "hot")
+	warmDir := filepath.Join(dir, "warm")
+
+	he := hot.NewEngine(hotDir, hot.HotConfig{SegmentSize: 1024 * 1024})
+	defer he.Close()
+
+	// Write a few messages — won't fill a segment, so no frozen segments
+	part, err := he.GetOrCreatePartition("no-freeze", 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for i := 0; i < 3; i++ {
+		part.Append([]byte("small-msg"))
+	}
+
+	we, err := warm.NewLSMTree(warmDir, warm.DefaultLSMConfig())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer we.Close()
+
+	policy := TierPolicy{HotRetention: time.Nanosecond}
+	m := NewMigrator(policy, he, we, nil, nil)
+	m.migrateHotToWarm()
+	// Should complete without error — no frozen segments to migrate
+}
+
+// TestColdManagerMkdirError exercises the os.MkdirAll error path in NewColdManager.
+func TestColdManagerMkdirError(t *testing.T) {
+	// Use a path that should fail on mkdir (e.g., inside a file)
+	tmpFile := filepath.Join(t.TempDir(), "file")
+	os.WriteFile(tmpFile, []byte("x"), 0644)
+	badPath := filepath.Join(tmpFile, "subdir")
+	_, err := NewColdManager(badPath)
+	if err == nil {
+		t.Error("expected error for invalid path")
+	}
+}
+
+// TestColdManagerLoadExistingWithValidDat exercises the loadExisting path that
+// successfully opens a .dat file.
+func TestColdManagerLoadExistingWithValidDat(t *testing.T) {
+	coldDir := filepath.Join(t.TempDir(), "cold")
+	if err := os.MkdirAll(coldDir, 0755); err != nil {
+		t.Fatal(err)
+	}
+
+	mt := warm.NewMemTable(4096)
+	for i := uint64(0); i < 3; i++ {
+		key := make([]byte, 8)
+		binary.BigEndian.PutUint64(key, i)
+		mt.Put(key, []byte("load-existing-test"))
+	}
+	mt.Freeze()
+	sst, err := warm.FlushMemTable(mt, coldDir, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	archivePath := filepath.Join(coldDir, "load-test.dat")
+	ca, err := cold.CreateColdArchive(archivePath, []*warm.SSTable{sst})
+	if err != nil {
+		t.Fatal(err)
+	}
+	sst.Close()
+	ca.Close()
+
+	// Reload — loadExisting should open the archive
+	cm, err := NewColdManager(coldDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer cm.Close()
+
+	cm.mu.RLock()
+	count := cm.archiveCount
+	cm.mu.RUnlock()
+	if count != 1 {
+		t.Errorf("expected 1 archive loaded, got %d", count)
+	}
+
+	// Verify data is readable
+	cm.mu.RLock()
+	var loadedCA *cold.ColdArchive
+	for _, a := range cm.archives {
+		loadedCA = a
+		break
+	}
+	cm.mu.RUnlock()
+
+	if loadedCA != nil {
+		data, err := loadedCA.Get(1)
+		if err != nil {
+			t.Errorf("failed to read from loaded archive: %v", err)
+		} else if string(data) != "load-existing-test" {
+			t.Errorf("got %q, want load-existing-test", data)
+		}
+	}
+}
