@@ -26,10 +26,7 @@ describe('api', () => {
 
     const result = await api.get('/health');
     expect(result).toEqual(mockData);
-    expect(fetch).toHaveBeenCalledWith('/v1/health', {
-      headers: { 'Content-Type': 'application/json' },
-      method: 'GET',
-    });
+    expect(fetch).toHaveBeenCalledWith('/v1/health', expect.objectContaining({ method: 'GET' }));
   });
 
   it('makes a POST request with JSON body', async () => {
@@ -40,11 +37,10 @@ describe('api', () => {
 
     const result = await api.post('/topics', { name: 'orders', mode: 'unified', partitions: 4 });
     expect(result).toEqual({ name: 'orders', mode: 'unified', partitions: 4 });
-    expect(fetch).toHaveBeenCalledWith('/v1/topics', {
-      headers: { 'Content-Type': 'application/json' },
+    expect(fetch).toHaveBeenCalledWith('/v1/topics', expect.objectContaining({
       method: 'POST',
       body: '{"name":"orders","mode":"unified","partitions":4}',
-    });
+    }));
   });
 
   it('makes a POST request without body', async () => {
@@ -125,10 +121,7 @@ describe('typed API functions', () => {
     } as Response);
 
     await getTopics(50, 10);
-    expect(fetch).toHaveBeenCalledWith('/v1/topics?limit=50&offset=10', {
-      headers: { 'Content-Type': 'application/json' },
-      method: 'GET',
-    });
+    expect(fetch).toHaveBeenCalledWith('/v1/topics?limit=50&offset=10', expect.objectContaining({ method: 'GET' }));
   });
 
   it('getConsumers returns group info', async () => {

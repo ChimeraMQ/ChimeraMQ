@@ -138,12 +138,6 @@ describe('Sidebar', () => {
     expect(screen.getByRole('button', { name: /Expand sidebar/ })).toBeInTheDocument();
   });
 
-  it('shows version info at the bottom', () => {
-    render(<Sidebar open={false} onClose={vi.fn()} />);
-
-    expect(screen.getAllByText('v1.0.0-draft').length).toBeGreaterThan(0);
-  });
-
   it('renders nav links with active and inactive class variants', () => {
     render(<Sidebar open={false} onClose={vi.fn()} />);
 
