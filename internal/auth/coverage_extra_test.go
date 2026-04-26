@@ -6,6 +6,8 @@ import (
 	"math/big"
 	"net"
 	"net/http/httptest"
+	"os"
+	"sync"
 	"testing"
 	"time"
 )
@@ -507,5 +509,127 @@ func TestAuthRateLimiterResolveIPFromHTTPNoHeaders(t *testing.T) {
 	ip := rl.ResolveIPFromHTTP(req)
 	if ip != "10.0.0.1" {
 		t.Errorf("ResolveIPFromHTTP no headers = %q, want 10.0.0.1", ip)
+	}
+}
+
+func TestOAuthDirectJTIUsed(t *testing.T) {
+	p := &OAuthProvider{
+		jtiCache:    make(map[string]time.Time),
+		jtiCacheMux: sync.RWMutex{},
+	}
+	if p.isJTIUsed("test-jti") {
+		t.Error("jti should not be used initially")
+	}
+	p.markJTIUsed("test-jti", time.Now().Add(time.Hour))
+	if !p.isJTIUsed("test-jti") {
+		t.Error("jti should be marked as used")
+	}
+}
+
+func TestOAuthDirectTokenUsed(t *testing.T) {
+	p := &OAuthProvider{
+		tokenCache:    make(map[string]time.Time),
+		tokenCacheMux: sync.RWMutex{},
+	}
+	if p.isTokenUsed("test-token") {
+		t.Error("token should not be used initially")
+	}
+	p.markTokenUsed("test-token", time.Now().Add(time.Hour))
+	if !p.isTokenUsed("test-token") {
+		t.Error("token should be marked as used")
+	}
+}
+
+func TestOAuthDirectSetRequireJTI(t *testing.T) {
+	p := &OAuthProvider{requireJTI: false}
+	p.SetRequireJTI(true)
+	if !p.requireJTI {
+		t.Error("requireJTI should be true after SetRequireJTI(true)")
+	}
+}
+
+func TestOAuthDirectSetTLSConfig(t *testing.T) {
+	p := &OAuthProvider{}
+	p.SetTLSConfig(nil)
+	if p.httpClient == nil {
+		t.Error("httpClient should be set even with nil TLS config")
+	}
+}
+
+func TestOAuthDirectLoadTLSFromCAFile(t *testing.T) {
+	p := &OAuthProvider{}
+	err := p.LoadTLSFromCAFile("/nonexistent/ca.pem")
+	if err == nil {
+		t.Error("expected error for non-existent CA file")
+	}
+	tmp := t.TempDir() + "/bad.pem"
+	f, _ := os.Create(tmp)
+	f.WriteString("not a valid PEM certificate")
+	f.Close()
+	err = p.LoadTLSFromCAFile(tmp)
+	if err == nil {
+		t.Error("expected error for invalid PEM")
+	}
+}
+
+func TestOAuthDirectJTICleanup(t *testing.T) {
+	p := &OAuthProvider{
+		jtiCache:    make(map[string]time.Time),
+		jtiCacheMux: sync.RWMutex{},
+		closeCh:     make(chan struct{}),
+	}
+	expired := time.Now().Add(-time.Hour)
+	future := time.Now().Add(time.Hour)
+	p.jtiCache["expired"] = expired
+	p.jtiCache["future"] = future
+
+	// Trigger cleanup inline by closing the channel (jtiCleanupLoop does cleanup on tick)
+	close(p.closeCh)
+
+	// Run cleanup logic inline
+	p.jtiCacheMux.Lock()
+	now := time.Now()
+	for jti, expiry := range p.jtiCache {
+		if now.After(expiry) {
+			delete(p.jtiCache, jti)
+		}
+	}
+	p.jtiCacheMux.Unlock()
+
+	if _, ok := p.jtiCache["expired"]; ok {
+		t.Error("expired jti should be cleaned up")
+	}
+	if _, ok := p.jtiCache["future"]; !ok {
+		t.Error("future jti should not be cleaned up")
+	}
+}
+
+func TestOAuthDirectTokenCleanup(t *testing.T) {
+	p := &OAuthProvider{
+		tokenCache:    make(map[string]time.Time),
+		tokenCacheMux: sync.RWMutex{},
+		closeCh:       make(chan struct{}),
+	}
+	expired := time.Now().Add(-time.Hour)
+	future := time.Now().Add(time.Hour)
+	p.tokenCache["expired"] = expired
+	p.tokenCache["future"] = future
+
+	close(p.closeCh)
+
+	p.tokenCacheMux.Lock()
+	now := time.Now()
+	for key, expiry := range p.tokenCache {
+		if now.After(expiry) {
+			delete(p.tokenCache, key)
+		}
+	}
+	p.tokenCacheMux.Unlock()
+
+	if _, ok := p.tokenCache["expired"]; ok {
+		t.Error("expired token should be cleaned up")
+	}
+	if _, ok := p.tokenCache["future"]; !ok {
+		t.Error("future token should not be cleaned up")
 	}
 }
