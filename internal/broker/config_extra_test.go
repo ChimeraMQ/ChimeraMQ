@@ -610,3 +610,83 @@ func TestApplyEnvOverrides_ProcessingEnabled(t *testing.T) {
 		t.Error("expected Processing.Enabled = true")
 	}
 }
+
+func TestValidate_GeoReplicationMissingFields(t *testing.T) {
+	cfg := defaultConfig()
+	cfg.GeoReplication.Enabled = true
+	if err := cfg.Validate(); err == nil {
+		t.Error("expected error when geo enabled but no local_dc")
+	}
+
+	cfg.GeoReplication.LocalDC = "us-east"
+	if err := cfg.Validate(); err == nil {
+		t.Error("expected error when geo enabled but no remote DCs")
+	}
+
+	cfg.GeoReplication.RemoteDCs = []GeoRemoteDCConfig{{ID: "us-west"}}
+	if err := cfg.Validate(); err == nil {
+		t.Error("expected error when remote DC has no address")
+	}
+
+	cfg.GeoReplication.RemoteDCs = []GeoRemoteDCConfig{{ID: "us-west", Address: "http://remote:8080"}}
+	cfg.GeoReplication.ReplicationMode = "invalid"
+	if err := cfg.Validate(); err == nil {
+		t.Error("expected error for invalid replication_mode")
+	}
+}
+
+func TestValidate_GeoReplicationValid(t *testing.T) {
+	cfg := defaultConfig()
+	cfg.GeoReplication.Enabled = true
+	cfg.GeoReplication.LocalDC = "us-east"
+	cfg.GeoReplication.RemoteDCs = []GeoRemoteDCConfig{{ID: "us-west", Address: "http://remote:8080"}}
+	cfg.GeoReplication.ReplicationMode = "async"
+	if err := cfg.Validate(); err != nil {
+		t.Errorf("unexpected error for valid geo config: %v", err)
+	}
+}
+
+func TestValidate_ClusterInvalidDurations(t *testing.T) {
+	cfg := defaultConfig()
+	cfg.Cluster.Enabled = true
+	cfg.Cluster.Raft.Peers = []string{"node1:5672"}
+	cfg.Cluster.Gossip.HMACKey = "test-secret"
+	cfg.Cluster.Raft.ElectionTimeout = "not-a-duration"
+	if err := cfg.Validate(); err == nil {
+		t.Error("expected error for invalid election_timeout")
+	}
+
+	cfg.Cluster.Raft.ElectionTimeout = "200ms"
+	cfg.Cluster.Raft.HeartbeatInterval = "bad"
+	if err := cfg.Validate(); err == nil {
+		t.Error("expected error for invalid heartbeat_interval")
+	}
+}
+
+func TestValidate_ClusterValidDurations(t *testing.T) {
+	cfg := defaultConfig()
+	cfg.Cluster.Enabled = true
+	cfg.Cluster.Raft.Peers = []string{"node1:5672"}
+	cfg.Cluster.Gossip.HMACKey = "test-secret"
+	cfg.Cluster.Raft.ElectionTimeout = "200ms"
+	cfg.Cluster.Raft.HeartbeatInterval = "50ms"
+	if err := cfg.Validate(); err != nil {
+		t.Errorf("unexpected error for valid cluster config: %v", err)
+	}
+}
+
+func TestValidate_DataDirRequired(t *testing.T) {
+	cfg := defaultConfig()
+	cfg.Node.DataDir = ""
+	if err := cfg.Validate(); err == nil {
+		t.Error("expected error for empty data_dir")
+	}
+}
+
+func TestValidate_InvalidHotSyncMode(t *testing.T) {
+	cfg := defaultConfig()
+	cfg.Storage.Hot.SyncMode = "invalid"
+	if err := cfg.Validate(); err == nil {
+		t.Error("expected error for invalid hot sync_mode")
+	}
+}
