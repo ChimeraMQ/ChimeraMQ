@@ -194,3 +194,124 @@ func TestGetTenantUsageStatsNoTenant(t *testing.T) {
 		t.Error("should not have quota keys for missing tenant")
 	}
 }
+
+func TestCheckQuotaTopic(t *testing.T) {
+	m := NewManager(Config{
+		Enabled: true,
+		Tenants: []TenantConfig{
+			{ID: "acme", TopicPrefix: "acme_", Quotas: QuotaConfig{MaxTopics: 2}},
+		},
+	})
+
+	if !m.CheckQuota("acme", "topic") {
+		t.Error("should allow first topic")
+	}
+
+	// Register a topic
+	m.RegisterTopic("acme", "acme_t1")
+	if !m.CheckQuota("acme", "topic") {
+		t.Error("should allow second topic")
+	}
+
+	m.RegisterTopic("acme", "acme_t2")
+	if m.CheckQuota("acme", "topic") {
+		t.Error("should exceed topic limit")
+	}
+}
+
+func TestCheckQuotaTenantNotFound(t *testing.T) {
+	m := NewManager(Config{
+		Enabled: true,
+		Tenants: []TenantConfig{
+			{ID: "acme", TopicPrefix: "acme_"},
+		},
+	})
+
+	if m.CheckQuota("nonexistent", "publish") {
+		t.Error("unknown tenant should return false")
+	}
+}
+
+func TestCheckQuotaUnlimitedOps(t *testing.T) {
+	m := NewManager(Config{
+		Enabled: true,
+		Tenants: []TenantConfig{
+			{ID: "acme", TopicPrefix: "acme_"},
+		},
+	})
+
+	// Unlimited ops (quota = 0 means unlimited)
+	if !m.CheckQuota("acme", "publish") {
+		t.Error("unlimited publish should be allowed")
+	}
+	if !m.CheckQuota("acme", "fetch") {
+		t.Error("unlimited fetch should be allowed")
+	}
+	if !m.CheckQuota("acme", "connect") {
+		t.Error("unlimited connect should be allowed")
+	}
+	if !m.CheckQuota("acme", "topic") {
+		t.Error("unlimited topic should be allowed")
+	}
+}
+
+func TestCreateTenantDuplicate(t *testing.T) {
+	m := NewManager(Config{
+		Enabled: true,
+		Tenants: []TenantConfig{
+			{ID: "acme", TopicPrefix: "acme_"},
+		},
+	})
+
+	t2 := &Tenant{ID: "acme"}
+	if err := m.CreateTenant(t2); err == nil {
+		t.Error("expected error for duplicate tenant")
+	}
+}
+
+func TestCreateTenantAutoDefaults(t *testing.T) {
+	m := NewManager(Config{Enabled: true})
+
+	t1 := &Tenant{ID: "new-tenant"}
+	if err := m.CreateTenant(t1); err != nil {
+		t.Fatal(err)
+	}
+	if t1.TopicPrefix == "" {
+		t.Error("TopicPrefix should be auto-set")
+	}
+	if t1.Topics == nil {
+		t.Error("Topics should be initialized")
+	}
+	if t1.Metadata == nil {
+		t.Error("Metadata should be initialized")
+	}
+	if t1.Labels == nil {
+		t.Error("Labels should be initialized")
+	}
+	if t1.CreatedAt.IsZero() {
+		t.Error("CreatedAt should be auto-set")
+	}
+}
+
+func TestTopicCountUnknownTenant(t *testing.T) {
+	m := NewManager(Config{Enabled: true})
+	if m.TopicCount("nonexistent") != 0 {
+		t.Error("unknown tenant should have 0 topics")
+	}
+}
+
+func TestUpdateTenantNotFound(t *testing.T) {
+	m := NewManager(Config{Enabled: true})
+	t1 := &Tenant{ID: "nonexistent"}
+	if err := m.UpdateTenant(t1); err == nil {
+		t.Error("expected error for non-existent tenant")
+	}
+}
+
+func TestListTopicsUnknownTenant(t *testing.T) {
+	m := NewManager(Config{Enabled: true})
+	topics := m.ListTopics("nonexistent")
+	if topics != nil {
+		t.Errorf("expected nil, got %v", topics)
+	}
+}
