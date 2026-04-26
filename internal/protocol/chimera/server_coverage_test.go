@@ -4,6 +4,9 @@ import (
 	"encoding/binary"
 	"testing"
 	"time"
+
+	"github.com/chimeramq/chimera/internal/broker"
+	"github.com/chimeramq/chimera/internal/message"
 )
 
 func TestChimeraHandleBatchPublish(t *testing.T) {
@@ -221,5 +224,145 @@ func TestChimeraHandleSubscribeModeQueue(t *testing.T) {
 	}
 	if resp.OpCode != OpSubAck {
 		t.Errorf("opcode = %d, want %d", resp.OpCode, OpSubAck)
+	}
+}
+
+func TestChimeraHandleFetch(t *testing.T) {
+	h := newTestHarness(t)
+	defer h.cleanup()
+
+	if err := sendConnect(h, "fetch-client"); err != nil {
+		t.Fatalf("sendConnect: %v", err)
+	}
+	readFrame(h.clientR) // connack
+	time.Sleep(50 * time.Millisecond)
+
+	// Create a stream topic and publish a message
+	h.broker.Topics().CreateTopic(broker.TopicConfig{Name: "fetch-topic", Mode: broker.ModeStream, Partitions: 1})
+	h.broker.Publish(&message.Envelope{Topic: "fetch-topic", Payload: []byte("hello")})
+	time.Sleep(50 * time.Millisecond)
+
+	// Build fetch payload: topicLen+topic+partitionID+fromOffset+maxMessages
+	var payload []byte
+	payload = appendUint16(payload, uint16(len("fetch-topic")))
+	payload = append(payload, "fetch-topic"...)
+	payload = appendUint32(payload, 0) // partitionID
+	payload = appendUint64(payload, 0) // fromOffset
+	payload = appendUint32(payload, 1) // maxMessages
+
+	frame := &Frame{Version: FrameVersion, OpCode: OpFetch, Payload: payload}
+	data, _ := EncodeFrame(frame)
+	h.clientW.Write(data)
+	h.clientW.Flush()
+
+	resp, err := readFrame(h.clientR)
+	if err != nil {
+		t.Fatalf("readFrame: %v", err)
+	}
+	if resp.OpCode != OpFetchResp {
+		t.Errorf("opcode = %d, want %d", resp.OpCode, OpFetchResp)
+	}
+}
+
+func TestChimeraHandleDeleteTopic(t *testing.T) {
+	h := newTestHarness(t)
+	defer h.cleanup()
+
+	if err := sendConnect(h, "del-topic-client"); err != nil {
+		t.Fatalf("sendConnect: %v", err)
+	}
+	readFrame(h.clientR) // connack
+	time.Sleep(50 * time.Millisecond)
+
+	// Create topic first
+	h.broker.Topics().CreateTopic(broker.TopicConfig{Name: "to-delete", Mode: broker.ModeStream, Partitions: 1})
+
+	// Delete topic: topicLen+topicName
+	var payload []byte
+	payload = appendUint16(payload, uint16(len("to-delete")))
+	payload = append(payload, "to-delete"...)
+
+	frame := &Frame{Version: FrameVersion, OpCode: OpDeleteTopic, Payload: payload}
+	data, _ := EncodeFrame(frame)
+	h.clientW.Write(data)
+	h.clientW.Flush()
+
+	resp, err := readFrame(h.clientR)
+	if err != nil {
+		t.Fatalf("readFrame: %v", err)
+	}
+	// Should get SubAck on success (reused opcode) or Error on failure
+	if resp.OpCode != OpSubAck && resp.OpCode != OpError {
+		t.Errorf("opcode = %d, want SubAck or Error", resp.OpCode)
+	}
+}
+
+func TestChimeraHandleCreateTopic(t *testing.T) {
+	h := newTestHarness(t)
+	defer h.cleanup()
+
+	if err := sendConnect(h, "create-topic-client"); err != nil {
+		t.Fatalf("sendConnect: %v", err)
+	}
+	readFrame(h.clientR) // connack
+	time.Sleep(50 * time.Millisecond)
+
+	// Create topic payload: nameLen+name+mode+partitions
+	var payload []byte
+	payload = appendUint16(payload, uint16(len("new-topic")))
+	payload = append(payload, "new-topic"...)
+	payload = appendUint16(payload, uint16(len("stream")))
+	payload = append(payload, "stream"...)
+	payload = appendUint32(payload, 4) // partitions
+
+	frame := &Frame{Version: FrameVersion, OpCode: OpCreateTopic, Payload: payload}
+	data, _ := EncodeFrame(frame)
+	h.clientW.Write(data)
+	h.clientW.Flush()
+
+	resp, err := readFrame(h.clientR)
+	if err != nil {
+		t.Fatalf("readFrame: %v", err)
+	}
+	if resp.OpCode != OpSubAck {
+		t.Errorf("opcode = %d, want %d", resp.OpCode, OpSubAck)
+	}
+}
+
+func TestChimeraHandlePublish(t *testing.T) {
+	h := newTestHarness(t)
+	defer h.cleanup()
+
+	if err := sendConnect(h, "pub-client"); err != nil {
+		t.Fatalf("sendConnect: %v", err)
+	}
+	readFrame(h.clientR) // connack
+	time.Sleep(50 * time.Millisecond)
+
+	// Create topic first
+	h.broker.Topics().CreateTopic(broker.TopicConfig{Name: "pub-topic", Mode: broker.ModeStream, Partitions: 1})
+
+	// Publish payload: topicLen+topic+routingKeyLen+routingKey+priority+ttl+deliverAt+bodyLen+body
+	var payload []byte
+	payload = appendUint16(payload, uint16(len("pub-topic")))
+	payload = append(payload, "pub-topic"...)
+	payload = appendUint16(payload, 0) // empty routing key
+	payload = append(payload, 0)       // priority
+	payload = appendUint64(payload, 0) // ttl
+	payload = appendUint64(payload, 0) // deliverAt
+	payload = appendUint32(payload, 4) // body length
+	payload = append(payload, "test"...)
+
+	frame := &Frame{Version: FrameVersion, OpCode: OpPublish, Payload: payload}
+	data, _ := EncodeFrame(frame)
+	h.clientW.Write(data)
+	h.clientW.Flush()
+
+	resp, err := readFrame(h.clientR)
+	if err != nil {
+		t.Fatalf("readFrame: %v", err)
+	}
+	if resp.OpCode != OpPubAck {
+		t.Errorf("opcode = %d, want %d", resp.OpCode, OpPubAck)
 	}
 }
