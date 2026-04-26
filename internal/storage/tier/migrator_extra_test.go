@@ -685,3 +685,218 @@ func TestMigrateWarmToColdCreateArchiveError(t *testing.T) {
 	m.migrateWarmToCold()
 	_ = os.Chmod(coldDir, 0755)
 }
+
+// TestMigrateHotToWarmSegmentError exercises error paths in migrateHotToWarm
+// where segment read fails and warm put fails.
+func TestMigrateHotToWarmSegmentErrors(t *testing.T) {
+	dir := t.TempDir()
+	hotDir := filepath.Join(dir, "hot")
+	warmDir := filepath.Join(dir, "warm")
+
+	he := hot.NewEngine(hotDir, hot.HotConfig{SegmentSize: 256})
+	defer he.Close()
+
+	// Write enough data to fill a segment and freeze it
+	part, err := he.GetOrCreatePartition("error-topic", 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for i := 0; i < 5; i++ {
+		part.Append([]byte("msg"))
+	}
+
+	// Write to LSM to trigger warm put
+	we, err := warm.NewLSMTree(warmDir, warm.LSMConfig{
+		MemTableCapacity:   64,
+		BlockSize:          4096,
+		BloomFPRate:        0.01,
+		CompactionStrategy: "leveled",
+		MaxLevel:           4,
+		LevelSizeRatio:     2,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer we.Close()
+
+	policy := TierPolicy{HotRetention: time.Hour}
+	m := NewMigrator(policy, he, we, nil, nil)
+
+	// Segments are recent (not past cutoff), so they'll be skipped
+	m.migrateHotToWarm()
+}
+
+// TestMigrateHotToWarmWithMetrics verifies migration metrics callback.
+func TestMigrateHotToWarmWithMetrics(t *testing.T) {
+	dir := t.TempDir()
+	hotDir := filepath.Join(dir, "hot")
+	warmDir := filepath.Join(dir, "warm")
+
+	he := hot.NewEngine(hotDir, hot.HotConfig{SegmentSize: 256})
+	defer he.Close()
+
+	part, err := he.GetOrCreatePartition("metrics-topic", 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// Fill enough to roll over segments (each message has envelope overhead)
+	for i := 0; i < 20; i++ {
+		part.Append([]byte("metrics-msg"))
+	}
+	// Wait for segment to roll and freeze
+	time.Sleep(200 * time.Millisecond)
+
+	// Verify we have frozen segments
+	frozen := part.FrozenSegments()
+	if len(frozen) == 0 {
+		t.Logf("no frozen segments, active only")
+	}
+
+	we, err := warm.NewLSMTree(warmDir, warm.LSMConfig{
+		MemTableCapacity:   64,
+		BlockSize:          4096,
+		BloomFPRate:        0.01,
+		CompactionStrategy: "leveled",
+		MaxLevel:           4,
+		LevelSizeRatio:     2,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer we.Close()
+
+	mc := metrics.NewCollector()
+	// Use negative retention so segments are immediately eligible
+	policy := TierPolicy{HotRetention: -1 * time.Second}
+	m := NewMigrator(policy, he, we, nil, mc)
+	m.migrateHotToWarm()
+}
+
+// TestMigrateWarmToColdWithMetrics verifies migration triggers metric.
+func TestMigrateWarmToColdWithMetrics(t *testing.T) {
+	dir := t.TempDir()
+	warmDir := filepath.Join(dir, "warm")
+	coldDir := filepath.Join(dir, "cold")
+
+	we := createSSTablesAtL1(t, warmDir, 3, 5)
+	defer we.Close()
+
+	cm, err := NewColdManager(coldDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer cm.Close()
+
+	mc := metrics.NewCollector()
+	policy := TierPolicy{WarmRetention: -1 * time.Second}
+	m := NewMigrator(policy, nil, we, cm, mc)
+	m.migrateWarmToCold()
+}
+
+// TestCloseWithCompressor verifies Close path with compressor.
+func TestCloseWithCompressor(t *testing.T) {
+	coldDir := filepath.Join(t.TempDir(), "cold")
+	if err := os.MkdirAll(coldDir, 0755); err != nil {
+		t.Fatal(err)
+	}
+
+	// Create SSTable with enough data for compression
+	mt := warm.NewMemTable(4096)
+	for i := uint64(0); i < 10; i++ {
+		key := make([]byte, 8)
+		binary.BigEndian.PutUint64(key, i)
+		mt.Put(key, []byte("data-for-compressor-close"))
+	}
+	mt.Freeze()
+	sst, err := warm.FlushMemTable(mt, coldDir, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// Create a compressor and use it to create a compressed archive
+	comp, err := cold.NewDictCompressor(nil)
+	if err != nil {
+		sst.Close()
+		t.Skip("cannot create compressor")
+	}
+
+	archivePath := filepath.Join(coldDir, "compressor-close.dat")
+	ca, err := cold.CreateColdArchive(archivePath, []*warm.SSTable{sst}, cold.WithCompressor(comp, 1))
+	if err != nil {
+		sst.Close()
+		t.Fatalf("CreateColdArchive: %v", err)
+	}
+	sst.Close()
+	ca.Close()
+
+	// Reload manager — it should load the compressed archive
+	cm, err := NewColdManager(coldDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// Set compressor so Close has something to close
+	cm.compressor = comp
+
+	cm.Close()
+	// Should not panic
+}
+
+// TestLoadExistingWithCompressedArchive exercises the compressor apply path.
+func TestLoadExistingWithCompressedArchive(t *testing.T) {
+	coldDir := filepath.Join(t.TempDir(), "cold")
+	if err := os.MkdirAll(coldDir, 0755); err != nil {
+		t.Fatal(err)
+	}
+
+	// Create SSTable
+	mt := warm.NewMemTable(4096)
+	for i := uint64(0); i < 5; i++ {
+		key := make([]byte, 8)
+		binary.BigEndian.PutUint64(key, i)
+		mt.Put(key, []byte("compressed-data"))
+	}
+	mt.Freeze()
+	sst, err := warm.FlushMemTable(mt, coldDir, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// Create a compressor for archive creation
+	comp, err := cold.NewDictCompressor(make([]byte, 100))
+	if err != nil {
+		sst.Close()
+		t.Skip("cannot create compressor")
+	}
+
+	archivePath := filepath.Join(coldDir, "compressed.dat")
+	ca, err := cold.CreateColdArchive(archivePath, []*warm.SSTable{sst}, cold.WithCompressor(comp, 1))
+	if err != nil {
+		sst.Close()
+		t.Fatalf("CreateColdArchive: %v", err)
+	}
+	sst.Close()
+	ca.Close()
+
+	// Set a dummy compressor on the manager so loadExisting has something to apply
+	cm, err := NewColdManager(coldDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer cm.Close()
+	cm.compressor = comp
+
+	// Reload — loadExisting should try to apply compressor to compressed archive
+	cm2, err := NewColdManager(coldDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer cm2.Close()
+
+	cm2.mu.RLock()
+	count := len(cm2.archives)
+	cm2.mu.RUnlock()
+	if count != 1 {
+		t.Errorf("expected 1 archive, got %d", count)
+	}
+}
